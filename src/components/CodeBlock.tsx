@@ -53,6 +53,8 @@ interface CodeBlockProps {
   /** 정답 공개 후 강조할 줄 */
   highlightLine?: number | null;
   highlightTone?: "good" | "bad";
+  /** 질문이 가리키는 줄 (역할 찾기 문제 등) */
+  focusLines?: number[];
   showLineNumbers?: boolean;
   className?: string;
 }
@@ -63,6 +65,7 @@ export function CodeBlock({
   selectedLine,
   highlightLine,
   highlightTone = "good",
+  focusLines = [],
   showLineNumbers = true,
   className = "",
 }: CodeBlockProps) {
@@ -82,11 +85,13 @@ export function CodeBlock({
           const n = i + 1;
           const selected = selectedLine === n;
           const highlighted = highlightLine === n;
+          const focused = focusLines.includes(n);
           const rowClass = [
             "flex min-w-full w-max pr-5 transition-colors",
             selectable ? "cursor-pointer hover:bg-white/5" : "",
             selected ? "bg-brand-500/25 ring-1 ring-inset ring-brand-400/60" : "",
             highlighted ? (highlightTone === "good" ? "bg-mint-500/20" : "bg-coral-500/20") : "",
+            focused && !highlighted && !selected ? "bg-sun-500/15 shadow-[inset_3px_0_0_theme(colors.sun.500)]" : "",
           ].join(" ");
           const content = (
             <>

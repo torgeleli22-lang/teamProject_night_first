@@ -3,11 +3,13 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { LEVELS } from "@/lib/curriculum";
 
 const FLOW = [
-  { icon: "👀", title: "코드 읽기", text: "짧은 코드 한 조각을 천천히 읽어요." },
-  { icon: "🤔", title: "결과 예측", text: "실행하기 전에 머릿속으로 결과를 떠올려요." },
-  { icon: "✍️", title: "내 생각 설명", text: "왜 그렇게 동작하는지 내 말로 적어요." },
-  { icon: "💬", title: "AI 피드백", text: "어디까지 이해했는지 AI 튜터가 짚어줘요." },
+  { icon: "🧩", title: "하나의 코드", text: "AI가 학습 목표에 맞춰 만든 짧은 코드를 읽어요." },
+  { icon: "🔁", title: "여러 개의 질문", text: "같은 코드를 결과 예측·빈칸·셔플·오류 찾기·설명으로 다시 읽어요." },
+  { icon: "✍️", title: "내 말로 설명", text: "왜 그렇게 동작하는지 내 말로 적어요." },
+  { icon: "🤖", title: "AI 튜터 분석", text: "무엇을 헷갈리는지 찾아 다음 문제를 바꿔줘요." },
 ];
+
+const ONE_CODE_MANY = ["객관식", "주관식", "빈칸 채우기", "코드 셔플", "실행 결과 예측", "오류 찾기", "역할 찾기"];
 
 const FEATURES = [
   {
@@ -17,15 +19,25 @@ const FEATURES = [
   },
   {
     icon: "🎯",
-    title: "나에게 맞춘 다음 문제",
-    text: "map과 filter를 자꾸 헷갈린다면? 풀이 기록에서 취약한 개념을 찾아 오늘의 학습을 골라줘요.",
+    title: "내가 헷갈리는 것을 아는 AI",
+    text: "정답을 맞혀도 설명에서 map과 filter를 혼동하고 있다면 AI가 찾아내고, 그 개념 중심으로 다음 문제를 바꿔줘요.",
   },
   {
-    icon: "🧩",
-    title: "다양한 문제 유형",
-    text: "결과 예측, 빈칸 채우기, 오류 찾기, 순서 맞추기, 코드 설명하기까지. 같은 개념도 여러 각도에서 읽어봐요.",
+    icon: "🎚️",
+    title: "내가 고르는 난이도",
+    text: "입문부터 심화까지 5단계. 기록을 보고 추천 난이도를 알려주지만, 내가 원하지 않으면 바꾸지 않아요.",
   },
 ];
+
+const ADULTS_CODE = `const users = [
+  { name: "Kim", age: 25 },
+  { name: "Lee", age: 17 },
+  { name: "Park", age: 31 },
+];
+
+const adults = users.filter(user => user.age >= 20);
+
+console.log(adults);`;
 
 const DEMO_CODE = `const numbers = [1, 2, 3];
 
@@ -51,7 +63,7 @@ export default function LandingPage() {
             </h1>
             <p className="mt-5 max-w-md text-[16px] leading-relaxed text-ink-500">
               문법은 아는데 코드를 보면 막막했나요? 하루 10분, 짧은 코드를 읽고 결과를 예측하면서
-              코드가 <b className="text-ink-700">왜</b> 그렇게 동작하는지 이해하는 힘을 길러요.
+              코드가 <b className="text-ink-700">왜</b> 그렇게 동작하는지 이해하는 힘을 길러요. 목표는 단 하나 — &ldquo;이 코드를 보면 어떤 코드인지 알 수 있다.&rdquo;
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/learn" className="btn-primary px-6 py-3.5 text-base">
@@ -61,14 +73,14 @@ export default function LandingPage() {
                 커리큘럼 보기
               </Link>
             </div>
-            <p className="mt-4 text-sm text-ink-400">회원가입 없이 바로 시작 · JavaScript 7단계 · 문제 50+</p>
+            <p className="mt-4 text-sm text-ink-400">회원가입 없이 바로 시작 · JavaScript · 난이도 5단계</p>
           </div>
 
           {/* Demo card */}
           <div className="card animate-fade-up p-5 [animation-delay:120ms] sm:p-6">
             <div className="mb-4 flex items-center justify-between text-sm">
               <span className="font-semibold text-ink-500">JavaScript · map</span>
-              <span className="text-ink-400">1 / 3</span>
+              <span className="text-ink-400">03 / 10</span>
             </div>
             <p className="mb-3 font-bold text-ink-900">이 코드의 실행 결과는 무엇일까요?</p>
             <CodeBlock code={DEMO_CODE} />
@@ -85,8 +97,8 @@ export default function LandingPage() {
               ))}
             </div>
             <div className="mt-4 rounded-2xl bg-mint-50 p-4 text-sm leading-relaxed text-ink-700">
-              <p className="font-bold text-mint-700">🎉 정답이에요! 왜 그런지 알아볼까요?</p>
-              <p className="mt-1">map()은 각 요소를 하나씩 변환해서 새로운 배열을 만들어요. 1 → 2, 2 → 4, 3 → 6</p>
+              <p className="font-bold text-mint-700">🤖 AI Tutor · 정답은 맞았어요!</p>
+              <p className="mt-1">그런데 설명을 보니 map과 filter의 차이를 조금 혼동하고 있는 것 같아요. map은 고르지 않고 모든 요소를 변환해요.</p>
             </div>
           </div>
         </div>
@@ -121,19 +133,40 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Curriculum */}
+      {/* One code, many questions */}
       <section className="mx-auto max-w-5xl px-4 py-12">
-        <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">기초부터 비동기까지, 7단계</h2>
-        <p className="mt-2 text-ink-500">한 단계씩, 내 속도로. 지금은 JavaScript를 지원해요.</p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="card grid items-center gap-8 p-6 sm:p-8 md:grid-cols-[1fr_1.1fr]">
+          <div>
+            <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">코드 하나, 질문 여러 개</h2>
+            <p className="mt-3 leading-relaxed text-ink-500">
+              같은 코드를 여러 관점에서 다시 읽을 때 진짜 이해가 생겨요. 결과를 예측하고, 빠진 부분을 채우고, 순서를 맞추고, 일부러 넣은 오류를 찾고, 마지막엔 내 말로 설명해요.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {ONE_CODE_MANY.map((t) => (
+                <span key={t} className="chip bg-brand-50 px-3 py-1.5 text-sm text-brand-700">
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+          <CodeBlock code={ADULTS_CODE} focusLines={[7]} />
+        </div>
+      </section>
+
+      {/* Levels */}
+      <section className="mx-auto max-w-5xl px-4 py-12">
+        <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl">기억하기에서 종합하기까지, 5단계</h2>
+        <p className="mt-2 text-ink-500">난이도가 올라갈수록 문법 암기에서 분석과 추론 중심으로 바뀌어요.</p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-5">
           {LEVELS.map((l) => (
-            <div key={l.id} className="card p-4">
+            <div key={l.level} className="card p-4">
               <div className="flex items-center gap-2">
                 <span className="text-xl">{l.emoji}</span>
-                <span className="font-mono text-xs font-bold text-ink-400">LEVEL {l.id}</span>
+                <span className="font-mono text-xs font-bold text-ink-400">LEVEL {l.level}</span>
               </div>
-              <p className="mt-2 font-bold">{l.title}</p>
-              <p className="mt-0.5 text-sm text-ink-500">{l.description}</p>
+              <p className="mt-2 font-bold">{l.name}</p>
+              <p className="text-sm font-semibold text-brand-600">{l.skillLabel}</p>
+              <p className="mt-1 text-sm text-ink-500">{l.description}</p>
             </div>
           ))}
         </div>

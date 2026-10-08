@@ -50,11 +50,11 @@ export function UnderstandingChip({ level }: { level: UnderstandingLevel }) {
   );
 }
 
-export function DifficultyDots({ level }: { level: 1 | 2 | 3 }) {
+export function DifficultyDots({ level, max = 5 }: { level: number; max?: number }) {
   return (
-    <span className="inline-flex items-center gap-0.5" aria-label={`난이도 ${level}/3`}>
-      {[1, 2, 3].map((i) => (
-        <span key={i} className={`h-1.5 w-1.5 rounded-full ${i <= level ? "bg-brand-500" : "bg-ink-200"}`} />
+    <span className="inline-flex items-center gap-0.5" aria-label={`난이도 ${level}/${max}`}>
+      {Array.from({ length: max }, (_, i) => (
+        <span key={i} className={`h-1.5 w-1.5 rounded-full ${i < level ? "bg-brand-500" : "bg-ink-200"}`} />
       ))}
     </span>
   );

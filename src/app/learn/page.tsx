@@ -1,135 +1,104 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { AIBadge } from "@/components/AIBadge";
+import { LevelPicker } from "@/components/LevelPicker";
+import { TutorAnalysisCard } from "@/components/TutorAnalysisCard";
 import { ProgressBar, SectionTitle, masteryTone } from "@/components/ui";
-import { postJSON } from "@/lib/api";
-import { getConcept, getLevel } from "@/lib/curriculum";
-import { computeConceptStats } from "@/lib/mastery";
-import { solvedToday, streakDays, useHydrated, useProgress } from "@/lib/progress-store";
-import { currentLevelId, overallProgress, recommendToday, REASON_TEXT, strongConcepts, weakConcepts } from "@/lib/recommend";
+import { ANALYSIS_EVERY, type LearnerAnalysis } from "@/lib/ai/analysis";
+import { getConcept, getUnit, levelInfo } from "@/lib/curriculum";
+import { conceptStats, currentUnitId, overallProgress, solvedToday, streakDays, suggestLevel, weakConcepts } from "@/lib/learner/stats";
+import { currentLearner } from "@/lib/server/learner";
+import { latestAnalysis, listAttempts } from "@/lib/server/learner-repo";
+import { planSession } from "@/lib/server/session";
+import type { Level } from "@/lib/types";
 
-export default function LearnHomePage() {
-  const progress = useProgress();
-  const hydrated = useHydrated();
-  const { attempts } = progress;
+export const dynamic = "force-dynamic";
 
-  const stats = useMemo(() => computeConceptStats(attempts), [attempts]);
-  const rec = useMemo(() => recommendToday(attempts), [attempts]);
-  const concept = getConcept(rec.conceptId)!;
-  const level = getLevel(concept.levelId)!;
-  const currentLevel = getLevel(currentLevelId(stats))!;
-  const overall = overallProgress(stats);
+const REASON: Record<string, (name: string) => string> = {
+  review: (n) => `${n}에서 헷갈린 부분이 있었어요. 다시 한 번 짚고 넘어가요.`,
+  continue: (n) => `지난번에 하던 ${n}, 조금만 더 하면 익숙해질 거예요.`,
+  next: (n) => `이제 ${n}을(를) 배울 차례예요.`,
+  polish: (n) => `${n}을(를) 조금 더 다듬어 볼까요?`,
+  chosen: (n) => `${n}을(를) 공부해요.`,
+};
+
+export default async function LearnHomePage() {
+  const learner = await currentLearner();
+  const attempts = listAttempts(learner.id);
+  const stats = conceptStats(attempts);
+  const level: Level = learner.preferredLevel ?? 1;
+  const suggestion = suggestLevel(attempts, level);
+  const analysis = latestAnalysis<LearnerAnalysis>(learner.id);
+  const plan = planSession({ attempts, level, size: 6 });
+  const concept = getConcept(plan.focusConcept)!;
+  const unit = getUnit(currentUnitId(stats))!;
+  const doneToday = solvedToday(attempts);
+  const goalMet = doneToday >= learner.dailyGoal;
+  const streak = streakDays(attempts);
   const weak = weakConcepts(stats).slice(0, 2);
-  const doneToday = solvedToday(progress);
-  const goalMet = doneToday >= progress.dailyGoal;
-  const streak = streakDays(progress);
-  const fallbackMessage = REASON_TEXT[rec.reason](concept.name);
-
-  const [ai, setAi] = useState<{ message: string; source: "ai" | "offline" } | null>(null);
-
-  useEffect(() => {
-    if (!hydrated || attempts.length === 0) return;
-    const controller = new AbortController();
-    const counts = new Map<string, number>();
-    attempts.forEach((a) => a.misconception && counts.set(a.misconception, (counts.get(a.misconception) ?? 0) + 1));
-    postJSON<{ message: string; source: "ai" | "offline" }>(
-      "/api/ai/recommend",
-      {
-        recommendedConcept: rec.conceptId,
-        reason: rec.reason,
-        fallback: fallbackMessage,
-        weak: weakConcepts(stats).map((s) => ({ conceptId: s.conceptId, mastery: s.mastery })),
-        strong: strongConcepts(stats).map((s) => s.conceptId),
-        misconceptions: [...counts].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 5),
-        totalAttempts: attempts.length,
-        streak,
-      },
-      controller.signal,
-    )
-      .then(setAi)
-      .catch(() => {});
-    return () => controller.abort();
-    // 풀이 기록이 바뀔 때만 다시 요청
-  }, [hydrated, attempts.length]);
-
-  const startHref = `/practice?concept=${rec.conceptId}&ids=${rec.problemIds.join(",")}`;
-
-  if (!hydrated) return <div className="mx-auto max-w-3xl px-4 py-10" />;
+  const codes = new Set(plan.questions.map((q) => q.codeItemId)).size;
+  const suggested = analysis?.result.recommendedLevel ?? (suggestion.direction !== "stay" ? suggestion.level : null);
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-28 pt-8 sm:pb-16">
+    <div className="mx-auto max-w-4xl px-4 pb-28 pt-8 sm:pb-16">
       <div className="animate-fade-up">
         <p className="text-[15px] font-semibold text-ink-500">안녕하세요 👋</p>
         <h1 className="mt-1 text-[26px] font-extrabold tracking-tight sm:text-3xl">
-          {attempts.length === 0
-            ? "오늘은 10분만 공부해볼까요?"
-            : goalMet
-              ? "오늘 목표 달성! 한 문제 더 해볼까요?"
-              : "오늘도 한 문제 풀어볼까요?"}
+          {attempts.length === 0 ? "오늘은 10분만 공부해볼까요?" : goalMet ? "오늘 목표 달성! 한 세트 더 해볼까요?" : "오늘도 코드 하나 읽어볼까요?"}
         </h1>
       </div>
 
-      {/* 오늘의 학습 */}
-      <section className="card mt-6 animate-fade-up overflow-hidden [animation-delay:80ms]">
-        <div className="bg-gradient-to-br from-brand-600 to-brand-500 p-6 text-white sm:p-7">
-          <div className="flex items-center justify-between">
-            <span className="chip bg-white/15 text-white">오늘의 학습</span>
-            <span className="text-sm font-medium text-brand-100">
-              Level {level.id} · {level.title}
-            </span>
-          </div>
-          <p className="mt-5 text-sm font-medium text-brand-100">JavaScript</p>
-          <p className="text-[28px] font-extrabold leading-tight">{concept.name}</p>
-          <p className="mt-2 text-[15px] text-brand-50/90">{concept.keyIdea}</p>
-          <div className="mt-5 flex gap-4 text-sm font-semibold text-brand-50">
-            <span>📝 문제 {rec.problemIds.length}개</span>
-            <span>⏱ 예상 {rec.minutes}분</span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-          <div className="flex-1 text-[15px] leading-relaxed text-ink-700">
-            <div className="mb-1">
-              <AIBadge source={ai?.source ?? (attempts.length ? null : "offline")} />
+      <div className="mt-6 grid gap-5 lg:grid-cols-[1.25fr_1fr]">
+        {/* 오늘의 학습 */}
+        <section className="card animate-fade-up overflow-hidden [animation-delay:80ms]">
+          <div className="bg-gradient-to-br from-brand-600 to-brand-500 p-6 text-white">
+            <div className="flex items-center justify-between">
+              <span className="chip bg-white/15 text-white">오늘의 학습</span>
+              <span className="text-sm font-medium text-brand-100">
+                {unit.emoji} {unit.title}
+              </span>
             </div>
-            {ai?.message ?? fallbackMessage}
+            <p className="mt-5 text-sm font-medium text-brand-100">JavaScript</p>
+            <p className="text-[28px] font-extrabold leading-tight">{concept.name}</p>
+            <p className="mt-2 text-[15px] text-brand-50/90">{REASON[plan.reason](concept.name)}</p>
+            <div className="mt-5 flex flex-wrap gap-x-4 gap-y-1 text-sm font-semibold text-brand-50">
+              <span>🧩 코드 {codes}개</span>
+              <span>📝 질문 {plan.questions.length}개</span>
+              <span>⏱ 약 {Math.max(5, plan.questions.length * 2)}분</span>
+            </div>
           </div>
-          <Link href={startHref} className="btn-primary shrink-0 px-7 py-3.5 text-base">
-            학습 시작하기 →
-          </Link>
-        </div>
-      </section>
+          <div className="p-5 sm:p-6">
+            <LevelPicker initial={level} suggested={suggested} />
+            {suggestion.direction !== "stay" && (
+              <p className="mt-3 text-sm text-ink-500">
+                🎯 추천: <b>{levelInfo(suggestion.level).name}</b> — {suggestion.message}
+              </p>
+            )}
+          </div>
+        </section>
 
-      {/* 진행 상황 */}
-      <section className="mt-6 grid animate-fade-up gap-4 [animation-delay:160ms] sm:grid-cols-2">
-        <div className="card p-5">
-          <p className="text-sm font-semibold text-ink-500">오늘의 목표</p>
-          <p className="mt-1 text-2xl font-extrabold">
-            {Math.min(doneToday, progress.dailyGoal)} <span className="text-base font-bold text-ink-400">/ {progress.dailyGoal} 문제</span>
-          </p>
-          <div className="mt-3">
-            <ProgressBar value={(doneToday / progress.dailyGoal) * 100} tone={goalMet ? "mint" : "brand"} label="오늘의 목표" />
-          </div>
-          <p className="mt-2 text-sm text-ink-400">
-            {goalMet ? "🎉 목표 달성! 내일도 만나요." : streak > 0 ? `🔥 ${streak}일 연속 학습 중이에요` : "하루 3문제면 충분해요"}
-          </p>
-        </div>
-        <div className="card p-5">
-          <p className="text-sm font-semibold text-ink-500">현재 진행률</p>
-          <p className="mt-1 text-2xl font-extrabold">
-            {overall}% <span className="text-base font-bold text-ink-400">· Level {currentLevel.id}</span>
-          </p>
-          <div className="mt-3">
-            <ProgressBar value={overall} label="전체 진행률" />
-          </div>
-          <p className="mt-2 text-sm text-ink-400">
-            {currentLevel.emoji} {currentLevel.title} 단계를 공부하고 있어요
-          </p>
-        </div>
-      </section>
+        <div className="space-y-5">
+          <TutorAnalysisCard analysis={analysis} sinceLast={attempts.length - (analysis?.attemptCount ?? 0)} every={ANALYSIS_EVERY} compact />
 
-      {/* 복습 */}
+          <section className="card p-5">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-sm font-semibold text-ink-500">오늘의 목표</p>
+                <p className="mt-1 text-2xl font-extrabold">
+                  {Math.min(doneToday, learner.dailyGoal)} <span className="text-base font-bold text-ink-400">/ {learner.dailyGoal} 문제</span>
+                </p>
+              </div>
+              <p className="text-sm text-ink-400">{streak > 0 ? `🔥 ${streak}일 연속` : "첫 기록을 남겨보세요"}</p>
+            </div>
+            <div className="mt-3">
+              <ProgressBar value={(doneToday / learner.dailyGoal) * 100} tone={goalMet ? "mint" : "brand"} label="오늘의 목표" />
+            </div>
+            <p className="mt-4 text-sm font-semibold text-ink-500">전체 진행률 {overallProgress(stats)}%</p>
+            <div className="mt-2">
+              <ProgressBar value={overallProgress(stats)} size="sm" label="전체 진행률" />
+            </div>
+          </section>
+        </div>
+      </div>
+
       {weak.length > 0 && (
         <section className="mt-8">
           <SectionTitle>한 번 더 보면 좋은 개념</SectionTitle>
@@ -137,11 +106,7 @@ export default function LearnHomePage() {
             {weak.map((s) => {
               const c = getConcept(s.conceptId)!;
               return (
-                <Link
-                  key={s.conceptId}
-                  href={`/practice?concept=${s.conceptId}`}
-                  className="card group flex items-center gap-4 p-4 transition hover:shadow-lift"
-                >
+                <Link key={s.conceptId} href={`/practice?concept=${s.conceptId}&level=${level}`} className="card group flex items-center gap-4 p-4 transition hover:shadow-lift">
                   <div className="flex-1">
                     <p className="font-bold">{c.name}</p>
                     <div className="mt-2">
@@ -158,7 +123,7 @@ export default function LearnHomePage() {
 
       <section className="mt-8 flex flex-wrap gap-3">
         <Link href="/concepts" className="btn-soft">
-          🧭 다른 개념 골라서 공부하기
+          🧭 개념·난이도별로 탐색하기
         </Link>
         <Link href="/dashboard" className="btn-ghost">
           📊 내 학습 기록 보기

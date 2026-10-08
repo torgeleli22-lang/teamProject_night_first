@@ -1,7 +1,6 @@
 "use client";
 
 import { HighlightedLine } from "@/components/CodeBlock";
-import type { ChoiceProblem, OrderProblem } from "@/lib/types";
 
 type Mark = "correct" | "wrong" | "answer" | null;
 
@@ -12,24 +11,27 @@ const MARK_STYLE: Record<Exclude<Mark, null>, string> = {
 };
 
 export function ChoiceInput({
-  problem,
+  choices,
   value,
   onChange,
-  locked,
+  answerIndex,
+  mono,
 }: {
-  problem: ChoiceProblem;
+  choices: string[];
   value: number | null;
   onChange: (i: number) => void;
-  locked: boolean;
+  /** 제출 후 정답 인덱스 (제출 전에는 undefined) */
+  answerIndex?: number;
+  mono: boolean;
 }) {
-  const mono = problem.subtype !== "concept";
+  const locked = answerIndex !== undefined;
   return (
     <div role="radiogroup" aria-label="보기" className={`grid gap-2.5 ${mono ? "sm:grid-cols-2" : ""}`}>
-      {problem.choices.map((choice, i) => {
+      {choices.map((choice, i) => {
         const selected = value === i;
         let mark: Mark = null;
         if (locked) {
-          if (i === problem.answerIndex) mark = selected ? "correct" : "answer";
+          if (i === answerIndex) mark = selected ? "correct" : "answer";
           else if (selected) mark = "wrong";
         }
         return (
@@ -56,9 +58,7 @@ export function ChoiceInput({
             >
               ✓
             </span>
-            <span className={`${mono ? "whitespace-pre-wrap font-mono text-[14px]" : "text-[15px]"} leading-relaxed text-ink-900`}>
-              {choice.text}
-            </span>
+            <span className={`${mono ? "whitespace-pre-wrap font-mono text-[14px]" : "text-[15px]"} leading-relaxed text-ink-900`}>{choice}</span>
             {mark === "correct" || mark === "answer" ? (
               <span className="ml-auto shrink-0 text-xs font-bold text-mint-600">정답</span>
             ) : mark === "wrong" ? (
@@ -81,58 +81,52 @@ export function TextAnswer({
   value: string;
   onChange: (v: string) => void;
   locked: boolean;
-  mode: "predict" | "explain";
+  mode: "predict_output" | "short_answer";
   onSubmit: () => void;
 }) {
+  const predict = mode === "predict_output";
   return (
     <div>
       <label className="mb-2 block text-sm font-semibold text-ink-500" htmlFor="answer-input">
-        {mode === "predict" ? "예상 출력 (한 줄에 하나씩)" : "내 설명"}
+        {predict ? "예상 출력 (한 줄에 하나씩)" : "내 설명"}
       </label>
       <textarea
         id="answer-input"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={locked}
-        rows={mode === "predict" ? 3 : 5}
-        maxLength={mode === "predict" ? 1000 : 2000}
+        rows={predict ? 3 : 5}
+        maxLength={predict ? 1000 : 2000}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit();
         }}
-        placeholder={
-          mode === "predict"
-            ? "예) 10 5"
-            : "예) count가 함수 안에서 선언되어서 호출할 때마다 …\n어려운 용어를 쓰지 않아도 괜찮아요. 내 말로 적어보세요."
-        }
+        placeholder={predict ? "예) 10 5" : "어려운 용어를 쓰지 않아도 괜찮아요. 코드가 어떻게 동작하는지 내 말로 적어보세요."}
         className={`w-full resize-y rounded-2xl border border-ink-200 bg-white px-4 py-3 text-[15px] leading-relaxed outline-none transition placeholder:text-ink-300 focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10 disabled:bg-ink-50 ${
-          mode === "predict" ? "font-mono" : ""
+          predict ? "font-mono" : ""
         }`}
       />
       <p className="mt-1.5 text-xs text-ink-400">
-        {mode === "predict" ? "따옴표나 띄어쓰기는 조금 달라도 괜찮아요." : "정답 맞히기보다 '왜'를 설명하는 게 중요해요."} ·
-        Ctrl/⌘ + Enter로 제출
+        {predict ? "따옴표나 띄어쓰기는 조금 달라도 괜찮아요." : "정답 맞히기보다 '왜'를 설명하는 게 중요해요."} · Ctrl/⌘ + Enter로 제출
       </p>
     </div>
   );
 }
 
-export function OrderInput({
-  problem,
-  shuffled,
+export function ShuffleInput({
+  pieces,
   value,
   onChange,
   locked,
   correct,
 }: {
-  problem: OrderProblem;
-  /** 화면에 보여줄 조각 순서 (원래 pieces 의 인덱스) */
-  shuffled: number[];
+  /** 섞인 순서로 보여줄 조각 */
+  pieces: string[];
   value: number[];
   onChange: (order: number[]) => void;
   locked: boolean;
   correct: boolean | null;
 }) {
-  const remaining = shuffled.filter((i) => !value.includes(i));
+  const remaining = pieces.map((_, i) => i).filter((i) => !value.includes(i));
   return (
     <div className="grid gap-4">
       <div>
@@ -142,18 +136,18 @@ export function OrderInput({
             correct === true ? "ring-mint-500" : correct === false ? "ring-coral-500" : "ring-transparent"
           }`}
         >
-          {value.length === 0 && <p className="px-2 py-8 text-center text-sm text-code-muted">아래 조각을 순서대로 눌러 코드를 완성하세요</p>}
+          {value.length === 0 && <p className="px-2 py-8 text-center text-sm text-code-muted">아래 조각을 실행 순서대로 눌러 코드를 완성하세요</p>}
           {value.map((pieceIndex, pos) => (
             <button
               key={`${pieceIndex}-${pos}`}
               type="button"
               disabled={locked}
               onClick={() => onChange(value.filter((_, i) => i !== pos))}
-              className="flex w-full items-center rounded-lg px-2 py-1.5 text-left hover:bg-white/5 disabled:hover:bg-transparent"
+              className="flex w-full items-start rounded-lg px-2 py-1.5 text-left hover:bg-white/5 disabled:hover:bg-transparent"
             >
               <span className="w-7 shrink-0 select-none text-right text-code-muted/70">{pos + 1}</span>
-              <span className="whitespace-pre pl-3">
-                <HighlightedLine line={problem.pieces[pieceIndex]} />
+              <span className="whitespace-pre-wrap pl-3">
+                <HighlightedLine line={pieces[pieceIndex]} />
               </span>
             </button>
           ))}
@@ -168,9 +162,9 @@ export function OrderInput({
                 key={pieceIndex}
                 type="button"
                 onClick={() => onChange([...value, pieceIndex])}
-                className="rounded-xl border border-ink-200 bg-white px-3 py-2 text-left font-mono text-[13px] text-ink-900 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card"
+                className="max-w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-left font-mono text-[13px] text-ink-900 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card"
               >
-                <span className="whitespace-pre">{problem.pieces[pieceIndex].trim()}</span>
+                <span className="whitespace-pre-wrap break-all">{pieces[pieceIndex].trim()}</span>
               </button>
             ))}
           </div>

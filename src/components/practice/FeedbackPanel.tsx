@@ -4,172 +4,171 @@ import { useState } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { CodeSnippet } from "@/components/CodeBlock";
 import { Spinner, UnderstandingChip } from "@/components/ui";
-import type { Feedback, Problem } from "@/lib/types";
+import { postJSON } from "@/lib/api";
+import type { ShortAnswerFeedback } from "@/lib/ai/tutor";
+import type { AttemptResult, TutorNote } from "@/lib/server/grade";
+import type { PublicQuestion } from "@/lib/server/session";
 import { TutorChat } from "./TutorChat";
 
 interface Props {
-  problem: Problem;
-  /** 즉시 채점 결과 (설명형은 AI 응답 전까지 null) */
-  verdict: boolean | null;
-  feedback: Feedback | null;
-  revealed: boolean;
-  myAnswer: string;
-  correctAnswer: string;
-  xpGained: number | null;
+  question: PublicQuestion;
+  result: AttemptResult;
+  /** 주관식 원문 ("AI 에게 자세히 분석 받기" 용) */
+  answerText?: string;
+  gaveUp: boolean;
   isLast: boolean;
   onNext: () => void;
   onSimilar?: () => void;
+  similarLoading?: boolean;
   onConcept: () => void;
 }
 
-export function FeedbackPanel({
-  problem,
-  verdict,
-  feedback,
-  revealed,
-  myAnswer,
-  correctAnswer,
-  xpGained,
-  isLast,
-  onNext,
-  onSimilar,
-  onConcept,
-}: Props) {
+export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, onNext, onSimilar, similarLoading, onConcept }: Props) {
+  const [tutor, setTutor] = useState<TutorNote>(result.tutor);
+  const [deepLoading, setDeepLoading] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const correct = feedback?.correct ?? verdict;
-  const partial = feedback?.partial;
-  const tone = revealed ? "neutral" : correct ? "good" : partial ? "partial" : correct === false ? "bad" : "neutral";
-
-  const headerStyle = {
-    good: "bg-mint-50 text-mint-700",
-    partial: "bg-sun-50 text-sun-600",
-    bad: "bg-coral-50 text-coral-600",
-    neutral: "bg-ink-100 text-ink-700",
-  }[tone];
+  const { correct, partial } = result;
+  const tone = gaveUp ? "neutral" : correct ? "good" : partial ? "partial" : "bad";
+  const headerStyle = { good: "bg-mint-50 text-mint-700", partial: "bg-sun-50 text-sun-600", bad: "bg-coral-50 text-coral-600", neutral: "bg-ink-100 text-ink-700" }[tone];
   const emoji = { good: "🎉", partial: "👍", bad: "🧐", neutral: "📘" }[tone];
-  const fallbackHeadline = revealed
-    ? "정답과 해설"
-    : correct
-      ? "정답이에요!"
-      : correct === false
-        ? "아쉬워요, 같이 확인해 봐요"
-        : "답변을 살펴보고 있어요";
+  const verdictText = gaveUp ? "정답과 해설" : correct ? "정답" : partial ? "부분 정답" : "오답";
+
+  async function deepAnalysis() {
+    if (!answerText) return;
+    setDeepLoading(true);
+    try {
+      const fb = await postJSON<ShortAnswerFeedback>("/api/explain", { questionId: question.id, text: answerText });
+      setTutor({
+        headline: fb.headline,
+        message: fb.explanation,
+        checks: fb.checks,
+        misconception: fb.misconception,
+        correction: fb.correction,
+        nextTip: fb.nextTip,
+        source: fb.gradedBy === "ai" ? "ai" : "rule",
+      });
+    } finally {
+      setDeepLoading(false);
+    }
+  }
 
   return (
-    <section className="card animate-fade-up overflow-hidden" aria-live="polite">
-      <div className={`flex items-center gap-3 px-5 py-4 ${headerStyle}`}>
-        <span className="animate-pop text-2xl" aria-hidden>
+    <div className="space-y-4" aria-live="polite">
+      {/* 결과 */}
+      <div className={`flex animate-pop items-center gap-3 rounded-2xl px-5 py-3.5 ${headerStyle}`}>
+        <span className="text-2xl" aria-hidden>
           {emoji}
         </span>
-        <p className="flex-1 text-lg font-extrabold">{feedback?.headline ?? fallbackHeadline}</p>
-        {xpGained !== null && <span className="chip animate-pop bg-white/80 text-brand-700">+{xpGained} XP</span>}
+        <p className="flex-1 text-lg font-extrabold">{verdictText}</p>
+        <span className="chip bg-white/80 text-brand-700">+{result.xp} XP</span>
       </div>
 
-      <div className="space-y-5 p-5">
-        {!feedback ? (
-          <p className="flex items-center gap-2 text-[15px] text-ink-500">
-            <Spinner /> AI 튜터가 {problem.type === "explain" ? "설명을 읽고 있어요" : "왜 그런지 설명을 준비하고 있어요"}…
-          </p>
-        ) : (
-          <>
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <p className="font-bold text-ink-900">{correct ? "왜 그런지 알아볼까요?" : "어디서 생각이 갈라졌을까요?"}</p>
-                <AIBadge source={feedback.source} />
-              </div>
-              <p className="whitespace-pre-line text-[15px] leading-relaxed text-ink-700">{feedback.explanation}</p>
+      {/* AI Tutor */}
+      <section className="card animate-fade-up overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-ink-100 px-5 py-3">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-brand-600 text-sm text-white" aria-hidden>
+            🤖
+          </span>
+          <p className="font-bold">AI Tutor</p>
+          <span className="ml-auto">
+            <AIBadge source={tutor.source} />
+          </span>
+        </div>
+        <div className="space-y-4 p-5">
+          <div>
+            <p className="text-[17px] font-bold text-ink-900">{tutor.headline}</p>
+            <p className="mt-1.5 whitespace-pre-line text-[15px] leading-relaxed text-ink-700">{tutor.message}</p>
+          </div>
+
+          {tutor.checks.length > 0 && (
+            <ul className="divide-y divide-ink-100 rounded-2xl border border-ink-100">
+              {tutor.checks.map((check, i) => (
+                <li key={i} className="flex flex-col gap-1 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+                  <span className="shrink-0 font-semibold text-ink-900 sm:w-40">{check.label}</span>
+                  <UnderstandingChip level={check.level} />
+                  <span className="text-sm text-ink-500">{check.comment}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {(tutor.correction || tutor.misconception) && (
+            <div className="rounded-2xl bg-sun-50 px-4 py-3">
+              <p className="text-xs font-bold text-sun-600">💡 Hint</p>
+              {tutor.misconception && <p className="mt-0.5 text-sm text-ink-500">혹시 이렇게 생각했나요? — {tutor.misconception}</p>}
+              {tutor.correction && <p className="mt-1 text-[15px] font-semibold text-ink-900">{tutor.correction}</p>}
             </div>
+          )}
 
-            {!correct && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {!revealed && (
-                  <div>
-                    <p className="mb-1.5 text-xs font-bold text-coral-600">내 답</p>
-                    <pre className="whitespace-pre-wrap rounded-xl bg-coral-50 px-3 py-2.5 font-mono text-[13px] text-ink-700">{myAnswer}</pre>
-                  </div>
-                )}
-                <div className={revealed ? "sm:col-span-2" : ""}>
-                  <p className="mb-1.5 text-xs font-bold text-mint-700">{problem.type === "explain" ? "모범 설명" : "정답"}</p>
-                  <pre className="whitespace-pre-wrap rounded-xl bg-mint-50 px-3 py-2.5 font-mono text-[13px] text-ink-700">{correctAnswer}</pre>
-                </div>
-              </div>
+          <div className="flex flex-wrap gap-2">
+            {onSimilar && (
+              <button type="button" onClick={onSimilar} disabled={similarLoading} className="btn-soft px-4 py-2.5 text-sm">
+                {similarLoading ? <Spinner /> : null} 비슷한 문제 풀어보기 →
+              </button>
             )}
+            {question.type === "short_answer" && tutor.source !== "ai" && answerText && (
+              <button type="button" onClick={deepAnalysis} disabled={deepLoading} className="btn-ghost px-4 py-2.5 text-sm">
+                {deepLoading ? <Spinner /> : "✨"} AI에게 자세히 분석 받기
+              </button>
+            )}
+            <button type="button" onClick={() => setChatOpen((v) => !v)} className="btn-ghost px-4 py-2.5 text-sm">
+              💬 튜터에게 질문
+            </button>
+          </div>
+          {chatOpen && <TutorChat questionId={question.id} solved />}
+        </div>
+      </section>
 
-            {feedback.steps.length > 0 && (
+      {/* 해설 */}
+      <section className="card animate-fade-up space-y-5 p-5 [animation-delay:80ms]">
+        {!correct && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {!gaveUp && (
               <div>
-                <p className="mb-2 font-bold text-ink-900">한 단계씩 따라가기</p>
-                <ol className="space-y-1.5">
-                  {feedback.steps.map((step, i) => (
-                    <li key={i} className="flex gap-3 text-[15px] leading-relaxed text-ink-700">
-                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-100 text-[11px] font-bold text-brand-700">
-                        {i + 1}
-                      </span>
-                      <span className="whitespace-pre-line">{step}</span>
-                    </li>
-                  ))}
-                </ol>
+                <p className="mb-1.5 text-xs font-bold text-coral-600">내 답</p>
+                <pre className="whitespace-pre-wrap rounded-xl bg-coral-50 px-3 py-2.5 font-mono text-[13px] text-ink-700">{result.myAnswer}</pre>
               </div>
             )}
-
-            {problem.output && problem.type !== "predict" && (
-              <div>
-                <p className="mb-2 text-sm font-bold text-ink-500">실제 실행 결과</p>
-                <CodeSnippet code={problem.output} />
-              </div>
-            )}
-
-            {!revealed && feedback.checks.length > 0 && (
-              <div>
-                <p className="mb-2 font-bold text-ink-900">이해도 분석</p>
-                <ul className="divide-y divide-ink-100 rounded-2xl border border-ink-100">
-                  {feedback.checks.map((check, i) => (
-                    <li key={i} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
-                      <span className="w-36 shrink-0 font-semibold text-ink-900">{check.label}</span>
-                      <UnderstandingChip level={check.level} />
-                      <span className="text-sm text-ink-500 sm:ml-1">{check.comment}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {feedback.misconception && !correct && (
-              <p className="rounded-2xl bg-sun-50 px-4 py-3 text-[15px] text-ink-700">
-                <span className="font-bold">🔎 자주 하는 착각: </span>
-                {feedback.misconception}
-              </p>
-            )}
-
-            <div className="rounded-2xl bg-brand-50 px-4 py-3.5">
-              <p className="text-xs font-bold text-brand-600">💡 핵심 개념</p>
-              <p className="mt-0.5 font-semibold text-brand-900">{problem.keyPoint}</p>
-              {feedback.nextTip && feedback.nextTip !== problem.keyPoint && (
-                <p className="mt-1 text-sm text-brand-800/80">{feedback.nextTip}</p>
-              )}
+            <div className={gaveUp ? "sm:col-span-2" : ""}>
+              <p className="mb-1.5 text-xs font-bold text-mint-700">{question.type === "short_answer" ? "모범 설명" : "정답"}</p>
+              <pre className="whitespace-pre-wrap rounded-xl bg-mint-50 px-3 py-2.5 font-mono text-[13px] text-ink-700">{result.correctAnswer}</pre>
             </div>
-          </>
+          </div>
         )}
 
-        <div className="flex flex-wrap gap-2 border-t border-ink-100 pt-4">
-          <button type="button" onClick={() => setChatOpen((v) => !v)} className="btn-ghost px-4 py-2.5 text-sm">
-            💬 튜터에게 질문
-          </button>
+        <div>
+          <p className="mb-2 font-bold text-ink-900">한 단계씩 따라가기</p>
+          <ol className="space-y-1.5">
+            {result.steps.map((step, i) => (
+              <li key={i} className="flex gap-3 text-[15px] leading-relaxed text-ink-700">
+                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-100 text-[11px] font-bold text-brand-700">{i + 1}</span>
+                <span className="whitespace-pre-line">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        {result.output && question.type !== "predict_output" && question.type !== "find_bug" && (
+          <div>
+            <p className="mb-2 text-sm font-bold text-ink-500">원본 코드의 실제 실행 결과</p>
+            <CodeSnippet code={result.output} />
+          </div>
+        )}
+
+        <div className="rounded-2xl bg-brand-50 px-4 py-3.5">
+          <p className="text-xs font-bold text-brand-600">💡 핵심 개념</p>
+          <p className="mt-0.5 font-semibold text-brand-900">{result.keyPoint}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-ink-100 pt-4">
           <button type="button" onClick={onConcept} className="btn-ghost px-4 py-2.5 text-sm">
             📖 개념 설명
           </button>
-          <div className="ml-auto flex flex-wrap gap-2">
-            {onSimilar && (
-              <button type="button" onClick={onSimilar} className="btn-soft px-4 py-2.5 text-sm">
-                비슷한 문제 풀어보기
-              </button>
-            )}
-            <button type="button" onClick={onNext} className="btn-primary px-5 py-2.5 text-sm" autoFocus>
-              {isLast ? "결과 보기" : "다음 문제 →"}
-            </button>
-          </div>
+          <button type="button" onClick={onNext} className="btn-primary ml-auto px-6 py-2.5 text-sm" autoFocus>
+            {isLast ? "결과 보기" : "다음 문제 →"}
+          </button>
         </div>
-        {chatOpen && <TutorChat problemId={problem.id} solved />}
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Answer, Problem } from "./types";
+import type { Answer, ConceptCheck, MisconceptionPattern, Question, ShortAnswerQuestion } from "./types";
 
 /** 출력 비교용 정규화: 줄 단위로 공백 제거, 따옴표 통일, 빈 줄 제거 */
 export function normalizeOutput(text: string): string[] {
@@ -8,81 +8,134 @@ export function normalizeOutput(text: string): string[] {
     .map((line) =>
       line
         .trim()
-        .replace(/[“”"`]/g, "'")
-        .replace(/[‘’]/g, "'")
+        .replace(/[“”"`‘’]/g, "'")
         .replace(/;$/, "")
         .replace(/\s+/g, ""),
     )
     .filter((line) => line.length > 0);
 }
 
-function sameOutput(a: string, b: string): boolean {
+export function sameOutput(a: string, b: string): boolean {
   const na = normalizeOutput(a);
   const nb = normalizeOutput(b);
   return na.length === nb.length && na.every((line, i) => line === nb[i]);
 }
 
 /**
- * 객관식/입력형/오류찾기/순서맞추기는 결정적으로 채점한다.
- * 설명형(explain)은 AI(또는 오프라인 루브릭)가 채점하므로 null 을 돌려준다.
+ * 객관식·빈칸·셔플·결과 예측·오류 찾기는 정답이 정해져 있으므로 규칙으로 채점한다 (AI 호출 없음).
+ * 주관식은 evaluateShortAnswer 를 쓴다.
  */
-export function gradeAnswer(problem: Problem, answer: Answer): boolean | null {
-  if (problem.type !== answer.type) return false;
-  switch (problem.type) {
-    case "choice":
-      return (answer as { index: number }).index === problem.answerIndex;
-    case "predict": {
+export function gradeObjective(q: Question, answer: Answer): boolean {
+  if (q.type !== answer.type) return false;
+  switch (q.type) {
+    case "multiple_choice":
+    case "fill_blank":
+      return (answer as { index: number }).index === q.answerIndex;
+    case "predict_output": {
       const text = (answer as { text: string }).text;
-      return [problem.output, ...(problem.accepted ?? [])].some((ok) => sameOutput(text, ok));
+      return [q.output, ...(q.accepted ?? [])].some((ok) => sameOutput(text, ok));
     }
-    case "bug":
-      return (answer as { line: number }).line === problem.bugLine;
-    case "order": {
+    case "find_bug":
+      return (answer as { line: number }).line === q.bugLine;
+    case "shuffle": {
       const order = (answer as { order: number[] }).order;
-      if (order.length !== problem.pieces.length) return false;
-      // 같은 텍스트의 조각(예: "}")이 여러 개일 수 있으므로 인덱스가 아니라 텍스트 순서로 비교한다.
-      return order.every((pieceIndex, i) => problem.pieces[pieceIndex] === problem.pieces[i]);
+      // 같은 텍스트의 조각(예: "}")이 여러 개일 수 있으므로 텍스트 순서로 비교
+      return order.length === q.pieces.length && order.every((pieceIndex, i) => q.pieces[pieceIndex] === q.pieces[i]);
     }
-    case "explain":
-      return null;
+    case "short_answer":
+      return false;
   }
 }
 
-/** 사용자의 답을 사람이 읽을 수 있는 문자열로 (AI 프롬프트와 화면 표시에 사용) */
-export function describeAnswer(problem: Problem, answer: Answer): string {
+// ───────────────────────── 주관식 1차 규칙 평가 ─────────────────────────
+
+export type RuleVerdict = "correct" | "partial" | "incorrect";
+
+export interface RuleEvaluation {
+  verdict: RuleVerdict;
+  checks: ConceptCheck[];
+  misconceptions: MisconceptionPattern[];
+  /** AI 에게 넘겨야 하는 이유. 비어 있으면 규칙 결과를 그대로 쓴다 */
+  aiReasons: string[];
+}
+
+const squash = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+
+function mentions(text: string, keyword: string): boolean {
+  return squash(text).includes(squash(keyword));
+}
+
+const MIN_EFFORT = 4;
+const SHORT = 15;
+
+/**
+ * 주관식 답변을 먼저 규칙으로 평가한다.
+ * 핵심 요소를 모두 담았고 오개념 표현이 없으면 AI 없이 정답 처리하고,
+ * 너무 짧거나 / 일부 요소가 빠졌거나 / 오개념 표현이 있거나 / 판단이 어려우면 AI 평가를 요청한다.
+ */
+export function evaluateShortAnswer(q: ShortAnswerQuestion, text: string): RuleEvaluation {
+  const length = squash(text).length;
+  const checks: ConceptCheck[] = q.rubric.map((point) => {
+    const hit = point.keywords.some((k) => mentions(text, k));
+    return { label: point.label, level: hit ? "good" : "weak", comment: hit ? "설명에 담겨 있어요." : "이 부분에 대한 설명이 빠져 있어요." };
+  });
+  const misconceptions = q.misconceptions.filter((m) => m.keywords.every((k) => mentions(text, k)));
+  const hits = checks.filter((c) => c.level === "good").length;
+
+  if (length < MIN_EFFORT) {
+    return { verdict: "incorrect", checks, misconceptions, aiReasons: [] };
+  }
+
+  const aiReasons: string[] = [];
+  if (length < SHORT) aiReasons.push("답변이 짧음");
+  if (misconceptions.length) aiReasons.push("오개념 표현 포함");
+  if (hits > 0 && hits < checks.length) aiReasons.push("핵심 요소 일부 누락");
+  if (hits === 0) aiReasons.push("규칙으로 판단 어려움");
+
+  const verdict: RuleVerdict =
+    hits === checks.length && !misconceptions.length ? "correct" : hits * 2 >= checks.length ? "partial" : "incorrect";
+  return { verdict, checks, misconceptions, aiReasons };
+}
+
+// ───────────────────────── 표시용 ─────────────────────────
+
+/** 사용자의 답을 사람이 읽을 수 있는 문자열로 */
+export function describeAnswer(q: Question, answer: Answer): string {
   switch (answer.type) {
-    case "choice":
-      return problem.type === "choice" ? (problem.choices[answer.index]?.text ?? "(선택 안 함)") : "";
-    case "predict":
-    case "explain":
+    case "multiple_choice":
+    case "fill_blank":
+      return q.type === "multiple_choice" || q.type === "fill_blank" ? (q.choices[answer.index]?.text ?? "(선택 안 함)") : "";
+    case "predict_output":
+    case "short_answer":
       return answer.text.trim() || "(빈 답변)";
-    case "bug":
+    case "find_bug":
       return `${answer.line}번째 줄`;
-    case "order":
-      return problem.type === "order" ? answer.order.map((i) => problem.pieces[i]).join("\n") : "";
+    case "shuffle":
+      return q.type === "shuffle" ? answer.order.map((i) => q.pieces[i]).join("\n") : "";
   }
 }
 
 /** 정답을 사람이 읽을 수 있는 문자열로 */
-export function describeCorrect(problem: Problem): string {
-  switch (problem.type) {
-    case "choice":
-      return problem.choices[problem.answerIndex].text;
-    case "predict":
-      return problem.output;
-    case "bug":
-      return `${problem.bugLine}번째 줄 → ${problem.fixedLine.trim()}`;
-    case "order":
-      return problem.pieces.join("\n");
-    case "explain":
-      return problem.modelAnswer;
+export function describeCorrect(q: Question): string {
+  switch (q.type) {
+    case "multiple_choice":
+    case "fill_blank":
+      return q.choices[q.answerIndex].text;
+    case "predict_output":
+      return q.output;
+    case "find_bug":
+      return `${q.bugLine}번째 줄 → ${q.fixedLine.trim()}`;
+    case "shuffle":
+      return q.pieces.join("\n");
+    case "short_answer":
+      return q.modelAnswer;
   }
 }
 
-/** 선택한 보기에 연결된 오개념 */
-export function detectMisconception(problem: Problem, answer: Answer): string | undefined {
-  if (problem.type === "choice" && answer.type === "choice") {
-    return problem.choices[answer.index]?.misconception;
+/** 선택한 보기에 미리 연결된 오개념 (AI 없이 오답 원인 표시) */
+export function choiceMisconception(q: Question, answer: Answer): string | undefined {
+  if ((q.type === "multiple_choice" || q.type === "fill_blank") && answer.type === q.type) {
+    return q.choices[answer.index]?.misconception;
   }
   return undefined;
 }

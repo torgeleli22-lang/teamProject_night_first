@@ -14,7 +14,7 @@ interface Turn {
 const SUGGESTIONS_BEFORE = ["어디부터 읽어야 할지 모르겠어요", "이 문법이 뭔지 모르겠어요"];
 const SUGGESTIONS_AFTER = ["왜 다른 답은 틀린 건가요?", "이 개념을 다른 예시로 보여주세요", "실제로는 어디에 쓰이나요?"];
 
-export function TutorChat({ problemId, solved }: { problemId: string; solved: boolean }) {
+export function TutorChat({ questionId, solved }: { questionId: string; solved: boolean }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,8 +28,8 @@ export function TutorChat({ problemId, solved }: { problemId: string; solved: bo
     setInput("");
     setLoading(true);
     try {
-      const res = await postJSON<{ answer: string; source: "ai" | "offline" }>("/api/ai/ask", {
-        problemId,
+      const res = await postJSON<{ answer: string; source: "ai" | "offline" }>("/api/ask", {
+        questionId,
         question: q,
         solved,
         history,
@@ -50,7 +50,7 @@ export function TutorChat({ problemId, solved }: { problemId: string; solved: bo
       <div className="max-h-80 space-y-3 overflow-y-auto p-4">
         {turns.length === 0 && (
           <p className="text-sm text-ink-500">
-            {solved ? "이 코드에 대해 궁금한 점을 물어보세요." : "막힌 부분을 물어보세요. 정답 대신 생각할 실마리를 드려요."}
+            {solved ? "이 코드에 대해 궁금한 점을 AI 튜터에게 물어보세요." : "막힌 부분을 물어보세요. 정답 대신 생각할 실마리를 드려요."}
           </p>
         )}
         {turns.map((t, i) =>
