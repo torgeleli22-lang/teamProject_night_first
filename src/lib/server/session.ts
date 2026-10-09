@@ -65,13 +65,12 @@ export interface SessionPlan {
   level: Level;
   reason: "review" | "continue" | "next" | "chosen" | "polish";
   questions: PublicQuestion[];
-  /** 이 개념·난이도에서 아직 안 푼 문제가 부족함 → 콘텐츠 생성 후보 */
-  lacking: boolean;
+  /** 이 학습자가 집중 개념 × 선택 난이도에서 아직 안 푼 문제 수 (생성 기준 판단용) */
+  unsolvedAtLevel: number;
 }
 
 const SESSION_SIZE = 6;
 const PER_ITEM = 3;
-export const LACKING_THRESHOLD = 4;
 
 /**
  * 취약 개념 + 선택한 난이도 + 문제 유형 + 이미 맞힌 문제 제외 를 조합해 다음 문제를 고른다.
@@ -154,10 +153,20 @@ export function planSession(opts: {
     level,
     reason,
     questions: picked.map(({ q, item }) => toPublic(q, item)),
-    lacking: unsolvedAtLevel < LACKING_THRESHOLD,
+    unsolvedAtLevel,
   };
 }
 
 /** 같은 코드 안에서는 쉬운 사고(확인) → 어려운 사고(종합) 순서로 */
 const SKILL_ORDER: Skill[] = ["recall", "predict", "analyze", "infer", "synthesize"];
 const skillRank = (s: Skill) => SKILL_ORDER.indexOf(s);
+
+/** 이 학습자가 개념 × 난이도 칸에서 아직 맞히지 못한 문제 수 */
+export function unsolvedCount(attempts: Attempt[], concept: ConceptId, level: Level): number {
+  const { items, byItem } = loadContent();
+  const solved = new Set(attempts.filter((a) => a.correct).map((a) => a.questionId));
+  return [...items.values()]
+    .filter((i) => i.level === level && i.concepts.includes(concept))
+    .flatMap((i) => byItem.get(i.id) ?? [])
+    .filter((q) => !solved.has(q.id)).length;
+}

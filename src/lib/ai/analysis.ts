@@ -1,7 +1,12 @@
 import "server-only";
 import * as z from "zod/v4";
 import { CONCEPTS, conceptName } from "../curriculum";
-import { conceptStats, misconceptionCounts, repeatedWrong, strongConcepts, typeStats, weakConcepts } from "../learner/stats";
+import { generateCodeSet } from "./generate";
+import { decidePersonal } from "../content/policy";
+import { conceptStats, misconceptionCounts, repeatedWrong, strongConcepts, suggestLevel, typeStats, weakConcepts } from "../learner/stats";
+import { coverage } from "../server/content-repo";
+import { personalJobsSince } from "../server/ops-repo";
+import { unsolvedCount } from "../server/session";
 import { getQuestion } from "../server/content-repo";
 import { insertAnalysis, latestAnalysis, listAttempts, recentShortAnswers } from "../server/learner-repo";
 import type { ConceptId, Level } from "../types";
@@ -107,6 +112,25 @@ export async function runLearnerAnalysis(learnerId: string, preferredLevel: Leve
       maxTokens: 8000,
       system: TUTOR_SYSTEM,
       schema: AnalysisSchema,
+      mock: () => {
+        // 목업: 통계로 AI 분석처럼 보이는 문장을 만든다
+        const weak = weakConcepts(stats);
+        const strong = strongConcepts(stats);
+        const suggestion = suggestLevel(attempts, preferredLevel ?? 1);
+        const conceptOf = (text: string) => attempts.find((a) => a.misconception === text)?.concepts[0];
+        return {
+          summary: `${attempts.length}문제를 풀면서 정답률 ${data.accuracy}%를 기록했어요. ${strong.length ? `${strong.slice(0, 2).map((s) => conceptName(s.conceptId)).join(", ")}은(는) 이제 코드를 보면 바로 읽히는 수준이에요.` : "기초 개념을 차근차근 쌓아가고 있어요."}${weak.length ? ` 다만 ${conceptName(weak[0].conceptId)}에서는 아직 실수가 반복되고 있어요.` : ""}`,
+          strengths: strong.slice(0, 3).map((s) => `${conceptName(s.conceptId)} 코드를 정확하게 읽어요`),
+          confusions: misconceptions
+            .filter((m) => m.count >= 2)
+            .slice(0, 2)
+            .map((m) => ({ concepts: [conceptOf(m.text)].filter((c): c is string => !!c), description: `'${m.text}' 경향이 ${m.count}번 보였어요.` })),
+          focusConcepts: weak.slice(0, 2).map((s) => s.conceptId),
+          recommendedLevel: suggestion.direction === "stay" ? null : suggestion.level,
+          levelMessage: suggestion.message,
+          studyTip: weak.length ? `${conceptName(weak[0].conceptId)} 코드를 읽을 때 각 줄이 끝난 뒤 값이 어떻게 바뀌는지 직접 적어 보세요.` : "다음 단원으로 넘어가 새로운 개념에 도전해 보세요.",
+        };
+      },
       prompt: [
         "학습자의 문제 풀이 기록 통계입니다. 이 데이터를 근거로 학습자가 코드를 어떻게 이해하고 있는지 분석하세요.",
         `<learner_answer>\n${JSON.stringify(data, null, 2)}\n</learner_answer>`,
@@ -122,4 +146,21 @@ export async function runLearnerAnalysis(learnerId: string, preferredLevel: Leve
   }, ruleResult);
 
   insertAnalysis(learnerId, attempts.length, result, source);
+
+  // 혼동이 발견되면 그 개념의 맞춤 복습 세트를 만들지 판단한다 (policy.ts: personal_review)
+  const confusion = result.confusions.find((c) => c.concepts.length > 0);
+  if (confusion) {
+    const concept = confusion.concepts[0];
+    const level = preferredLevel ?? 2;
+    const decision = decidePersonal({
+      concept,
+      level,
+      stock: coverage().get(`${concept}:${level}`) ?? 0,
+      unsolved: unsolvedCount(attempts, concept, level),
+      personalToday: personalJobsSince(learnerId, Date.now() - 86400_000),
+    });
+    if (decision.generate) {
+      await generateCodeSet({ concept, level, trigger: decision.trigger, reason: `${decision.reason}: ${confusion.description}`, learnerId, focus: [confusion.description] });
+    }
+  }
 }

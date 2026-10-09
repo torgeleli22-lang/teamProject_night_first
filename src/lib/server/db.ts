@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS generation_jobs (
   created_at INTEGER NOT NULL,
   finished_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS demand_signals (
+  concept TEXT NOT NULL,
+  level INTEGER NOT NULL,
+  learner_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS demand_cell ON demand_signals(concept, level, created_at);
 CREATE TABLE IF NOT EXISTS ai_usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task TEXT NOT NULL,
@@ -99,8 +106,18 @@ function open(): DatabaseSync {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  migrate(db);
   syncSeed(db);
   return db;
+}
+
+/** 이미 만들어진 DB 에 새 컬럼 추가 */
+function migrate(db: DatabaseSync) {
+  const has = (table: string, column: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+  if (!has("generation_jobs", "trigger")) db.exec("ALTER TABLE generation_jobs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'");
+  if (!has("generation_jobs", "learner_id")) db.exec("ALTER TABLE generation_jobs ADD COLUMN learner_id TEXT");
+  if (!has("generation_jobs", "mock")) db.exec("ALTER TABLE generation_jobs ADD COLUMN mock INTEGER NOT NULL DEFAULT 0");
 }
 
 /** 코드에 들어 있는 시드 콘텐츠를 DB 와 동기화한다 (AI 생성 콘텐츠는 건드리지 않음) */

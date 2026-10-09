@@ -21,17 +21,35 @@ const SUPPORTS_FALLBACK = /^claude-(opus|fable|sonnet)-5/;
 
 let client: Anthropic | null | undefined;
 
-/** API 키가 없으면 null → 각 기능은 규칙 기반/미리 저장된 콘텐츠로 동작한다. */
+/**
+ * AI 동작 모드
+ * - live: 실제 Claude 호출 (API 키 필요)
+ * - mock: AI 를 흉내 낸 응답 + 인위적인 지연. AWS/API 키 없이 화면 흐름·UI 를 확인하는 용도
+ * - off : AI 없이 규칙 채점·저장된 해설·규칙 기반 분석만
+ * AI_MODE 를 지정하지 않으면 키가 있으면 live, 없으면 off.
+ */
+export type AIMode = "live" | "mock" | "off";
+
+export function aiMode(): AIMode {
+  const mode = process.env.AI_MODE;
+  if (mode === "mock" || mode === "off") return mode;
+  if (mode === "live") return "live";
+  return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "live" : "off";
+}
+
 export function getClient(): Anthropic | null {
   if (client !== undefined) return client;
-  const configured = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  client = configured ? new Anthropic({ timeout: 120_000, maxRetries: 1 }) : null;
+  client = aiMode() === "live" ? new Anthropic({ timeout: 120_000, maxRetries: 1 }) : null;
   return client;
 }
 
 export function aiEnabled(): boolean {
-  return getClient() !== null;
+  return aiMode() !== "off";
 }
+
+/** 목업 응답 지연 (작업별로 실제와 비슷한 체감을 주기 위해) */
+const MOCK_DELAY_MS: Record<Tier, number> = { fast: 900, smart: 2200 };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class AIUnavailableError extends Error {}
 
@@ -47,10 +65,23 @@ export async function askStructured<T extends z.ZodType>(opts: {
   schema: T;
   effort?: "low" | "medium" | "high";
   maxTokens?: number;
+  /** 목업 모드에서 돌려줄 응답 (없으면 목업 모드에서도 실패 처리 → 대체 경로) */
+  mock?: () => z.infer<T> | Promise<z.infer<T>>;
+  mockDelayMs?: number;
 }): Promise<z.infer<T>> {
+  const model = MODELS[opts.tier];
+
+  if (aiMode() === "mock") {
+    if (!opts.mock) throw new AIUnavailableError("no mock for this task");
+    await sleep(opts.mockDelayMs ?? MOCK_DELAY_MS[opts.tier]);
+    const result = await opts.mock();
+    // 비용 화면을 확인할 수 있도록 대략적인 토큰 수를 기록 (모델 이름 앞에 mock: 표시)
+    logUsage(opts.task, `mock:${model}`, { input: Math.round((opts.system.length + opts.prompt.length) / 2), output: Math.round(JSON.stringify(result).length / 2), cacheRead: 0 }, true);
+    return result;
+  }
+
   const anthropic = getClient();
   if (!anthropic) throw new AIUnavailableError("AI is not configured");
-  const model = MODELS[opts.tier];
   const fallback = SUPPORTS_FALLBACK.test(model);
 
   let ok = false;

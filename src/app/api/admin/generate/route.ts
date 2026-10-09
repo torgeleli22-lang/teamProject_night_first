@@ -19,5 +19,5 @@ export async function POST(req: Request) {
   if (denied) return denied;
   const body = await parseBody(req, Body);
   if (body instanceof NextResponse) return body;
-  return NextResponse.json(await generateCodeSet({ ...body, reason: "관리자 사전 생성" }));
+  return NextResponse.json(await generateCodeSet({ ...body, trigger: "manual", reason: "관리자 수동 생성" }));
 }

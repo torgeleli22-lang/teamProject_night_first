@@ -1,4 +1,5 @@
 import "server-only";
+import type { Trigger } from "../content/policy";
 import type { Level } from "../types";
 import { getDb } from "./db";
 
@@ -44,6 +45,9 @@ export interface Job {
   id: number;
   concept: string;
   level: Level;
+  trigger: Trigger;
+  learnerId: string | null;
+  mock: boolean;
   status: "running" | "published" | "rejected" | "failed";
   reason: string;
   itemId: string | null;
@@ -56,6 +60,9 @@ interface JobRow {
   id: number;
   concept: string;
   level: number;
+  trigger: string;
+  learner_id: string | null;
+  mock: number;
   status: string;
   reason: string;
   item_id: string | null;
@@ -68,6 +75,9 @@ const toJob = (r: JobRow): Job => ({
   id: r.id,
   concept: r.concept,
   level: r.level as Level,
+  trigger: r.trigger as Trigger,
+  learnerId: r.learner_id,
+  mock: r.mock === 1,
   status: r.status as Job["status"],
   reason: r.reason,
   itemId: r.item_id,
@@ -76,10 +86,12 @@ const toJob = (r: JobRow): Job => ({
   finishedAt: r.finished_at,
 });
 
-export function createJob(concept: string, level: Level, reason: string): number {
+export function createJob(job: { concept: string; level: Level; trigger: Trigger; reason: string; learnerId?: string; mock: boolean }): number {
   const r = getDb()
-    .prepare("INSERT INTO generation_jobs (concept, level, status, reason, created_at) VALUES (?, ?, 'running', ?, ?)")
-    .run(concept, level, reason, Date.now());
+    .prepare(
+      "INSERT INTO generation_jobs (concept, level, status, trigger, reason, learner_id, mock, created_at) VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
+    )
+    .run(job.concept, job.level, job.trigger, job.reason, job.learnerId ?? null, job.mock ? 1 : 0, Date.now());
   return Number(r.lastInsertRowid);
 }
 
@@ -103,4 +115,61 @@ export function jobsSince(sinceMs: number): number {
 
 export function listJobs(limit = 20): Job[] {
   return (getDb().prepare("SELECT * FROM generation_jobs ORDER BY id DESC LIMIT ?").all(limit) as unknown as JobRow[]).map(toJob);
+}
+
+/** 이 학습자가 오늘 일으킨 맞춤 복습 생성 수 */
+export function personalJobsSince(learnerId: string, sinceMs: number): number {
+  return (
+    getDb()
+      .prepare("SELECT COUNT(*) AS n FROM generation_jobs WHERE learner_id = ? AND trigger = 'personal_review' AND created_at >= ?")
+      .get(learnerId, sinceMs) as { n: number }
+  ).n;
+}
+
+// ───────────────────────── 수요 신호 (칸을 소진한 학습자) ─────────────────────────
+
+export function recordDemand(concept: string, level: Level, learnerId: string) {
+  const db = getDb();
+  const since = Date.now() - 86400_000;
+  const exists = db
+    .prepare("SELECT 1 FROM demand_signals WHERE concept = ? AND level = ? AND learner_id = ? AND created_at >= ? LIMIT 1")
+    .get(concept, level, learnerId, since);
+  if (!exists) db.prepare("INSERT INTO demand_signals (concept, level, learner_id, created_at) VALUES (?, ?, ?, ?)").run(concept, level, learnerId, Date.now());
+}
+
+/** 최근 기간에 이 칸을 소진한 서로 다른 학습자 수 */
+export function demandCount(concept: string, level: Level, sinceMs: number): number {
+  return (
+    getDb()
+      .prepare("SELECT COUNT(DISTINCT learner_id) AS n FROM demand_signals WHERE concept = ? AND level = ? AND created_at >= ?")
+      .get(concept, level, sinceMs) as { n: number }
+  ).n;
+}
+
+export function demandByCell(sinceMs: number): Record<string, number> {
+  const rows = getDb()
+    .prepare("SELECT concept, level, COUNT(DISTINCT learner_id) AS n FROM demand_signals WHERE created_at >= ? GROUP BY concept, level")
+    .all(sinceMs) as { concept: string; level: number; n: number }[];
+  return Object.fromEntries(rows.map((r) => [`${r.concept}:${r.level}`, r.n]));
+}
+
+// ───────────────────────── 비용 추정 ─────────────────────────
+
+/** 표시·예산 판단용 추정 단가 (USD / 1M tokens). 실제 청구는 콘솔 기준 */
+export const PRICE: Record<string, { input: number; output: number; cacheRead: number }> = {
+  "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01 },
+};
+
+export function estimateCost(rows: UsageRow[]): number {
+  return rows.reduce((s, u) => {
+    const p = PRICE[u.model.replace(/^anthropic\./, "").replace(/^mock:/, "")];
+    return p ? s + (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead) / 1e6 : s;
+  }, 0);
+}
+
+export function monthToDateCostUsd(includeMock = false): number {
+  const d = new Date();
+  const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  return estimateCost(usageSummary(start).filter((u) => includeMock || !u.model.startsWith("mock:")));
 }

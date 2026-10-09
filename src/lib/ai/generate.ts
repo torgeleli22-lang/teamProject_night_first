@@ -5,9 +5,11 @@ import { computeFactors } from "../content/analyzer";
 import { validateItem, type ValidationReport } from "../content/validate";
 import { CONCEPTS, getConcept, levelInfo } from "../curriculum";
 import { saveGeneratedItem } from "../server/content-repo";
-import { createJob, finishJob, jobsSince, runningJob } from "../server/ops-repo";
+import { POLICY, isGeneratable, type Trigger } from "../content/policy";
+import { createJob, finishJob, jobsSince, monthToDateCostUsd, runningJob } from "../server/ops-repo";
 import type { ConceptId, Level, Question, Skill } from "../types";
-import { aiEnabled, askStructured } from "./client";
+import { AIUnavailableError, aiEnabled, aiMode, askStructured } from "./client";
+import { MOCK_GENERATIONS } from "./mock-content";
 
 /**
  * AI 콘텐츠 생성 파이프라인 (사용자가 문제를 풀 때마다가 아니라, 콘텐츠가 부족할 때만 실행).
@@ -153,6 +155,7 @@ async function reviewContent(g: Generated, actualOutput: string | null, level: L
     maxTokens: 4000,
     system: "당신은 프로그래밍 입문자용 학습 콘텐츠를 검수하는 꼼꼼한 검토자입니다. 사소한 표현 차이는 문제 삼지 말고, 학습자에게 잘못된 지식을 주거나 정답이 모호한 경우만 지적하세요.",
     schema: ReviewSchema,
+    mock: () => ({ approve: true, issues: [] }),
     prompt: [
       `목표 난이도: ${level} (${levelInfo(level).name} — ${levelInfo(level).description})`,
       `코드:\n\`\`\`js\n${g.code}\n\`\`\``,
@@ -180,25 +183,30 @@ export interface GenerateResult {
   error?: string;
 }
 
-/** 하루 최대 생성 횟수 (비용 상한) */
-const DAILY_LIMIT = Number(process.env.AI_GENERATION_DAILY_LIMIT ?? 30);
-
 export async function generateCodeSet(opts: {
   concept: ConceptId;
   level: Level;
+  /** 생성 기준 (policy.ts) */
+  trigger: Trigger;
   reason: string;
+  /** 맞춤 복습 생성을 일으킨 학습자 */
+  learnerId?: string;
   /** 학습자에게서 발견된 오개념/혼동 (개인화된 복습 콘텐츠) */
   focus?: string[];
 }): Promise<GenerateResult> {
-  if (!aiEnabled()) return { jobId: 0, status: "skipped", error: "AI 가 설정되어 있지 않습니다." };
-  if (!getConcept(opts.concept)) return { jobId: 0, status: "skipped", error: "알 수 없는 개념" };
-  if (runningJob(opts.concept, opts.level)) return { jobId: 0, status: "skipped", error: "같은 개념·난이도로 생성 중입니다." };
-  if (jobsSince(Date.now() - 86400_000) >= DAILY_LIMIT) return { jobId: 0, status: "skipped", error: "오늘의 생성 한도에 도달했습니다." };
+  const skip = (error: string): GenerateResult => ({ jobId: 0, status: "skipped", error });
+  if (!aiEnabled()) return skip("AI 가 설정되어 있지 않습니다.");
+  if (!getConcept(opts.concept)) return skip("알 수 없는 개념");
+  if (opts.trigger !== "manual" && !isGeneratable(opts.concept, opts.level)) return skip("AI 생성 대상이 아닌 칸입니다.");
+  if (runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
+  if (jobsSince(Date.now() - 86400_000) >= POLICY.dailyLimit) return skip("오늘의 생성 한도에 도달했습니다.");
+  if (aiMode() === "live" && monthToDateCostUsd() >= POLICY.monthlyBudgetUsd) return skip("이번 달 AI 예산에 도달했습니다.");
 
-  const jobId = createJob(opts.concept, opts.level, opts.reason);
+  const jobId = createJob({ ...opts, mock: aiMode() === "mock" });
   const concept = getConcept(opts.concept)!;
   const info = levelInfo(opts.level);
   let feedback = "";
+  let firstFailure = "";
 
   try {
     for (let round = 0; round < 2; round++) {
@@ -209,6 +217,12 @@ export async function generateCodeSet(opts: {
         maxTokens: 32000,
         system: GENERATOR_SYSTEM,
         schema: GeneratedSchema,
+        mockDelayMs: 2500,
+        mock: () => {
+          const pool = MOCK_GENERATIONS[opts.concept];
+          if (!pool) throw new AIUnavailableError(`목업 예시가 없는 개념입니다 (목업 지원: ${Object.keys(MOCK_GENERATIONS).join(", ")})`);
+          return pool[Math.min(round, pool.length - 1)] as Generated;
+        },
         prompt: [
           `중심 개념: ${concept.name} — ${concept.keyIdea}`,
           `난이도: Level ${opts.level} ${info.name} (${info.description}). 이 난이도의 주된 사고: ${info.skillLabel}.`,
@@ -242,6 +256,7 @@ export async function generateCodeSet(opts: {
         report.ok = review.approve;
       }
 
+      if (feedback) report.checks.unshift({ name: "1차 생성물이 검증에 실패해 재생성함", pass: true, detail: firstFailure });
       const lastRound = round === 1;
       if (report.ok || lastRound) {
         const status = report.ok ? "published" : "rejected";
@@ -265,7 +280,8 @@ export async function generateCodeSet(opts: {
         return { jobId, status, itemId, report, issues };
       }
       // 실패한 검증 항목을 알려주고 한 번 더 생성
-      feedback = `이전 생성물이 자동 검증에서 실패했습니다. 다음 문제를 고쳐서 처음부터 다시 만드세요:\n${failed(report)}`;
+      firstFailure = failed(report);
+      feedback = `이전 생성물이 자동 검증에서 실패했습니다. 다음 문제를 고쳐서 처음부터 다시 만드세요:\n${firstFailure}`;
     }
     throw new Error("unreachable");
   } catch (err) {

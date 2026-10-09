@@ -40,6 +40,8 @@ export interface NewAttempt {
   misconception: string | null;
   gradedBy: GradedBy;
   answer: Answer;
+  /** 데모 데이터용: 과거 시점으로 기록 */
+  createdAt?: number;
 }
 
 export function insertAttempt(a: NewAttempt): number {
@@ -62,7 +64,7 @@ export function insertAttempt(a: NewAttempt): number {
       a.misconception,
       a.gradedBy,
       JSON.stringify(a.answer),
-      Date.now(),
+      a.createdAt ?? Date.now(),
     );
   return Number(result.lastInsertRowid);
 }

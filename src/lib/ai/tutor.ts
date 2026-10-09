@@ -2,7 +2,7 @@ import "server-only";
 import * as z from "zod/v4";
 import { getConcept } from "../curriculum";
 import type { RuleEvaluation } from "../grading";
-import type { CodeItem, ConceptCheck, ShortAnswerQuestion, Question } from "../types";
+import type { CodeItem, ConceptCheck, Question, ShortAnswerQuestion } from "../types";
 import { askStructured, withFallback } from "./client";
 import { questionContext, TUTOR_SYSTEM } from "./prompts";
 
@@ -59,6 +59,7 @@ export async function evaluateShortAnswer(
       maxTokens: 8000,
       system: TUTOR_SYSTEM,
       schema: EvaluationSchema,
+      mock: () => mockEvaluation(q, text, rule),
       prompt: [
         questionContext(q, item),
         `모범 답안: ${q.modelAnswer}`,
@@ -75,6 +76,29 @@ export async function evaluateShortAnswer(
     });
     return { ...r, gradedBy: "ai" as const };
   }, fromRule);
+}
+
+/** 목업: 규칙 평가 결과를 AI 가 쓴 것 같은 문장으로 풀어 쓴다 */
+function mockEvaluation(q: ShortAnswerQuestion, text: string, rule: RuleEvaluation): z.infer<typeof EvaluationSchema> {
+  const good = rule.checks.filter((c) => c.level === "good").map((c) => c.label);
+  const missing = rule.checks.filter((c) => c.level === "weak").map((c) => c.label);
+  const m = rule.misconceptions[0];
+  const verdict = m ? (good.length === rule.checks.length ? "partial" : "incorrect") : rule.verdict;
+  return {
+    verdict,
+    headline: m && good.length === rule.checks.length ? "정답 요소는 담겼는데, 한 가지 오해가 보여요" : verdict === "correct" ? "정확하게 설명했어요!" : verdict === "partial" ? "거의 다 왔어요" : "같이 다시 짚어 볼까요?",
+    explanation: [
+      good.length ? `${good.join(", ")}은(는) 잘 짚었어요.` : `"${text.slice(0, 30)}${text.length > 30 ? "…" : ""}" 라고 적어 주셨네요.`,
+      m ? `그런데 '${m.label}' 부분은 실제 동작과 달라요.` : "",
+      missing.length ? `${missing.join(", ")}까지 설명하면 완벽해요.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    checks: rule.checks.map((c) => ({ ...c, comment: c.level === "good" ? "자신의 말로 잘 설명했어요." : "설명에서 빠져 있어요." })),
+    misconception: m?.label ?? null,
+    correction: m?.correction ?? null,
+    nextTip: q.keyPoint,
+  };
 }
 
 function ruleFeedback(q: ShortAnswerQuestion, rule: RuleEvaluation): ShortAnswerFeedback {
@@ -96,6 +120,19 @@ function ruleFeedback(q: ShortAnswerQuestion, rule: RuleEvaluation): ShortAnswer
 }
 
 // ───────────────────────── 문제에 대해 질문하기 ─────────────────────────
+
+function mockChat(q: Question, item: CodeItem, question: string, solved: boolean): string {
+  const concept = getConcept(item.concepts[0]);
+  const firstLine = item.code.split("\n").find((l) => l.trim()) ?? "";
+  if (/어디|모르겠|시작/.test(question)) {
+    return `좋은 질문이에요. 먼저 첫 줄 \`${firstLine.trim()}\` 에서 어떤 값이 만들어지는지부터 적어 보세요. 그다음 줄마다 '이 줄이 끝나면 값이 어떻게 바뀌었지?'를 하나씩 따라가면 돼요. 어느 줄에서 막혔나요?`;
+  }
+  if (/예시|다른/.test(question) && concept) {
+    return `${concept.name}을(를) 다른 예시로 볼게요.\n\n${concept.example}\n\n핵심은 '${concept.keyIdea}' 예요. 지금 문제 코드와 어떤 점이 같은지 찾아볼까요?`;
+  }
+  if (solved) return `이 문제의 핵심은 '${q.keyPoint}' 예요. ${concept?.summary ?? ""}`;
+  return `정답을 바로 알려드리기보다 힌트를 드릴게요. ${concept ? `이 코드는 '${concept.name}'이 핵심이에요 — ${concept.keyIdea}.` : ""} 이 생각을 바탕으로 코드를 한 줄씩 다시 읽어 보세요.`;
+}
 
 const AskSchema = z.object({ answer: z.string().describe("2~5문장의 답변. 필요하면 되묻는 질문으로 마무리") });
 
@@ -119,6 +156,7 @@ export async function askAboutQuestion(
         maxTokens: 4000,
         system: TUTOR_SYSTEM,
         schema: AskSchema,
+        mock: () => ({ answer: mockChat(q, item, question, solved) }),
         prompt: [
           questionContext(q, item),
           solved

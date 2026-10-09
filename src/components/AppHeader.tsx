@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { aiMode } from "@/lib/ai/client";
 import { learnerLevel, streakDays, totalXp } from "@/lib/learner/stats";
 import { currentLearner } from "@/lib/server/learner";
 import { listAttempts } from "@/lib/server/learner-repo";
@@ -11,7 +12,15 @@ export async function AppHeader() {
   const { level } = learnerLevel(xp);
   const streak = streakDays(attempts);
 
+  const mock = aiMode() === "mock";
+
   return (
+    <>
+    {mock && (
+      <div className="bg-sun-100 px-4 py-1.5 text-center text-xs font-semibold text-sun-600">
+        🧪 목업 AI 모드 — AI 응답은 흉내 낸 결과예요. <Link href="/demo" className="underline underline-offset-2">데모 데이터 바꾸기</Link>
+      </div>
+    )}
     <header className="sticky top-0 z-30 border-b border-ink-200/60 bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4">
         <Link href="/" className="flex items-center gap-2 font-bold tracking-tight text-ink-900">
@@ -31,5 +40,6 @@ export async function AppHeader() {
         )}
       </div>
     </header>
+    </>
   );
 }
