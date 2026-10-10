@@ -26,6 +26,32 @@ export interface ConceptStat {
   recentWrong: number;
 }
 
+/**
+ * 요약 테이블(concept_progress)로 개념별 통계를 만든다 — 화면에서는 이걸 쓴다 (전체 기록을 다시 읽지 않음).
+ * conceptStats(attempts) 와 같은 공식이다.
+ */
+export function conceptStatsFromProgress(
+  rows: { concept: ConceptId; attempts: number; correct: number; timeMs: number; recentQuality: number[]; recentResults: boolean[] }[],
+): Map<ConceptId, ConceptStat> {
+  const by = new Map(rows.map((r) => [r.concept, r]));
+  const out = new Map<ConceptId, ConceptStat>();
+  for (const c of CONCEPTS) {
+    const r = by.get(c.id);
+    const n = r?.attempts ?? 0;
+    const quality = r?.recentQuality.length ? r.recentQuality.reduce((s, q) => s + q, 0) / r.recentQuality.length : 0;
+    out.set(c.id, {
+      conceptId: c.id,
+      attempts: n,
+      correct: r?.correct ?? 0,
+      accuracy: n ? Math.round(((r?.correct ?? 0) / n) * 100) : 0,
+      mastery: Math.round(quality * Math.min(n / 3, 1) * 100),
+      avgTimeMs: n ? Math.round((r?.timeMs ?? 0) / n) : 0,
+      recentWrong: r?.recentResults.filter((ok) => !ok).length ?? 0,
+    });
+  }
+  return out;
+}
+
 export const MASTERED = 80;
 export const WEAK = 60;
 
@@ -150,7 +176,12 @@ export function dayKey(ms: number): string {
 }
 
 export function streakDays(attempts: Attempt[], now = Date.now()): number {
-  const days = new Set(attempts.map((a) => dayKey(a.createdAt)));
+  return streakFromDays(attempts.map((a) => dayKey(a.createdAt)), now);
+}
+
+/** 캘린더 요약(공부한 날짜 목록)으로 연속 학습일 계산 */
+export function streakFromDays(dayList: string[], now = Date.now()): number {
+  const days = new Set(dayList);
   let cursor = now;
   if (!days.has(dayKey(cursor))) cursor -= 86400_000;
   let n = 0;

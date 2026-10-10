@@ -7,12 +7,13 @@ import { buildSeed } from "../content/seed";
 /**
  * 문제 DB + 학습 기록 DB (SQLite, Node 내장 node:sqlite).
  * - code_items / questions: 미리 만들어 둔 학습 콘텐츠 (시드 + AI 생성)
- * - attempts: 문제 풀이 기록 (정답, 시간, 힌트, 채점 주체)
- * - analyses: 일정 문제 수마다 수행한 AI 학습자 분석
+ * - sessions: 로그인 없는 브라우저 세션 (일정 시간 쓰지 않으면 학습 기록과 함께 삭제)
+ * - attempts / daily_activity / concept_progress / analyses: 세션의 학습 기록과 요약
  * - generation_jobs: AI 콘텐츠 생성 요청과 검증 결과
  * - ai_usage: AI 호출 기록 (비용 관리)
  */
 const SCHEMA = `
+-- ───────────── ① 문제 그룹: 모든 사용자가 함께 읽는 콘텐츠 ─────────────
 CREATE TABLE IF NOT EXISTS code_items (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -35,15 +36,23 @@ CREATE TABLE IF NOT EXISTS questions (
   payload TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS questions_item ON questions(code_item_id);
-CREATE TABLE IF NOT EXISTS learners (
+
+-- ───────────── ② 사용자 그룹: 지금은 로그인 없이 브라우저 세션 단위 ─────────────
+-- (로그인을 붙이면 users 테이블을 추가하고 세션을 계정에 연결한다)
+CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   preferred_level INTEGER,
   daily_goal INTEGER NOT NULL DEFAULT 5,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS sessions_seen ON sessions(last_seen_at);
+
+-- ───────────── ③ 학습 기록 그룹: 세션이 끝나면 함께 삭제 ─────────────
+-- 문제 풀이 기록 (이전 문제 피하기, 틀린 문제 다시 내기, 상세 기록)
 CREATE TABLE IF NOT EXISTS attempts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  learner_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   question_id TEXT NOT NULL,
   code_item_id TEXT NOT NULL,
   question_type TEXT NOT NULL,
@@ -58,31 +67,59 @@ CREATE TABLE IF NOT EXISTS attempts (
   answer TEXT,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS attempts_learner ON attempts(learner_id, created_at);
+CREATE INDEX IF NOT EXISTS attempts_session ON attempts(session_id, created_at);
+-- 캘린더용 하루 요약 (세션 × 날짜당 1줄): 캘린더·연속 학습·오늘의 목표는 이것만 읽는다
+CREATE TABLE IF NOT EXISTS daily_activity (
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  solved INTEGER NOT NULL DEFAULT 0,
+  correct INTEGER NOT NULL DEFAULT 0,
+  time_ms INTEGER NOT NULL DEFAULT 0,
+  xp INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (session_id, day)
+);
+-- 개념별 이해도 요약 (세션 × 개념당 1줄): 풀 때마다 그 줄만 갱신하고 전체 기록을 다시 계산하지 않는다
+CREATE TABLE IF NOT EXISTS concept_progress (
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  concept TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  correct INTEGER NOT NULL DEFAULT 0,
+  time_ms INTEGER NOT NULL DEFAULT 0,
+  recent_quality TEXT NOT NULL DEFAULT '[]',
+  recent_results TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (session_id, concept)
+);
+-- 10문제마다 하는 AI 학습 분석
 CREATE TABLE IF NOT EXISTS analyses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  learner_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   attempt_count INTEGER NOT NULL,
   result TEXT NOT NULL,
   source TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS analyses_learner ON analyses(learner_id, created_at);
+CREATE INDEX IF NOT EXISTS analyses_session ON analyses(session_id, created_at);
+
+-- ───────────── 운영 그룹: 콘텐츠 생성과 비용 관리 (개인 기록 아님) ─────────────
 CREATE TABLE IF NOT EXISTS generation_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   concept TEXT NOT NULL,
   level INTEGER NOT NULL,
   status TEXT NOT NULL,
+  trigger TEXT NOT NULL DEFAULT 'manual',
   reason TEXT NOT NULL,
+  session_id TEXT,
+  mock INTEGER NOT NULL DEFAULT 0,
   item_id TEXT,
   error TEXT,
   created_at INTEGER NOT NULL,
   finished_at INTEGER
 );
+-- 칸(개념 × 난이도)을 다 푼 세션 수 — 생성 기준의 '수요'. 문제 내용이나 답은 저장하지 않는다
 CREATE TABLE IF NOT EXISTS demand_signals (
   concept TEXT NOT NULL,
   level INTEGER NOT NULL,
-  learner_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS demand_cell ON demand_signals(concept, level, created_at);
@@ -105,19 +142,29 @@ function open(): DatabaseSync {
   if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  migrateLegacy(db);
   db.exec(SCHEMA);
-  migrate(db);
   syncSeed(db);
   return db;
 }
 
-/** 이미 만들어진 DB 에 새 컬럼 추가 */
-function migrate(db: DatabaseSync) {
+/**
+ * 예전 구조(익명 쿠키 learners)로 만들어진 개발용 DB 정리.
+ * 학습 기록은 세션 단위로 바뀌었으므로 예전 기록 테이블은 지우고 새로 만든다 (콘텐츠는 유지).
+ */
+function migrateLegacy(db: DatabaseSync) {
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name);
   const has = (table: string, column: string) =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
-  if (!has("generation_jobs", "trigger")) db.exec("ALTER TABLE generation_jobs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'");
-  if (!has("generation_jobs", "learner_id")) db.exec("ALTER TABLE generation_jobs ADD COLUMN learner_id TEXT");
-  if (!has("generation_jobs", "mock")) db.exec("ALTER TABLE generation_jobs ADD COLUMN mock INTEGER NOT NULL DEFAULT 0");
+  if (tables.includes("learners")) {
+    db.exec("DROP TABLE IF EXISTS attempts; DROP TABLE IF EXISTS analyses; DROP TABLE IF EXISTS demand_signals; DROP TABLE learners;");
+  }
+  if (tables.includes("generation_jobs")) {
+    if (!has("generation_jobs", "trigger")) db.exec("ALTER TABLE generation_jobs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'");
+    if (!has("generation_jobs", "mock")) db.exec("ALTER TABLE generation_jobs ADD COLUMN mock INTEGER NOT NULL DEFAULT 0");
+    if (has("generation_jobs", "learner_id")) db.exec("ALTER TABLE generation_jobs RENAME COLUMN learner_id TO session_id");
+    else if (!has("generation_jobs", "session_id")) db.exec("ALTER TABLE generation_jobs ADD COLUMN session_id TEXT");
+  }
 }
 
 /** 코드에 들어 있는 시드 콘텐츠를 DB 와 동기화한다 (AI 생성 콘텐츠는 건드리지 않음) */

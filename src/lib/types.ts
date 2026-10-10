@@ -167,7 +167,7 @@ export type GradedBy = "rule" | "ai";
 
 export interface Attempt {
   id: number;
-  learnerId: string;
+  sessionId: string;
   questionId: string;
   codeItemId: string;
   questionType: QuestionType;

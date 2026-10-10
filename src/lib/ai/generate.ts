@@ -190,7 +190,7 @@ export async function generateCodeSet(opts: {
   trigger: Trigger;
   reason: string;
   /** 맞춤 복습 생성을 일으킨 학습자 */
-  learnerId?: string;
+  sessionId?: string;
   /** 학습자에게서 발견된 오개념/혼동 (개인화된 복습 콘텐츠) */
   focus?: string[];
 }): Promise<GenerateResult> {

@@ -6,7 +6,7 @@ import { DifficultyDots } from "@/components/ui";
 import { postJSON } from "@/lib/api";
 import { levelInfo, QUESTION_TYPE_LABEL as TYPE_LABEL, SKILL_LABEL } from "@/lib/curriculum";
 import type { AttemptResult } from "@/lib/server/grade";
-import type { PublicQuestion } from "@/lib/server/session";
+import type { PublicQuestion } from "@/lib/server/planner";
 import type { Answer } from "@/lib/types";
 import { ChoiceInput, ShuffleInput, TextAnswer } from "./AnswerInputs";
 import { ConceptSheet } from "./ConceptSheet";

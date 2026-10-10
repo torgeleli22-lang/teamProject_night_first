@@ -7,7 +7,7 @@ import { Spinner, UnderstandingChip } from "@/components/ui";
 import { postJSON } from "@/lib/api";
 import type { ShortAnswerFeedback } from "@/lib/ai/tutor";
 import type { AttemptResult, TutorNote } from "@/lib/server/grade";
-import type { PublicQuestion } from "@/lib/server/session";
+import type { PublicQuestion } from "@/lib/server/planner";
 import { TutorChat } from "./TutorChat";
 
 interface Props {

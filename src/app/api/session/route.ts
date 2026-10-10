@@ -8,10 +8,10 @@ import { misconceptionCounts } from "@/lib/learner/stats";
 import { LevelSchema, QuestionTypeSchema } from "@/lib/schemas";
 import { coverage } from "@/lib/server/content-repo";
 import { parseBody } from "@/lib/server/http";
-import { currentLearner } from "@/lib/server/learner";
-import { listAttempts, setPreferredLevel } from "@/lib/server/learner-repo";
+import { currentSession } from "@/lib/server/visitor";
+import { listAttempts, setPreferredLevel } from "@/lib/server/session-repo";
 import { demandCount, recordDemand, runningJob } from "@/lib/server/ops-repo";
-import { planSession } from "@/lib/server/session";
+import { planSession } from "@/lib/server/planner";
 
 const Body = z.object({
   level: LevelSchema,
@@ -29,9 +29,9 @@ const Body = z.object({
 export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (body instanceof NextResponse) return body;
-  const learner = await currentLearner();
-  if (!body.exclude) setPreferredLevel(learner.id, body.level);
-  const attempts = listAttempts(learner.id);
+  const me = await currentSession();
+  if (!body.exclude) setPreferredLevel(me.id, body.level);
+  const attempts = listAttempts(me.id);
   const plan = planSession({ ...body, attempts });
 
   const concept = plan.focusConcept;
@@ -40,13 +40,13 @@ export async function POST(req: Request) {
   // 이번 학습자가 소진한 상태라면 수요에 포함해서 판단
   const exhausted = plan.unsolvedAtLevel < POLICY.learnerLow;
   const decision = decideOnSession({ concept, level: body.level, stock, unsolved: plan.unsolvedAtLevel, demand: demand + (exhausted ? 1 : 0) });
-  if (!decision.generate && decision.recordDemand) recordDemand(concept, body.level, learner.id);
+  if (!decision.generate && decision.recordDemand) recordDemand(concept, body.level, me.id);
 
   let generating = !!runningJob(concept, body.level);
   if (decision.generate && aiEnabled() && !generating) {
     generating = true;
     const focus = misconceptionCounts(attempts.filter((a) => a.concepts.includes(concept))).slice(0, 3).map((m) => m.text);
-    after(() => generateCodeSet({ concept, level: body.level, trigger: decision.trigger, reason: decision.reason, learnerId: learner.id, focus }));
+    after(() => generateCodeSet({ concept, level: body.level, trigger: decision.trigger, reason: decision.reason, sessionId: me.id, focus }));
   }
   return NextResponse.json({ ...plan, generating, generation: { stock, demand, decision } });
 }

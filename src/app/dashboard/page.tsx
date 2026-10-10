@@ -1,26 +1,24 @@
 import Link from "next/link";
+import { ActivityCalendar } from "@/components/ActivityCalendar";
 import { ResetButton } from "@/components/ResetButton";
+import { SessionNotice } from "@/components/SessionNotice";
 import { TutorAnalysisCard } from "@/components/TutorAnalysisCard";
 import { ProgressBar, SectionTitle, masteryTone } from "@/components/ui";
 import { ANALYSIS_EVERY, type LearnerAnalysis } from "@/lib/ai/analysis";
 import { CONCEPTS, QUESTION_TYPE_LABEL, conceptName, getUnit, levelInfo } from "@/lib/curriculum";
 import {
   badges,
-  conceptStats,
   currentUnitId,
-  dayKey,
-  learnerLevel,
   misconceptionCounts,
   overallProgress,
   repeatedWrong,
-  streakDays,
-  totalXp,
   typeStats,
   xpForAttempt,
 } from "@/lib/learner/stats";
 import { getQuestion } from "@/lib/server/content-repo";
-import { currentLearner } from "@/lib/server/learner";
-import { latestAnalysis, listAttempts } from "@/lib/server/learner-repo";
+import { loadProgress } from "@/lib/server/progress";
+import { currentSession } from "@/lib/server/visitor";
+import { latestAnalysis, listAttempts } from "@/lib/server/session-repo";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "내 학습 — 코드리딩" };
@@ -36,8 +34,8 @@ function timeAgo(ts: number): string {
 }
 
 export default async function DashboardPage() {
-  const learner = await currentLearner();
-  const attempts = listAttempts(learner.id);
+  const me = await currentSession();
+  const attempts = listAttempts(me.id);
 
   if (attempts.length === 0) {
     return (
@@ -52,39 +50,30 @@ export default async function DashboardPage() {
     );
   }
 
-  const stats = conceptStats(attempts);
-  const xp = totalXp(attempts);
-  const lv = learnerLevel(xp);
-  const correct = attempts.filter((a) => a.correct).length;
-  const accuracy = Math.round((correct / attempts.length) * 100);
-  const avgTime = attempts.reduce((s, a) => s + a.timeMs, 0) / attempts.length;
+  // 요약 테이블: 개념별 이해도(concept_progress), 캘린더·XP·연속 학습(daily_activity)
+  const progress = loadProgress(me.id);
+  const { stats, xp } = progress;
+  const lv = progress.level;
+  const accuracy = Math.round((progress.totalCorrect / Math.max(progress.totalSolved, 1)) * 100);
+  const avgTime = progress.totalTimeMs / Math.max(progress.totalSolved, 1);
   const hints = attempts.reduce((s, a) => s + Math.min(a.hintsUsed, 4), 0);
   const unit = getUnit(currentUnitId(stats))!;
   const started = CONCEPTS.map((c) => stats.get(c.id)!).filter((s) => s.attempts > 0);
   const repeated = repeatedWrong(stats).slice(0, 4);
   const misconceptions = misconceptionCounts(attempts).slice(0, 4);
   const types = typeStats(attempts).sort((a, b) => b.attempts - a.attempts);
-  const analysis = latestAnalysis<LearnerAnalysis>(learner.id);
+  const analysis = latestAnalysis<LearnerAnalysis>(me.id);
   const aiGraded = attempts.filter((a) => a.gradedBy === "ai").length;
 
-  const last7 = Array.from({ length: 7 }, (_, i) => {
-    const t = Date.now() - (6 - i) * 86400_000;
-    const key = dayKey(t);
-    return {
-      key,
-      label: ["일", "월", "화", "수", "목", "금", "토"][new Date(t + 9 * 3600_000).getUTCDay()],
-      count: attempts.filter((a) => dayKey(a.createdAt) === key).length,
-    };
-  });
-  const maxDay = Math.max(...last7.map((d) => d.count), 1);
 
   return (
     <div className="mx-auto max-w-4xl px-4 pb-28 pt-8 sm:pb-16">
       <h1 className="text-[26px] font-extrabold tracking-tight">내 학습</h1>
       <p className="mt-1 text-ink-500">
         {unit.emoji} 지금은 <b className="text-ink-700">{unit.title}</b> 단원을 공부하고 있어요
-        {learner.preferredLevel && <> · 선택한 난이도 {levelInfo(learner.preferredLevel).emoji} {levelInfo(learner.preferredLevel).name}</>}
+        {me.preferredLevel && <> · 선택한 난이도 {levelInfo(me.preferredLevel).emoji} {levelInfo(me.preferredLevel).name}</>}
       </p>
+      <SessionNotice />
 
       <section className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="card col-span-2 p-5">
@@ -95,9 +84,9 @@ export default async function DashboardPage() {
           <div className="mt-3">
             <ProgressBar value={(lv.current / lv.needed) * 100} label="다음 레벨까지" />
           </div>
-          <p className="mt-1.5 text-xs text-ink-400">다음 레벨까지 {lv.needed - lv.current} XP · 🔥 {streakDays(attempts)}일 연속</p>
+          <p className="mt-1.5 text-xs text-ink-400">다음 레벨까지 {lv.needed - lv.current} XP · 🔥 {progress.streak}일 연속</p>
         </div>
-        <Stat label="푼 문제" value={`${attempts.length}개`} sub={`정답률 ${accuracy}%`} />
+        <Stat label="푼 문제" value={`${progress.totalSolved}개`} sub={`정답률 ${accuracy}%`} />
         <Stat label="평균 풀이 시간" value={sec(avgTime)} sub={`힌트 ${hints}회 사용`} />
       </section>
 
@@ -124,19 +113,8 @@ export default async function DashboardPage() {
 
         <div className="space-y-6">
           <section className="card p-5">
-            <SectionTitle>최근 7일</SectionTitle>
-            <div className="flex h-24 items-end justify-between gap-2">
-              {last7.map((d) => (
-                <div key={d.key} className="flex flex-1 flex-col items-center gap-1.5">
-                  <div
-                    className={`w-full max-w-[28px] rounded-lg ${d.count ? "bg-brand-500" : "bg-ink-100"}`}
-                    style={{ height: `${Math.max(8, (d.count / maxDay) * 72)}px` }}
-                    title={`${d.count}문제`}
-                  />
-                  <span className="text-xs text-ink-400">{d.label}</span>
-                </div>
-              ))}
-            </div>
+            <SectionTitle>학습 캘린더</SectionTitle>
+            <ActivityCalendar days={progress.days} />
           </section>
 
           <section className="card p-5">
@@ -160,7 +138,7 @@ export default async function DashboardPage() {
           {repeated.length > 0 && (
             <div className="mb-4 flex flex-wrap gap-2">
               {repeated.map((s) => (
-                <Link key={s.conceptId} href={`/practice?concept=${s.conceptId}&level=${learner.preferredLevel ?? 1}`} className="chip bg-sun-50 px-3 py-1.5 text-sm text-sun-600 hover:bg-sun-100">
+                <Link key={s.conceptId} href={`/practice?concept=${s.conceptId}&level=${me.preferredLevel ?? 1}`} className="chip bg-sun-50 px-3 py-1.5 text-sm text-sun-600 hover:bg-sun-100">
                   {conceptName(s.conceptId)} · 최근 {s.recentWrong}번 헷갈림 →
                 </Link>
               ))}

@@ -1,16 +1,14 @@
 import Link from "next/link";
 import { aiMode } from "@/lib/ai/client";
-import { learnerLevel, streakDays, totalXp } from "@/lib/learner/stats";
-import { currentLearner } from "@/lib/server/learner";
-import { listAttempts } from "@/lib/server/learner-repo";
+import { currentSession } from "@/lib/server/visitor";
+import { loadProgress } from "@/lib/server/progress";
 import { NavLinks } from "./NavLinks";
 
 export async function AppHeader() {
-  const learner = await currentLearner();
-  const attempts = listAttempts(learner.id);
-  const xp = totalXp(attempts);
-  const { level } = learnerLevel(xp);
-  const streak = streakDays(attempts);
+  const me = await currentSession();
+  // 요약 테이블(daily_activity)만 읽는다
+  const { xp, level: lv, streak, totalSolved } = loadProgress(me.id);
+  const level = lv.level;
 
   const mock = aiMode() === "mock";
 
@@ -28,7 +26,7 @@ export async function AppHeader() {
           <span className="text-[15px]">코드리딩</span>
         </Link>
         <NavLinks />
-        {attempts.length > 0 && (
+        {totalSolved > 0 && (
           <div className="ml-auto flex items-center gap-2 text-sm font-semibold">
             <span className="chip bg-sun-50 text-sun-600" title="연속 학습일">
               🔥 {streak}일

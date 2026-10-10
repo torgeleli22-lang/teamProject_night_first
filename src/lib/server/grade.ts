@@ -5,8 +5,8 @@ import { getConcept } from "../curriculum";
 import { xpForAttempt } from "../learner/stats";
 import type { Answer, ConceptCheck, GradedBy } from "../types";
 import { getQuestion } from "./content-repo";
-import { insertAttempt, type Learner } from "./learner-repo";
-import { unshuffle } from "./session";
+import { insertAttempt, type SessionInfo } from "./session-repo";
+import { unshuffle } from "./planner";
 
 /** AI Tutor 영역에 보여줄 내용 */
 export interface TutorNote {
@@ -38,7 +38,7 @@ export interface AttemptResult {
 }
 
 export async function gradeAttempt(
-  learner: Learner,
+  session: SessionInfo,
   questionId: string,
   /** null = 정답 보기(포기) */
   rawAnswer: Answer | null,
@@ -107,7 +107,7 @@ export async function gradeAttempt(
 
   const level = item.level;
   const attemptId = insertAttempt({
-    learnerId: learner.id,
+    sessionId: session.id,
     questionId: q.id,
     codeItemId: item.id,
     questionType: q.type,

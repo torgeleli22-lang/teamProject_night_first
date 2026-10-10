@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { LevelPicker } from "@/components/LevelPicker";
+import { SessionNotice } from "@/components/SessionNotice";
 import { TutorAnalysisCard } from "@/components/TutorAnalysisCard";
 import { ProgressBar, SectionTitle, masteryTone } from "@/components/ui";
 import { ANALYSIS_EVERY, type LearnerAnalysis } from "@/lib/ai/analysis";
 import { getConcept, getUnit, levelInfo } from "@/lib/curriculum";
-import { conceptStats, currentUnitId, overallProgress, solvedToday, streakDays, suggestLevel, weakConcepts } from "@/lib/learner/stats";
-import { currentLearner } from "@/lib/server/learner";
-import { latestAnalysis, listAttempts } from "@/lib/server/learner-repo";
-import { planSession } from "@/lib/server/session";
+import { currentUnitId, overallProgress, suggestLevel, weakConcepts } from "@/lib/learner/stats";
+import { loadProgress } from "@/lib/server/progress";
+import { currentSession } from "@/lib/server/visitor";
+import { latestAnalysis, listAttempts } from "@/lib/server/session-repo";
+import { planSession } from "@/lib/server/planner";
 import type { Level } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -21,18 +23,19 @@ const REASON: Record<string, (name: string) => string> = {
 };
 
 export default async function LearnHomePage() {
-  const learner = await currentLearner();
-  const attempts = listAttempts(learner.id);
-  const stats = conceptStats(attempts);
-  const level: Level = learner.preferredLevel ?? 1;
+  const me = await currentSession();
+  const attempts = listAttempts(me.id);
+  const progress = loadProgress(me.id);
+  const stats = progress.stats;
+  const level: Level = me.preferredLevel ?? 1;
   const suggestion = suggestLevel(attempts, level);
-  const analysis = latestAnalysis<LearnerAnalysis>(learner.id);
+  const analysis = latestAnalysis<LearnerAnalysis>(me.id);
   const plan = planSession({ attempts, level, size: 6 });
   const concept = getConcept(plan.focusConcept)!;
   const unit = getUnit(currentUnitId(stats))!;
-  const doneToday = solvedToday(attempts);
-  const goalMet = doneToday >= learner.dailyGoal;
-  const streak = streakDays(attempts);
+  const doneToday = progress.solvedToday;
+  const goalMet = doneToday >= me.dailyGoal;
+  const streak = progress.streak;
   const weak = weakConcepts(stats).slice(0, 2);
   const codes = new Set(plan.questions.map((q) => q.codeItemId)).size;
   const suggested = analysis?.result.recommendedLevel ?? (suggestion.direction !== "stay" ? suggestion.level : null);
@@ -45,6 +48,8 @@ export default async function LearnHomePage() {
           {attempts.length === 0 ? "오늘은 10분만 공부해볼까요?" : goalMet ? "오늘 목표 달성! 한 세트 더 해볼까요?" : "오늘도 코드 하나 읽어볼까요?"}
         </h1>
       </div>
+
+      <SessionNotice />
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.25fr_1fr]">
         {/* 오늘의 학습 */}
@@ -83,13 +88,13 @@ export default async function LearnHomePage() {
               <div>
                 <p className="text-sm font-semibold text-ink-500">오늘의 목표</p>
                 <p className="mt-1 text-2xl font-extrabold">
-                  {Math.min(doneToday, learner.dailyGoal)} <span className="text-base font-bold text-ink-400">/ {learner.dailyGoal} 문제</span>
+                  {Math.min(doneToday, me.dailyGoal)} <span className="text-base font-bold text-ink-400">/ {me.dailyGoal} 문제</span>
                 </p>
               </div>
               <p className="text-sm text-ink-400">{streak > 0 ? `🔥 ${streak}일 연속` : "첫 기록을 남겨보세요"}</p>
             </div>
             <div className="mt-3">
-              <ProgressBar value={(doneToday / learner.dailyGoal) * 100} tone={goalMet ? "mint" : "brand"} label="오늘의 목표" />
+              <ProgressBar value={(doneToday / me.dailyGoal) * 100} tone={goalMet ? "mint" : "brand"} label="오늘의 목표" />
             </div>
             <p className="mt-4 text-sm font-semibold text-ink-500">전체 진행률 {overallProgress(stats)}%</p>
             <div className="mt-2">

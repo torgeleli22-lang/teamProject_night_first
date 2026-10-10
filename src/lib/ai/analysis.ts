@@ -6,9 +6,9 @@ import { decidePersonal } from "../content/policy";
 import { conceptStats, misconceptionCounts, repeatedWrong, strongConcepts, suggestLevel, typeStats, weakConcepts } from "../learner/stats";
 import { coverage } from "../server/content-repo";
 import { personalJobsSince } from "../server/ops-repo";
-import { unsolvedCount } from "../server/session";
+import { unsolvedCount } from "../server/planner";
 import { getQuestion } from "../server/content-repo";
-import { insertAnalysis, latestAnalysis, listAttempts, recentShortAnswers } from "../server/learner-repo";
+import { insertAnalysis, latestAnalysis, listAttempts, recentShortAnswers } from "../server/session-repo";
 import type { ConceptId, Level } from "../types";
 import { askStructured, withFallback } from "./client";
 import { TUTOR_SYSTEM } from "./prompts";
@@ -47,19 +47,19 @@ const AnalysisSchema = z.object({
 });
 
 /** 새로 푼 문제가 ANALYSIS_EVERY 개 이상 쌓였는지 */
-export function analysisDue(learnerId: string, attemptCount: number): boolean {
-  const last = latestAnalysis(learnerId);
+export function analysisDue(sessionId: string, attemptCount: number): boolean {
+  const last = latestAnalysis(sessionId);
   return attemptCount - (last?.attemptCount ?? 0) >= ANALYSIS_EVERY;
 }
 
 /** 학습 기록을 분석해 저장한다. AI 가 없으면 규칙 기반 요약을 저장한다. */
-export async function runLearnerAnalysis(learnerId: string, preferredLevel: Level | null): Promise<void> {
-  const attempts = listAttempts(learnerId);
+export async function runLearnerAnalysis(sessionId: string, preferredLevel: Level | null): Promise<void> {
+  const attempts = listAttempts(sessionId);
   if (attempts.length === 0) return;
   const stats = conceptStats(attempts);
   const attempted = [...stats.values()].filter((s) => s.attempts > 0);
   const misconceptions = misconceptionCounts(attempts).slice(0, 6);
-  const previous = latestAnalysis<LearnerAnalysis>(learnerId);
+  const previous = latestAnalysis<LearnerAnalysis>(sessionId);
 
   const ruleResult = (): { result: LearnerAnalysis; source: "ai" | "rule" } => {
     const weak = weakConcepts(stats);
@@ -79,7 +79,7 @@ export async function runLearnerAnalysis(learnerId: string, preferredLevel: Leve
   };
 
   const { result, source } = await withFallback(async () => {
-    const shortAnswers = recentShortAnswers(learnerId, 5).map((s) => ({
+    const shortAnswers = recentShortAnswers(sessionId, 5).map((s) => ({
       question: getQuestion(s.questionId)?.question.prompt ?? s.questionId,
       answer: s.text.slice(0, 400),
       correct: s.correct,
@@ -145,7 +145,7 @@ export async function runLearnerAnalysis(learnerId: string, preferredLevel: Leve
     return { result: { ...r, recommendedLevel: (r.recommendedLevel as Level | null) ?? null }, source: "ai" as "ai" | "rule" };
   }, ruleResult);
 
-  insertAnalysis(learnerId, attempts.length, result, source);
+  insertAnalysis(sessionId, attempts.length, result, source);
 
   // 혼동이 발견되면 그 개념의 맞춤 복습 세트를 만들지 판단한다 (policy.ts: personal_review)
   const confusion = result.confusions.find((c) => c.concepts.length > 0);
@@ -157,10 +157,10 @@ export async function runLearnerAnalysis(learnerId: string, preferredLevel: Leve
       level,
       stock: coverage().get(`${concept}:${level}`) ?? 0,
       unsolved: unsolvedCount(attempts, concept, level),
-      personalToday: personalJobsSince(learnerId, Date.now() - 86400_000),
+      personalToday: personalJobsSince(sessionId, Date.now() - 86400_000),
     });
     if (decision.generate) {
-      await generateCodeSet({ concept, level, trigger: decision.trigger, reason: `${decision.reason}: ${confusion.description}`, learnerId, focus: [confusion.description] });
+      await generateCodeSet({ concept, level, trigger: decision.trigger, reason: `${decision.reason}: ${confusion.description}`, sessionId, focus: [confusion.description] });
     }
   }
 }

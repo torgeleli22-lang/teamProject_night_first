@@ -2,7 +2,7 @@ import "server-only";
 import { runLearnerAnalysis } from "../ai/analysis";
 import type { Answer, Level, Question } from "../types";
 import { loadContent } from "./content-repo";
-import { insertAttempt, resetLearner, setPreferredLevel } from "./learner-repo";
+import { insertAttempt, resetSession, setPreferredLevel } from "./session-repo";
 
 /**
  * UI/UX 확인용 데모 학습자. 현재 브라우저의 학습자 기록을 지우고 가상의 풀이 기록을 넣는다.
@@ -72,11 +72,11 @@ function fakeAnswer(q: Question, correct: boolean): { answer: Answer; misconcept
   }
 }
 
-export async function loadPersona(learnerId: string, persona: Persona) {
-  resetLearner(learnerId);
+export async function loadPersona(sessionId: string, persona: Persona) {
+  resetSession(sessionId);
   if (persona === "empty") return;
   const { level, days, plans } = PLANS[persona];
-  setPreferredLevel(learnerId, level);
+  setPreferredLevel(sessionId, level);
   const { items, byItem } = loadContent();
 
   // 시간 순서대로 하루에 몇 문제씩 나눠서 기록
@@ -93,7 +93,7 @@ export async function loadPersona(learnerId: string, persona: Persona) {
       const { answer, misconception } = fakeAnswer(pick.q, correct);
       const dayOffset = days - 1 - Math.floor((n / total) * days);
       insertAttempt({
-        learnerId,
+        sessionId,
         questionId: pick.q.id,
         codeItemId: pick.item.id,
         questionType: pick.q.type,
@@ -112,5 +112,5 @@ export async function loadPersona(learnerId: string, persona: Persona) {
     });
   }
   // 10문제마다 하는 학습자 분석을 데모에서도 한 번 실행 (목업 모드면 AI 흉내, 아니면 규칙 기반)
-  await runLearnerAnalysis(learnerId, level);
+  await runLearnerAnalysis(sessionId, level);
 }

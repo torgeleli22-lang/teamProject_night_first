@@ -4,8 +4,8 @@ import { analysisDue, runLearnerAnalysis } from "@/lib/ai/analysis";
 import { AnswerSchema } from "@/lib/schemas";
 import { gradeAttempt } from "@/lib/server/grade";
 import { notFound, parseBody } from "@/lib/server/http";
-import { currentLearner } from "@/lib/server/learner";
-import { listAttempts } from "@/lib/server/learner-repo";
+import { currentSession } from "@/lib/server/visitor";
+import { attemptCount } from "@/lib/server/session-repo";
 
 const Body = z.object({
   questionId: z.string().max(120),
@@ -20,13 +20,13 @@ const Body = z.object({
 export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (body instanceof NextResponse) return body;
-  const learner = await currentLearner();
+  const me = await currentSession();
   if (!body.answer && !body.giveUp) return NextResponse.json({ error: "답을 입력해 주세요." }, { status: 400 });
-  const result = await gradeAttempt(learner, body.questionId, body.giveUp ? null : body.answer!, body.hintsUsed, body.timeMs);
+  const result = await gradeAttempt(me, body.questionId, body.giveUp ? null : body.answer!, body.hintsUsed, body.timeMs);
   if (!result) return notFound("문제");
 
-  const count = listAttempts(learner.id).length;
-  const analyzing = analysisDue(learner.id, count);
-  if (analyzing) after(() => runLearnerAnalysis(learner.id, learner.preferredLevel));
+  const count = attemptCount(me.id);
+  const analyzing = analysisDue(me.id, count);
+  if (analyzing) after(() => runLearnerAnalysis(me.id, me.preferredLevel));
   return NextResponse.json({ ...result, analyzing });
 }

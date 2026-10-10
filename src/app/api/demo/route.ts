@@ -3,7 +3,7 @@ import * as z from "zod/v4";
 import { aiMode } from "@/lib/ai/client";
 import { loadPersona, PERSONAS } from "@/lib/server/demo";
 import { parseBody } from "@/lib/server/http";
-import { currentLearner } from "@/lib/server/learner";
+import { currentSession } from "@/lib/server/visitor";
 
 export const maxDuration = 60;
 
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   }
   const body = await parseBody(req, Body);
   if (body instanceof NextResponse) return body;
-  const learner = await currentLearner();
-  await loadPersona(learner.id, body.persona);
+  const me = await currentSession();
+  await loadPersona(me.id, body.persona);
   return NextResponse.json({ ok: true });
 }
