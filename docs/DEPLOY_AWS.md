@@ -284,6 +284,7 @@ Caddy 가 Let's Encrypt 인증서를 자동으로 받아 `https://내도메인.c
 | 빌드 중 멈추거나 `Killed` | 메모리 부족 → 5단계 스왑 설정 확인 (`free -h`) |
 | `permission denied ... docker.sock` | 명령 앞에 `sudo` 를 붙이기 |
 | `git clone` 에서 인증 실패 | 비공개 저장소 → 비밀번호 자리에 Personal Access Token 입력 |
+| 로그에 `ENOSPC: no space left on device` | 디스크가 가득 참 → `df -h /` 확인 후 `sudo docker system prune -af` 로 정리 (실행 중인 컨테이너·볼륨의 데이터는 남아요). 자주 차면 EC2 → 볼륨 → **볼륨 수정**으로 20GiB 이상으로 늘리기 |
 | 이미지 빌드 중 `verify` 실패 | 시드 콘텐츠 문제 → 로컬에서 `npm run verify` 로 먼저 고치고 push |
 
 ---
