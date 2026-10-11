@@ -1,4 +1,3 @@
-import "server-only";
 import * as z from "zod/v4";
 import { getConcept } from "../curriculum";
 import type { RuleEvaluation } from "../grading";

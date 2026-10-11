@@ -1,8 +1,8 @@
-import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type * as z from "zod/v4";
-import { logUsage } from "../server/ops-repo";
+import { POLICY } from "../content/policy";
+import { logUsage, monthToDateCostUsd } from "../server/ops-repo";
 
 /**
  * 작업 난이도에 따라 모델을 나눈다 (AI 비용 관리 원칙 7).
@@ -76,12 +76,14 @@ export async function askStructured<T extends z.ZodType>(opts: {
     await sleep(opts.mockDelayMs ?? MOCK_DELAY_MS[opts.tier]);
     const result = await opts.mock();
     // 비용 화면을 확인할 수 있도록 대략적인 토큰 수를 기록 (모델 이름 앞에 mock: 표시)
-    logUsage(opts.task, `mock:${model}`, { input: Math.round((opts.system.length + opts.prompt.length) / 2), output: Math.round(JSON.stringify(result).length / 2), cacheRead: 0 }, true);
+    await logUsage(opts.task, `mock:${model}`, { input: Math.round((opts.system.length + opts.prompt.length) / 2), output: Math.round(JSON.stringify(result).length / 2), cacheRead: 0 }, true);
     return result;
   }
 
   const anthropic = getClient();
   if (!anthropic) throw new AIUnavailableError("AI is not configured");
+  // API 주소가 공개되어 있으므로, 이번 달 예산을 넘으면 모든 AI 호출을 멈추고 규칙 기반 대체 경로를 쓴다
+  if ((await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) throw new AIUnavailableError("monthly AI budget reached");
   const fallback = SUPPORTS_FALLBACK.test(model);
 
   let ok = false;
@@ -111,7 +113,7 @@ export async function askStructured<T extends z.ZodType>(opts: {
     return response.parsed_output as z.infer<T>;
   } finally {
     try {
-      logUsage(opts.task, model, usage, ok);
+      await logUsage(opts.task, model, usage, ok);
     } catch {
       /* 사용량 기록 실패가 학습을 막지 않도록 */
     }

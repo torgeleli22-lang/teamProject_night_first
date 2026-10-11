@@ -218,3 +218,12 @@ export function badges(attempts: Attempt[]): Badge[] {
     { id: "arrays", emoji: "🛠️", title: "배열 장인", description: "map·filter·forEach 익히기", earned: mastered(["map", "filter", "for-each"]) },
   ];
 }
+
+// ───────────────────────── 랭킹 ─────────────────────────
+
+/** 상위 몇 %인지 (1등이면 1명 중이어도 '상위 100%'가 아니라 최소 단위로 표시) */
+export function topPercent(rank: number, total: number): number {
+  if (total <= 0) return 100;
+  const pct = (rank / total) * 100;
+  return pct < 1 ? Math.max(0.1, Math.round(pct * 10) / 10) : Math.ceil(pct);
+}

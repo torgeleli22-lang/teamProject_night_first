@@ -7,15 +7,8 @@ import { DifficultyDots, ProgressBar, masteryTone } from "@/components/ui";
 import { CONCEPTS, LEVELS, QUESTION_TYPE_LABEL as TYPE_LABEL, UNITS } from "@/lib/curriculum";
 import type { Level, QuestionType } from "@/lib/types";
 
-export interface ExploreItem {
-  id: string;
-  title: string;
-  concepts: string[];
-  level: Level;
-  source: "seed" | "ai";
-  lines: number;
-  questions: { id: string; type: QuestionType; prompt: string; solved: boolean | null }[];
-}
+export type { ExploreItem } from "@/api/views";
+import type { ExploreItem } from "@/api/views";
 
 const TYPES = Object.keys(TYPE_LABEL) as QuestionType[];
 
@@ -69,7 +62,7 @@ export function ExploreClient({
           return (
             <section key={unit.id}>
               <h2 className="mb-3 flex items-center gap-2 font-extrabold">
-                <span className="grid h-9 w-9 place-items-center rounded-2xl bg-white text-lg shadow-card">{unit.emoji}</span>
+                <span className="grid h-9 w-9 place-items-center glass-soft rounded-2xl text-lg">{unit.emoji}</span>
                 {unit.title}
                 <span className="text-sm font-medium text-ink-400">{unit.description}</span>
               </h2>
@@ -174,7 +167,7 @@ function Chips({
             aria-checked={active}
             onClick={() => onChange(o.id || null)}
             className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${
-              active ? "bg-ink-900 text-white" : "bg-white text-ink-500 ring-1 ring-ink-200 hover:text-ink-900"
+              active ? "bg-ink-900 text-white" : "bg-white/60 text-ink-500 ring-1 ring-white/70 backdrop-blur hover:text-ink-900"
             }`}
           >
             {o.label}

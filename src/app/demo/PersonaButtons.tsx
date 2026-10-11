@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Spinner } from "@/components/ui";
-import { postJSON } from "@/lib/api";
+import { apiPost, notifyChanged } from "@/lib/api";
 
 export function PersonaButtons({ personas }: { personas: { id: string; label: string; description: string }[] }) {
   const router = useRouter();
@@ -14,9 +14,9 @@ export function PersonaButtons({ personas }: { personas: { id: string; label: st
     setLoading(id);
     setError(null);
     try {
-      await postJSON("/api/demo", { persona: id });
+      await apiPost("/demo", { persona: id });
+      notifyChanged();
       router.push(id === "empty" ? "/learn" : "/dashboard");
-      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "불러오지 못했어요.");
       setLoading(null);
@@ -35,6 +35,31 @@ export function PersonaButtons({ personas }: { personas: { id: string; label: st
         </button>
       ))}
       {error && <p className="text-sm text-coral-600 sm:col-span-3">{error}</p>}
+    </div>
+  );
+}
+
+export function PeerButtons() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const run = async (peers: "add" | "remove") => {
+    setLoading(true);
+    try {
+      await apiPost("/demo", { peers });
+      notifyChanged();
+      router.push("/ranking");
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" onClick={() => run("add")} disabled={loading} className="btn-primary px-5 py-2.5 text-sm">
+        {loading && <Spinner />} 가상 참가자 30명 추가
+      </button>
+      <button type="button" onClick={() => run("remove")} disabled={loading} className="btn-ghost px-5 py-2.5 text-sm">
+        가상 참가자 모두 지우기
+      </button>
     </div>
   );
 }

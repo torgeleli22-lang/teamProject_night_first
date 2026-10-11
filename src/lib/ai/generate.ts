@@ -1,4 +1,3 @@
-import "server-only";
 import crypto from "node:crypto";
 import * as z from "zod/v4";
 import { computeFactors } from "../content/analyzer";
@@ -198,11 +197,11 @@ export async function generateCodeSet(opts: {
   if (!aiEnabled()) return skip("AI 가 설정되어 있지 않습니다.");
   if (!getConcept(opts.concept)) return skip("알 수 없는 개념");
   if (opts.trigger !== "manual" && !isGeneratable(opts.concept, opts.level)) return skip("AI 생성 대상이 아닌 칸입니다.");
-  if (runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
-  if (jobsSince(Date.now() - 86400_000) >= POLICY.dailyLimit) return skip("오늘의 생성 한도에 도달했습니다.");
-  if (aiMode() === "live" && monthToDateCostUsd() >= POLICY.monthlyBudgetUsd) return skip("이번 달 AI 예산에 도달했습니다.");
+  if (await runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
+  if ((await jobsSince(Date.now() - 86400_000)) >= POLICY.dailyLimit) return skip("오늘의 생성 한도에 도달했습니다.");
+  if (aiMode() === "live" && (await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) return skip("이번 달 AI 예산에 도달했습니다.");
 
-  const jobId = createJob({ ...opts, mock: aiMode() === "mock" });
+  const jobId = await createJob({ ...opts, mock: aiMode() === "mock" });
   const concept = getConcept(opts.concept)!;
   const info = levelInfo(opts.level);
   let feedback = "";
@@ -260,7 +259,7 @@ export async function generateCodeSet(opts: {
       const lastRound = round === 1;
       if (report.ok || lastRound) {
         const status = report.ok ? "published" : "rejected";
-        saveGeneratedItem(
+        await saveGeneratedItem(
           {
             id: itemId,
             title: g.title,
@@ -276,7 +275,7 @@ export async function generateCodeSet(opts: {
           report,
           jobId,
         );
-        finishJob(jobId, status, itemId, report.ok ? null : failed(report));
+        await finishJob(jobId, status, itemId, report.ok ? null : failed(report));
         return { jobId, status, itemId, report, issues };
       }
       // 실패한 검증 항목을 알려주고 한 번 더 생성
@@ -286,7 +285,7 @@ export async function generateCodeSet(opts: {
     throw new Error("unreachable");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    finishJob(jobId, "failed", null, message);
+    await finishJob(jobId, "failed", null, message);
     return { jobId, status: "failed", error: message };
   }
 }

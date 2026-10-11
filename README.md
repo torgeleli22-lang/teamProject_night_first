@@ -1,27 +1,44 @@
 # 코드리딩 — AI 기반 인터랙티브 코드 읽기 학습 플랫폼
 
+> 📄 프로젝트 전체 설명(개요·기능·AI 원칙·아키텍처·DB·다음 할 일): [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md) — AI 코딩 도구에게 작업을 맡길 때도 이 문서를 먼저 읽게 하세요.
+
 > 코딩을 대신해주는 AI가 아니라, 코드를 읽고 이해하는 법을 가르쳐주는 AI.
 > AI가 문제를 많이 만들어주는 것이 아니라, 학습자가 무엇을 이해하지 못하고 있는지 파악하고 그에 맞는 문제를 만들어준다.
 
 개발 입문자가 **하나의 코드를 여러 질문(객관식·주관식·빈칸·셔플·실행 결과 예측·오류 찾기·역할 찾기)으로 읽으며** "이 코드를 보면 어떤 코드인지 이해할 수 있다" 수준에 도달하도록 돕는 웹서비스입니다. (MVP, JavaScript)
 
-## 빠른 시작
+## 구성
+
+```
+GitHub Pages (정적 화면: HTML/JS)  ──fetch──→  AWS Lambda 함수 URL (API: 채점·기록·추천·AI)  ──→  Aurora PostgreSQL
+        src/app, src/components                    src/api  +  src/lib                         (Data API)
+```
+
+- **화면**은 Next.js 정적 내보내기(`output: "export"`)로 만든 파일이라 서버가 없습니다. GitHub Pages 에 올립니다.
+- **API** 는 같은 저장소의 `src/api/` 를 Lambda 하나로 묶은 것입니다. 정답·해설·채점 기준은 API 밖으로 나가지 않습니다.
+- **로그인 없는 세션**: API 가 발급한 세션 id 를 브라우저 `sessionStorage` 에 둡니다. 창(탭)을 닫으면 사라지고, 서버 기록도 일정 시간 뒤 지워집니다.
+
+## 빠른 시작 (로컬)
 
 ```bash
 npm install
-cp .env.example .env.local   # ANTHROPIC_API_KEY 를 넣으면 AI 기능이 켜집니다
-npm run dev                  # http://localhost:3000  (관리자: /admin)
+cp .env.example .env        # API 설정 (기본: AI_MODE=mock, DB_DRIVER=sqlite)
+npm run api                 # 터미널 1: API  http://localhost:8787
+npm run dev                 # 터미널 2: 화면 http://localhost:3000  (관리자: /admin, 데모: /demo)
 ```
 
-`.env.example` 은 기본으로 `AI_MODE=mock` 입니다. **API 키나 AWS 없이도 AI 기능이 흉내 낸 응답으로 동작**해서 화면 흐름과 UI/UX 를 확인할 수 있고, 상단에 목업 모드 표시가 나옵니다. `/demo` 에서 학습자 상태(처음 온 학습자 / 꾸준한 학습자 / map·filter 를 혼동하는 학습자)를 바꾸고 확인할 시나리오를 따라가 보세요.
+`AI_MODE=mock` 이면 **API 키나 AWS 없이도 AI 기능이 흉내 낸 응답으로 동작**해서 화면 흐름과 UI/UX 를 확인할 수 있습니다. `/demo` 에서 학습자 상태를 바꾸고 확인할 시나리오를 따라가 보세요.
 
-Node.js 22.13 이상이 필요합니다 (내장 `node:sqlite` 사용, 별도 DB 설치 없음). DB 는 첫 실행 때 `data/app.db` 에 만들어지고 시드 콘텐츠가 자동으로 들어갑니다.
+Node.js 22.13 이상이 필요합니다. 로컬 DB 는 내장 `node:sqlite` 파일(`data/app.db`)이라 따로 설치할 것이 없습니다.
 
 | 스크립트 | 설명 |
 | --- | --- |
-| `npm run dev` / `build` / `start` | Next.js 개발 서버 / 빌드 / 실행 |
-| `npm test` | 채점·주관식 규칙 평가·콘텐츠 검증기 단위 테스트 |
-| `npm run verify` | 시드 콘텐츠 전체를 AI 생성 콘텐츠와 **같은 검증기**로 검사 (코드를 실제로 실행) |
+| `npm run api` | 로컬 API 서버 (Lambda 와 같은 코드) |
+| `npm run dev` / `build` | 화면 개발 서버 / 정적 빌드 (`out/`) |
+| `npm run build:lambda` | Lambda 배포 파일 `dist/lambda.zip` |
+| `npm test` | 단위 테스트 (채점, 검증기, 생성 기준, 랭킹, 화면·서버 경계, Data API 드라이버) |
+| `npm run verify` | 시드 콘텐츠 전체를 실제로 실행해 검증 |
+| `npm run smoke` | API 전체 흐름 점검 (`DB_DRIVER=postgres` 로 PostgreSQL 도) |
 | `npm run typecheck` | TypeScript 타입 검사 |
 
 ## 핵심 설계: AI 비용을 고려한 구조
@@ -45,7 +62,7 @@ AI 콘텐츠 생성 (관리자 사전 생성 / 콘텐츠 부족 시) ─→ 실�
 | 주관식 평가 | ① 규칙 평가(핵심 요소 키워드 + 오개념 패턴) → 모든 요소를 담고 오개념이 없으면 그대로 정답 처리 ② 너무 짧음·일부 누락·오개념 표현·판단 어려움일 때만 AI | 필요할 때만 (smart) |
 | "AI에게 자세히 분석 받기", "튜터에게 질문" | 학습자가 직접 요청할 때만 | 요청 시 (smart / fast) |
 | 점수·XP·진도·정답률·풀이 시간·유형별/개념별 통계 | 일반 로직 (`src/lib/learner/stats.ts`) | 없음 |
-| 다음 문제 추천 | 취약 개념 + 선택 난이도 + 문제 유형 + 맞힌 문제 제외 (`src/lib/server/session.ts`) | 없음 |
+| 다음 문제 추천 | 취약 개념 + 선택 난이도 + 문제 유형 + 맞힌 문제 제외 (`src/lib/server/planner.ts`) | 없음 |
 | 추천 난이도 | 선택 난이도의 최근 정답률·힌트 사용 (규칙). 자동으로 바꾸지 않음 | 없음 |
 | 학습자 분석 (혼동 개념, 추천 난이도, 집중할 개념) | 10문제마다 한 번 | 10문제당 1회 (smart) |
 | 새 콘텐츠 생성 | **생성 기준**(`docs/ai-generation-policy.md`): 출시 전 채우기 · 재고 하한 · 여러 학습자 소진 · 맞춤 복습. 백그라운드로 실행 | 기준에 해당할 때만 (smart + 검수 fast) |
@@ -80,12 +97,14 @@ AI 가 만든 콘텐츠는 그대로 쓰지 않습니다. 코드를 **격리된 
 | 경로 | 내용 |
 | --- | --- |
 | `/` | 랜딩 |
-| `/learn` | 학습 홈: 오늘의 학습, 난이도 선택(5단계 + 추천 표시), AI Tutor 학습 분석, 오늘의 목표 |
-| `/practice?level=3&concept=filter` | 문제 풀이 → AI Tutor 영역 + 해설 → 비슷한 문제 → 세션 결과 |
+| `/learn` | **학습 탭**: 난이도(5단계) + 문제 유형(객관식·실행 결과 예측·빈칸·셔플·오류 찾기·주관식, 여러 개 선택) + 개념(추천 / 전체 개념 / 직접 선택)으로 **아직 풀지 않은 새 문제** 시작. 오늘의 목표, AI 학습 분석 |
+| `/review` | **복습 탭**: 오답 노트(틀린 문제 다시 풀기, 맞히면 빠짐), 복습 세트(틀린 문제 → 취약 개념), 다지면 좋은 개념, 자주 하는 착각 |
+| `/ranking` | **랭킹**: XP 기준 내 등수·상위 %, 상위 10명, 랭킹 이름 바꾸기 (지금은 최근 12시간 안에 공부한 세션끼리 비교) |
+| `/practice?mode=learn&level=2&types=multiple_choice,find_bug` | 문제 풀이 → AI Tutor 영역 + 해설 → 비슷한 문제 → 세션 결과 (`mode=review`, `ids=문제id` 로 복습·다시 풀기) |
 | `/concepts` | 탐색: 단원·개념별 코드와 질문, 난이도·문제 유형 필터 |
 | `/dashboard` | 내 학습: 정답률·풀이 시간·힌트, 개념별 이해도, 문제 유형별 정답률, 반복 오답·오개념, AI 분석, 배지, 기록 |
 | `/admin` | 콘텐츠 관리: 생성 기준, 출시 전 채우기, 개념×난이도별 재고·수요, 생성 기록(트리거별), 검증 보고서, AI 사용량·추정 비용 |
-| `/demo` | 데모: 학습자 상태 바꾸기, UI/UX 확인 시나리오 |
+| `/demo` | 데모: 학습자 상태 바꾸기, 랭킹 확인용 가상 참가자 추가/삭제, UI/UX 확인 시나리오 |
 
 ### 로그인 없이 쓰는 동안의 기록 (세션 단위)
 
@@ -111,32 +130,32 @@ AI 가 만든 콘텐츠는 그대로 쓰지 않습니다. 코드를 **격리된 
 ## 구조
 
 ```
+src/app, src/components          # 화면 (정적). API 는 src/lib/api.ts 의 apiGet/apiPost/useApi 로만 부른다
+src/api/                         # API (Lambda)
+  lambda.ts                      # Lambda 진입점 (함수 URL), 백그라운드 작업은 자기 자신을 비동기 호출
+  dev-server.ts                  # 로컬 API 서버
+  router.ts, routes.ts           # 경로 표, 세션 헤더, CORS
+  views.ts                       # 화면별 데이터 (화면당 요청 1번)
+  background.ts                  # 응답 뒤에 할 일 (AI 생성, 학습자 분석)
 src/lib/
   types.ts, curriculum.ts        # 데이터 모델, 단원·개념·5단계 난이도
   grading.ts                     # 규칙 채점 + 주관식 1차 규칙 평가
-  content/
-    seed/                        # 사람이 작성한 코드 세트 (sets.ts) + 1차 MVP 문제 변환 (legacy)
-    analyzer.ts                  # 난이도 요소 계산
-    runner.ts                    # 격리 실행 (worker_threads + vm, 시간 제한)
-    validate.ts                  # 콘텐츠 검증기
+  content/                       # 시드, 난이도 분석, 격리 실행, 검증기, 생성 기준
   learner/stats.ts               # 통계·이해도·추천 난이도·XP·배지 (AI 없음)
-  server/
-    db.ts                        # SQLite 스키마 (문제 / 세션 / 학습 기록 / 운영 그룹)
-    content-repo.ts              # 문제 그룹 읽기·쓰기
-    session-repo.ts, visitor.ts  # 세션과 학습 기록(요약 테이블 포함), 현재 접속자
-    progress.ts                  # 요약 테이블로 만든 화면용 통계
-    planner.ts                   # 다음 문제 추천 (일반 알고리즘)
-    grade.ts                     # 채점 서비스
-  ai/
-    client.ts                    # 모델 분리, 구조화 출력, 사용량 기록, 실패 시 대체
-    tutor.ts                     # 주관식 AI 평가, 튜터 질문
-    analysis.ts                  # 10문제마다 학습자 분석
-    generate.ts                  # 콘텐츠 생성 → 검증 → 검수 → 저장
-src/app/api/{session,attempts,hint,ask,explain,me,admin/*}
+  server/                        # (API 전용) DB, 저장소, 추천, 채점
+    db/                          # sqlite · postgres · data-api 드라이버, 스키마, 시드 동기화
+  ai/                            # (API 전용) 모델 분리, 주관식 평가, 학습자 분석, 콘텐츠 생성
 ```
+
+## 배포 (GitHub Pages + AWS Lambda + Aurora)
+
+순서는 [`docs/DEPLOY_AWS.md`](docs/DEPLOY_AWS.md) 를 따라 하세요. 요약:
+
+1. Aurora 에서 Data API 켜기 + DB 암호를 Secrets Manager 에 저장
+2. Lambda 함수 만들기 → `dist/lambda.zip`(또는 GitHub Actions 의 `lambda-zip`) 업로드 → 함수 URL 만들기
+3. 저장소 변수 `API_URL` 에 함수 URL 저장, Pages 소스를 GitHub Actions 로 → main 에 push 하면 화면 자동 배포
 
 ## 다음 단계
 
 - 로그인 + 계정 연결, 관리자 화면에서 반려 콘텐츠 수정·재검증
 - 실행 흐름 분석 전용 문제 유형(한 줄씩 변수 값 추적), 오답 기반 복습 문제를 배치(Batch API)로 미리 생성
-- 배포 환경에 맞는 DB (서버리스 배포 시 SQLite 대신 Postgres 등)

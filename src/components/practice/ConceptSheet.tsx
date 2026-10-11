@@ -22,7 +22,7 @@ export function ConceptSheet({ conceptId, onClose }: { conceptId: string; onClos
         aria-modal="true"
         aria-label={`${concept.name} 개념 설명`}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[85vh] w-full animate-fade-up overflow-y-auto rounded-t-3xl bg-white p-6 shadow-lift sm:max-w-lg sm:rounded-3xl"
+        className="max-h-[85vh] w-full animate-fade-up overflow-y-auto rounded-t-3xl bg-white/85 p-6 shadow-lift backdrop-blur-2xl sm:max-w-lg sm:rounded-3xl"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>

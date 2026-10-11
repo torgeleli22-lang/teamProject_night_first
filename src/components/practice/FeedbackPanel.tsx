@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { CodeSnippet } from "@/components/CodeBlock";
 import { Spinner, UnderstandingChip } from "@/components/ui";
-import { postJSON } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 import type { ShortAnswerFeedback } from "@/lib/ai/tutor";
 import type { AttemptResult, TutorNote } from "@/lib/server/grade";
 import type { PublicQuestion } from "@/lib/server/planner";
@@ -37,7 +37,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
     if (!answerText) return;
     setDeepLoading(true);
     try {
-      const fb = await postJSON<ShortAnswerFeedback>("/api/explain", { questionId: question.id, text: answerText });
+      const fb = await apiPost<ShortAnswerFeedback>("/explain", { questionId: question.id, text: answerText });
       setTutor({
         headline: fb.headline,
         message: fb.explanation,

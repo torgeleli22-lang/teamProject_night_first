@@ -1,4 +1,3 @@
-import "server-only";
 import { evaluateShortAnswer as aiEvaluate } from "../ai/tutor";
 import { choiceMisconception, describeAnswer, describeCorrect, evaluateShortAnswer, gradeObjective } from "../grading";
 import { getConcept } from "../curriculum";
@@ -45,7 +44,7 @@ export async function gradeAttempt(
   hintsUsed: number,
   timeMs: number,
 ): Promise<AttemptResult | null> {
-  const found = getQuestion(questionId);
+  const found = await getQuestion(questionId);
   if (!found) return null;
   const { question: q, item } = found;
   // 셔플 답은 화면에 섞어서 보여준 순서 기준이므로 원래 인덱스로 되돌린다
@@ -106,7 +105,7 @@ export async function gradeAttempt(
   }
 
   const level = item.level;
-  const attemptId = insertAttempt({
+  const attemptId = await insertAttempt({
     sessionId: session.id,
     questionId: q.id,
     codeItemId: item.id,
