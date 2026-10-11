@@ -3,11 +3,16 @@ import * as z from "zod/v4";
 import { aiMode } from "@/lib/ai/client";
 import { loadPersona, PERSONAS } from "@/lib/server/demo";
 import { parseBody } from "@/lib/server/http";
+import { removeDemoPeers, seedDemoPeers } from "@/lib/server/session-repo";
 import { currentSession } from "@/lib/server/visitor";
 
 export const maxDuration = 60;
 
-const Body = z.object({ persona: z.enum(Object.keys(PERSONAS) as [keyof typeof PERSONAS, ...(keyof typeof PERSONAS)[]]) });
+const Body = z.union([
+  z.object({ persona: z.enum(Object.keys(PERSONAS) as [keyof typeof PERSONAS, ...(keyof typeof PERSONAS)[]]) }),
+  /** 랭킹 화면 확인용 가상 참가자 추가/삭제 */
+  z.object({ peers: z.enum(["add", "remove"]) }),
+]);
 
 /** UI/UX 확인용 데모 학습 기록. 목업 모드나 개발 환경에서만 허용 */
 export async function POST(req: Request) {
@@ -17,6 +22,11 @@ export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (body instanceof NextResponse) return body;
   const me = await currentSession();
-  await loadPersona(me.id, body.persona);
+  if ("peers" in body) {
+    if (body.peers === "add") seedDemoPeers(30);
+    else removeDemoPeers();
+  } else {
+    await loadPersona(me.id, body.persona);
+  }
   return NextResponse.json({ ok: true });
 }

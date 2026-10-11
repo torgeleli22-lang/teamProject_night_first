@@ -13,11 +13,13 @@ import type { Level } from "@/lib/types";
 type Plan = SessionPlan & { generating: boolean };
 
 const REASON_TEXT: Record<SessionPlan["reason"], string> = {
-  review: "헷갈렸던 개념을 다시 짚어봐요",
-  continue: "지난번에 하던 개념을 이어서 해요",
+  continue: "지난번에 하던 개념의 새 문제를 이어서 풀어요",
   next: "새로운 개념을 배울 차례예요",
-  chosen: "선택한 개념을 공부해요",
-  polish: "익힌 개념을 더 단단하게 다듬어요",
+  chosen: "선택한 개념의 새 문제를 풀어요",
+  polish: "익힌 개념을 새 문제로 더 단단하게 다듬어요",
+  wrong: "틀렸던 문제를 먼저 다시 풀어요",
+  weak: "헷갈렸던 개념의 문제를 다시 풀어요",
+  picked: "오답 노트의 문제를 다시 풀어요",
 };
 
 export function PracticeSession() {
@@ -30,6 +32,11 @@ function Session({ params }: { params: URLSearchParams }) {
   const router = useRouter();
   const level = (Math.min(5, Math.max(1, Number(params.get("level")) || 1)) as Level);
   const concept = params.get("concept") ?? undefined;
+  const mode = params.get("mode") === "review" ? "review" : "learn";
+  const typesParam = params.get("types") ?? "";
+  const idsParam = params.get("ids") ?? "";
+  const types = typesParam ? typesParam.split(",") : undefined;
+  const ids = idsParam ? idsParam.split(",") : undefined;
 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [queue, setQueue] = useState<PublicQuestion[]>([]);
@@ -42,14 +49,15 @@ function Session({ params }: { params: URLSearchParams }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    postJSON<Plan>("/api/session", { level, concept }, controller.signal)
+    postJSON<Plan>("/api/session", { level, concept, mode, types, ids }, controller.signal)
       .then((p) => {
         setPlan(p);
         setQueue(p.questions);
       })
       .catch((e) => e.name !== "AbortError" && setError(e.message));
     return () => controller.abort();
-  }, [level, concept]);
+    // 쿼리가 바뀌면 컴포넌트가 새로 만들어지므로 처음 한 번만 요청하면 된다
+  }, []);
 
   if (error) return <Centered title="문제를 불러오지 못했어요" text={error} />;
   if (!plan) {
@@ -62,12 +70,18 @@ function Session({ params }: { params: URLSearchParams }) {
   if (queue.length === 0) {
     return (
       <Centered
-        title="이 난이도에는 아직 풀 문제가 없어요"
-        text={plan.generating ? "AI가 새 문제를 만들고 검증하는 중이에요. 잠시 후 다시 시도하거나 다른 난이도를 골라보세요." : "다른 난이도나 개념을 골라보세요."}
+        title={mode === "review" ? "복습할 문제가 없어요" : "이 조건에 맞는 새 문제가 없어요"}
+        text={
+          mode === "review"
+            ? "틀린 문제가 생기면 여기서 다시 풀 수 있어요."
+            : plan.generating
+              ? "AI가 새 문제를 만들고 검증하는 중이에요. 잠시 후 다시 시도하거나 다른 난이도·유형을 골라보세요."
+              : "다른 난이도나 문제 유형을 골라보세요."
+        }
       />
     );
   }
-  if (done) return <SessionSummary plan={plan} queue={queue} results={results} />;
+  if (done) return <SessionSummary plan={plan} queue={queue} results={results} again={`/practice?${params.toString()}`} />;
 
   const q = queue[index];
   const isLast = index === queue.length - 1;
@@ -77,7 +91,7 @@ function Session({ params }: { params: URLSearchParams }) {
   async function loadSimilar() {
     setSimilarLoading(true);
     try {
-      const p = await postJSON<Plan>("/api/session", { level, concept: plan!.focusConcept, size: 1, exclude: queue.map((x) => x.id) });
+      const p = await postJSON<Plan>("/api/session", { level, concept: q.concepts[0], types, size: 1, exclude: queue.map((x) => x.id) });
       if (p.questions.length) {
         setQueue((list) => [...list.slice(0, index + 1), p.questions[0], ...list.slice(index + 1)]);
         setIndex((i) => i + 1);
@@ -93,9 +107,10 @@ function Session({ params }: { params: URLSearchParams }) {
     <div className="mx-auto max-w-2xl px-4 pb-16">
       <div className="sticky top-14 z-20 -mx-4 mb-6 bg-ink-50/90 px-4 pb-3 pt-4 backdrop-blur">
         <div className="mb-2.5 flex items-center gap-3 text-sm font-semibold">
-          <Link href="/learn" className="rounded-lg px-1.5 py-1 text-ink-500 hover:bg-ink-100 hover:text-ink-900" aria-label="학습 홈으로 나가기">
+          <Link href={mode === "review" ? "/review" : "/learn"} className="rounded-lg px-1.5 py-1 text-ink-500 hover:bg-ink-100 hover:text-ink-900" aria-label="나가기">
             ←
           </Link>
+          <span className={`chip ${mode === "review" ? "bg-sun-50 text-sun-600" : "bg-brand-50 text-brand-700"}`}>{mode === "review" ? "🔁 복습" : "📘 학습"}</span>
           <span className="text-ink-700">JavaScript · {conceptLabel}</span>
           <span className="ml-auto font-mono text-ink-400">
             {String(index + 1).padStart(2, "0")}/{String(queue.length).padStart(2, "0")}
@@ -136,13 +151,13 @@ function Centered({ title, text }: { title: string; text: string }) {
       <p className="text-lg font-bold">{title}</p>
       <p className="mt-2 text-ink-500">{text}</p>
       <Link href="/learn" className="btn-primary mt-6">
-        학습 홈으로
+        학습 탭으로
       </Link>
     </div>
   );
 }
 
-function SessionSummary({ plan, queue, results }: { plan: Plan; queue: PublicQuestion[]; results: QuestionOutcome[] }) {
+function SessionSummary({ plan, queue, results, again }: { plan: Plan; queue: PublicQuestion[]; results: QuestionOutcome[]; again: string }) {
   const correct = results.filter((r) => r.correct).length;
   const xp = results.reduce((s, r) => s + r.xp, 0);
   const ratio = results.length ? correct / results.length : 0;
@@ -178,11 +193,11 @@ function SessionSummary({ plan, queue, results }: { plan: Plan; queue: PublicQue
         </div>
       </div>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <a href={`/practice?level=${plan.level}`} className="btn-primary">
-          한 세트 더 풀기 →
+        <a href={plan.mode === "review" ? `/practice?mode=review&level=${plan.level}` : again.replace(/&?ids=[^&]*/, "")} className="btn-primary">
+          {plan.mode === "review" ? "복습 더 하기 →" : "같은 조건으로 한 세트 더 →"}
         </a>
-        <Link href={analyzing ? "/dashboard" : "/learn"} className="btn-soft">
-          {analyzing ? "내 학습 보러 가기" : "학습 홈으로"}
+        <Link href={analyzing ? "/dashboard" : results.some((r) => !r.correct) ? "/review" : "/learn"} className="btn-soft">
+          {analyzing ? "내 학습 보러 가기" : results.some((r) => !r.correct) ? "틀린 문제 복습하기" : "학습 탭으로"}
         </Link>
       </div>
     </div>

@@ -38,3 +38,28 @@ export function PersonaButtons({ personas }: { personas: { id: string; label: st
     </div>
   );
 }
+
+export function PeerButtons() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const run = async (peers: "add" | "remove") => {
+    setLoading(true);
+    try {
+      await postJSON("/api/demo", { peers });
+      router.push("/ranking");
+      router.refresh();
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" onClick={() => run("add")} disabled={loading} className="btn-primary px-5 py-2.5 text-sm">
+        {loading && <Spinner />} 가상 참가자 30명 추가
+      </button>
+      <button type="button" onClick={() => run("remove")} disabled={loading} className="btn-ghost px-5 py-2.5 text-sm">
+        가상 참가자 모두 지우기
+      </button>
+    </div>
+  );
+}

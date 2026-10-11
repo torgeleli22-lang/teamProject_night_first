@@ -41,6 +41,8 @@ CREATE INDEX IF NOT EXISTS questions_item ON questions(code_item_id);
 -- (로그인을 붙이면 users 테이블을 추가하고 세션을 계정에 연결한다)
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  nickname TEXT NOT NULL DEFAULT '',
+  is_demo INTEGER NOT NULL DEFAULT 0,
   preferred_level INTEGER,
   daily_goal INTEGER NOT NULL DEFAULT 5,
   created_at INTEGER NOT NULL,
@@ -158,6 +160,9 @@ function migrateLegacy(db: DatabaseSync) {
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
   if (tables.includes("learners")) {
     db.exec("DROP TABLE IF EXISTS attempts; DROP TABLE IF EXISTS analyses; DROP TABLE IF EXISTS demand_signals; DROP TABLE learners;");
+  }
+  if (tables.includes("sessions") && !has("sessions", "nickname")) {
+    db.exec("ALTER TABLE sessions ADD COLUMN nickname TEXT NOT NULL DEFAULT ''; ALTER TABLE sessions ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0;");
   }
   if (tables.includes("generation_jobs")) {
     if (!has("generation_jobs", "trigger")) db.exec("ALTER TABLE generation_jobs ADD COLUMN trigger TEXT NOT NULL DEFAULT 'manual'");

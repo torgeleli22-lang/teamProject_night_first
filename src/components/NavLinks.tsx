@@ -4,10 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV = [
-  { href: "/learn", label: "학습 홈", icon: "🏠" },
-  { href: "/concepts", label: "탐색", icon: "🧭" },
+  { href: "/learn", label: "학습", icon: "📘" },
+  { href: "/review", label: "복습", icon: "🔁" },
+  { href: "/ranking", label: "랭킹", icon: "🏆" },
   { href: "/dashboard", label: "내 학습", icon: "📊" },
+  { href: "/concepts", label: "탐색", icon: "🧭" },
 ];
+/** 모바일 하단 메뉴는 핵심 4개만 */
+const MOBILE_NAV = NAV.slice(0, 4);
 
 export function NavLinks() {
   const pathname = usePathname();
@@ -35,8 +39,8 @@ export function NavLinks() {
           className="fixed inset-x-0 bottom-0 z-30 border-t border-ink-200/70 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur sm:hidden"
           aria-label="하단 메뉴"
         >
-          <div className="grid grid-cols-3">
-            {NAV.map((item) => {
+          <div className="grid grid-cols-4">
+            {MOBILE_NAV.map((item) => {
               const active = pathname.startsWith(item.href);
               return (
                 <Link

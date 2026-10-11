@@ -20,6 +20,10 @@ const Body = z.object({
   size: z.number().int().min(1).max(10).optional(),
   /** 이미 이번 세션에 나온 문제 ("비슷한 문제 풀어보기") */
   exclude: z.array(z.string().max(120)).max(50).optional(),
+  /** learn: 새로운 문제, review: 틀린 문제·취약 개념 */
+  mode: z.enum(["learn", "review"]).default("learn"),
+  /** 특정 문제 다시 풀기 (오답 노트) */
+  ids: z.array(z.string().max(120)).max(20).optional(),
 });
 
 /**
@@ -30,9 +34,12 @@ export async function POST(req: Request) {
   const body = await parseBody(req, Body);
   if (body instanceof NextResponse) return body;
   const me = await currentSession();
-  if (!body.exclude) setPreferredLevel(me.id, body.level);
+  if (!body.exclude && body.mode === "learn") setPreferredLevel(me.id, body.level);
   const attempts = listAttempts(me.id);
   const plan = planSession({ ...body, attempts });
+
+  // 복습·다시 풀기는 기존 문제만 쓰므로 생성 판단을 하지 않는다
+  if (body.mode !== "learn" || body.ids?.length) return NextResponse.json({ ...plan, generating: false });
 
   const concept = plan.focusConcept;
   const stock = coverage().get(`${concept}:${body.level}`) ?? 0;

@@ -14,6 +14,8 @@ export const SESSION_TTL_MS = Number(process.env.SESSION_TTL_HOURS ?? 12) * 3600
 
 export interface SessionInfo {
   id: string;
+  /** 랭킹에 보이는 이름 (자동 생성, 바꿀 수 있음) */
+  nickname: string;
   preferredLevel: Level | null;
   dailyGoal: number;
   createdAt: number;
@@ -34,15 +36,105 @@ export function touchSession(id: string): SessionInfo {
   const db = getDb();
   const now = Date.now();
   db.prepare(
-    "INSERT INTO sessions (id, created_at, last_seen_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
-  ).run(id, now, now);
+    "INSERT INTO sessions (id, nickname, created_at, last_seen_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
+  ).run(id, randomNickname(), now, now);
   const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as {
     id: string;
+    nickname: string;
     preferred_level: number | null;
     daily_goal: number;
     created_at: number;
   };
-  return { id: row.id, preferredLevel: (row.preferred_level as Level) ?? null, dailyGoal: row.daily_goal, createdAt: row.created_at };
+  return { id: row.id, nickname: row.nickname, preferredLevel: (row.preferred_level as Level) ?? null, dailyGoal: row.daily_goal, createdAt: row.created_at };
+}
+
+const ADJECTIVES = ["성실한", "호기심 많은", "차분한", "부지런한", "용감한", "꼼꼼한", "즐거운", "끈기 있는", "반짝이는", "느긋한"];
+const ANIMALS = ["고양이", "판다", "수달", "펭귄", "다람쥐", "고래", "여우", "부엉이", "코알라", "햄스터"];
+
+export function randomNickname(): string {
+  const pick = <T>(list: T[]) => list[Math.floor(Math.random() * list.length)];
+  return `${pick(ADJECTIVES)} ${pick(ANIMALS)} ${Math.floor(Math.random() * 90) + 10}`;
+}
+
+export function setNickname(id: string, nickname: string) {
+  getDb().prepare("UPDATE sessions SET nickname = ? WHERE id = ?").run(nickname, id);
+}
+
+// ───────────────────────── 랭킹 ─────────────────────────
+
+export interface RankRow {
+  sessionId: string;
+  nickname: string;
+  xp: number;
+  solved: number;
+  rank: number;
+}
+
+/**
+ * 지금 참여 중인 세션(최근 SESSION_TTL 안에 사용) 가운데 XP 순위.
+ * 하루 요약 테이블(daily_activity)의 XP 합계만 읽는다. 문제를 1개 이상 푼 세션만 집계.
+ */
+export function ranking(limit = 10): { top: RankRow[]; total: number } {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT s.id AS session_id, s.nickname, SUM(d.xp) AS xp, SUM(d.solved) AS solved,
+              RANK() OVER (ORDER BY SUM(d.xp) DESC) AS rank
+       FROM daily_activity d JOIN sessions s ON s.id = d.session_id
+       GROUP BY s.id HAVING solved > 0 ORDER BY xp DESC, s.created_at ASC LIMIT ?`,
+    )
+    .all(limit) as { session_id: string; nickname: string; xp: number; solved: number; rank: number }[];
+  const total = (
+    db.prepare("SELECT COUNT(*) AS n FROM (SELECT session_id FROM daily_activity GROUP BY session_id HAVING SUM(solved) > 0)").get() as { n: number }
+  ).n;
+  return { top: rows.map((r) => ({ sessionId: r.session_id, nickname: r.nickname, xp: r.xp, solved: r.solved, rank: r.rank })), total };
+}
+
+/** 내 등수: 나보다 XP 가 많은 세션 수 + 1. 바로 위 등수와의 XP 차이도 함께 */
+export function myRank(sessionId: string): { rank: number; xp: number; nextXp: number | null } | null {
+  const db = getDb();
+  const mine = db.prepare("SELECT SUM(xp) AS xp, SUM(solved) AS solved FROM daily_activity WHERE session_id = ?").get(sessionId) as {
+    xp: number | null;
+    solved: number | null;
+  };
+  if (!mine.solved) return null;
+  const xp = mine.xp ?? 0;
+  const above = db
+    .prepare("SELECT COUNT(*) AS n, MIN(t) AS next FROM (SELECT SUM(xp) AS t FROM daily_activity GROUP BY session_id HAVING SUM(solved) > 0 AND SUM(xp) > ?)")
+    .get(xp) as { n: number; next: number | null };
+  return { rank: above.n + 1, xp, nextXp: above.next };
+}
+
+/** 데모용 가상 참가자 (랭킹 화면 확인용). is_demo = 1 로 표시해 따로 지울 수 있다 */
+export function seedDemoPeers(count: number) {
+  const db = getDb();
+  const now = Date.now();
+  db.exec("BEGIN");
+  try {
+    for (let i = 0; i < count; i++) {
+      const id = `demo-${crypto.randomUUID()}`;
+      // XP 분포: 대부분 낮고 일부만 높게 (실제 학습자 분포처럼)
+      const xp = Math.round(20 + Math.pow(Math.random(), 2.2) * 600);
+      const solved = Math.max(1, Math.round(xp / 11));
+      db.prepare("INSERT INTO sessions (id, nickname, is_demo, created_at, last_seen_at) VALUES (?, ?, 1, ?, ?)").run(id, randomNickname(), now, now);
+      db.prepare("INSERT INTO daily_activity (session_id, day, solved, correct, time_ms, xp) VALUES (?, ?, ?, ?, ?, ?)").run(
+        id,
+        dayKey(now),
+        solved,
+        Math.round(solved * 0.7),
+        solved * 30_000,
+        xp,
+      );
+    }
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
+export function removeDemoPeers() {
+  getDb().prepare("DELETE FROM sessions WHERE is_demo = 1").run();
 }
 
 export function setPreferredLevel(id: string, level: Level) {
