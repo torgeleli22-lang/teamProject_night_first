@@ -1,3 +1,6 @@
+# git 웹사이트 열기
+👉 https://torgeleli22-lang.github.io/teamProject_night_first/
+
 # 코드리딩 — AI 기반 인터랙티브 코드 읽기 학습 플랫폼
 
 > 📄 프로젝트 전체 설명(개요·기능·AI 원칙·아키텍처·DB·다음 할 일): [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md) — AI 코딩 도구에게 작업을 맡길 때도 이 문서를 먼저 읽게 하세요.
