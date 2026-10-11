@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Spinner } from "@/components/ui";
-import { postJSON } from "@/lib/api";
+import { apiPost, notifyChanged } from "@/lib/api";
 
 export function PersonaButtons({ personas }: { personas: { id: string; label: string; description: string }[] }) {
   const router = useRouter();
@@ -14,9 +14,9 @@ export function PersonaButtons({ personas }: { personas: { id: string; label: st
     setLoading(id);
     setError(null);
     try {
-      await postJSON("/api/demo", { persona: id });
+      await apiPost("/demo", { persona: id });
+      notifyChanged();
       router.push(id === "empty" ? "/learn" : "/dashboard");
-      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "불러오지 못했어요.");
       setLoading(null);
@@ -45,9 +45,9 @@ export function PeerButtons() {
   const run = async (peers: "add" | "remove") => {
     setLoading(true);
     try {
-      await postJSON("/api/demo", { peers });
+      await apiPost("/demo", { peers });
+      notifyChanged();
       router.push("/ranking");
-      router.refresh();
     } finally {
       setLoading(false);
     }

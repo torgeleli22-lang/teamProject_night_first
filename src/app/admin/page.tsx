@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CodeSnippet } from "@/components/CodeBlock";
 import { SectionTitle, Spinner } from "@/components/ui";
+import { API_URL } from "@/lib/api";
 import { CONCEPTS, LEVELS, UNITS, conceptName } from "@/lib/curriculum";
 import type { GenerateResult } from "@/lib/ai/generate";
 import type { POLICY as PolicyType, Trigger } from "@/lib/content/policy";
@@ -56,7 +57,7 @@ export default function AdminPage() {
   const headers = useCallback(() => ({ "Content-Type": "application/json", "x-admin-token": token }), [token]);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/admin/overview", { headers: headers() });
+    const res = await fetch(`${API_URL}/admin/overview`, { headers: headers() });
     if (!res.ok) {
       setError((await res.json().catch(() => ({}))).error ?? "불러오지 못했어요.");
       return;
@@ -81,7 +82,7 @@ export default function AdminPage() {
     setBusy("generate");
     setMessage(null);
     try {
-      const res = await fetch("/api/admin/generate", { method: "POST", headers: headers(), body: JSON.stringify({ concept, level }) });
+      const res = await fetch(`${API_URL}/admin/generate`, { method: "POST", headers: headers(), body: JSON.stringify({ concept, level }) });
       const r = (await res.json()) as GenerateResult;
       setMessage({
         ok: r.status === "published",
@@ -97,7 +98,7 @@ export default function AdminPage() {
     setBusy("fill");
     setMessage(null);
     try {
-      const res = await fetch("/api/admin/fill?limit=5", { method: "POST", headers: headers() });
+      const res = await fetch(`${API_URL}/admin/fill?limit=5`, { method: "POST", headers: headers() });
       const r = await res.json();
       setMessage(res.ok ? { ok: true, text: `${r.started}개 칸 생성을 시작했어요. 아래 생성 작업에서 진행 상황을 볼 수 있어요.` } : { ok: false, text: r.error });
       await load();

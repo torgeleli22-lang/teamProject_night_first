@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CodeBlock } from "@/components/CodeBlock";
 import { DifficultyDots } from "@/components/ui";
-import { postJSON } from "@/lib/api";
+import { apiPost, notifyChanged } from "@/lib/api";
 import { levelInfo, QUESTION_TYPE_LABEL as TYPE_LABEL, SKILL_LABEL } from "@/lib/curriculum";
 import type { AttemptResult } from "@/lib/server/grade";
 import type { PublicQuestion } from "@/lib/server/planner";
@@ -69,7 +69,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
     setSubmitting(true);
     setError(null);
     try {
-      const r = await postJSON<QuestionOutcome>("/api/attempts", {
+      const r = await apiPost<QuestionOutcome>("/attempts", {
         questionId: q.id,
         answer: giveUp ? undefined : answer,
         giveUp,
@@ -79,6 +79,8 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
       setGaveUp(giveUp);
       setResult(r);
       onResult(r);
+      // 헤더의 XP·연속 학습을 새로 고친다
+      notifyChanged();
       requestAnimationFrame(() => feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "제출하지 못했어요.");
@@ -92,7 +94,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
     if (level > 4 || hintLoading) return;
     setHintLoading(true);
     try {
-      const { hint } = await postJSON<{ hint: string }>("/api/hint", { questionId: q.id, level });
+      const { hint } = await apiPost<{ hint: string }>("/hint", { questionId: q.id, level });
       setHints((h) => [...h, hint]);
     } finally {
       setHintLoading(false);

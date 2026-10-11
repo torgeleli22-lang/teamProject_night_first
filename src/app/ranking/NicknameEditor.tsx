@@ -1,11 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { postJSON } from "@/lib/api";
+import { apiPost, notifyChanged } from "@/lib/api";
 
 export function NicknameEditor({ initial }: { initial: string }) {
-  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(initial);
 
@@ -22,9 +20,9 @@ export function NicknameEditor({ initial }: { initial: string }) {
       onSubmit={async (e) => {
         e.preventDefault();
         if (!name.trim()) return;
-        await postJSON("/api/me", { nickname: name.trim() });
+        await apiPost("/me", { nickname: name.trim() });
         setEditing(false);
-        router.refresh();
+        notifyChanged();
       }}
     >
       <input
@@ -33,7 +31,7 @@ export function NicknameEditor({ initial }: { initial: string }) {
         maxLength={12}
         autoFocus
         aria-label="랭킹에 보일 이름"
-        className="w-40 rounded-xl border border-ink-200 px-3 py-2 text-sm outline-none focus:border-brand-400"
+        className="glass-input w-40 px-3 py-2 text-sm"
       />
       <button className="btn-primary px-4 py-2 text-sm">저장</button>
     </form>

@@ -1,5 +1,0 @@
-# SITE_ADDRESS 가 ":80" 이면 HTTP 로만, 도메인이면 Let's Encrypt 인증서를 자동으로 받아 HTTPS 로 연결한다
-{$SITE_ADDRESS::80} {
-	encode gzip
-	reverse_proxy app:3000
-}

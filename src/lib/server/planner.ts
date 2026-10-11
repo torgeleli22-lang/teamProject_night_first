@@ -1,9 +1,8 @@
-import "server-only";
 import { blankedDisplay, seededPermutation } from "../content/code-utils";
 import { CONCEPTS, UNITS } from "../curriculum";
 import { conceptStats, isWeak, MASTERED } from "../learner/stats";
 import type { Attempt, CodeItem, ConceptId, Level, Question, QuestionType, Skill } from "../types";
-import { loadContent } from "./content-repo";
+import type { ContentCache } from "./content-repo";
 
 /** 클라이언트로 보내는 문제 (정답·해설·채점 기준은 빼고 보낸다) */
 export interface PublicQuestion {
@@ -115,6 +114,8 @@ function arrange(candidates: Pick[], size: number, perItemMax = PER_ITEM): Pick[
  * - ids   : 특정 문제 다시 풀기 (오답 노트)
  */
 export function planSession(opts: {
+  /** loadContent() 결과 (문제 DB 캐시) */
+  content: ContentCache;
   attempts: Attempt[];
   level: Level;
   mode?: PlanMode;
@@ -127,7 +128,7 @@ export function planSession(opts: {
   const { attempts, level } = opts;
   const mode = opts.mode ?? "learn";
   const size = opts.size ?? SESSION_SIZE;
-  const { items, byItem, questions } = loadContent();
+  const { items, byItem, questions } = opts.content;
   const stats = conceptStats(attempts);
   const seen = new Set(attempts.map((a) => a.questionId));
   const typeOk = (q: Question) => (!opts.types?.length || opts.types.includes(q.type)) && !opts.exclude?.includes(q.id);
@@ -223,8 +224,8 @@ const SKILL_ORDER: Skill[] = ["recall", "predict", "analyze", "infer", "synthesi
 const skillRank = (s: Skill) => SKILL_ORDER.indexOf(s);
 
 /** 이 학습자가 개념 × 난이도 칸에서 아직 맞히지 못한 문제 수 */
-export function unsolvedCount(attempts: Attempt[], concept: ConceptId, level: Level): number {
-  const { items, byItem } = loadContent();
+export function unsolvedCount(content: ContentCache, attempts: Attempt[], concept: ConceptId, level: Level): number {
+  const { items, byItem } = content;
   const solved = new Set(attempts.filter((a) => a.correct).map((a) => a.questionId));
   return [...items.values()]
     .filter((i) => i.level === level && i.concepts.includes(concept))

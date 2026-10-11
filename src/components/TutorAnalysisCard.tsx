@@ -70,7 +70,7 @@ export function TutorAnalysisCard({
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-ink-500">다음에 집중할 개념</span>
                 {analysis.result.focusConcepts.map((c) => (
-                  <Link key={c} href={`/practice?concept=${c}&level=${analysis.result.recommendedLevel ?? 2}`} className="chip bg-white px-3 py-1.5 text-brand-700 ring-1 ring-brand-200 hover:bg-brand-50">
+                  <Link key={c} href={`/practice?concept=${c}&level=${analysis.result.recommendedLevel ?? 2}`} className="chip glass-pill px-3 py-1.5 text-brand-700 hover:bg-white/80">
                     {conceptName(c)} →
                   </Link>
                 ))}

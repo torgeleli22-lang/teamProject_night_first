@@ -1,4 +1,3 @@
-import "server-only";
 import { runLearnerAnalysis } from "../ai/analysis";
 import type { Answer, Level, Question } from "../types";
 import { loadContent } from "./content-repo";
@@ -73,11 +72,11 @@ function fakeAnswer(q: Question, correct: boolean): { answer: Answer; misconcept
 }
 
 export async function loadPersona(sessionId: string, persona: Persona) {
-  resetSession(sessionId);
+  await resetSession(sessionId);
   if (persona === "empty") return;
   const { level, days, plans } = PLANS[persona];
-  setPreferredLevel(sessionId, level);
-  const { items, byItem } = loadContent();
+  await setPreferredLevel(sessionId, level);
+  const { items, byItem } = await loadContent();
 
   // 시간 순서대로 하루에 몇 문제씩 나눠서 기록
   const total = plans.reduce((s, p) => s + p.results.length, 0);
@@ -87,12 +86,12 @@ export async function loadPersona(sessionId: string, persona: Persona) {
       .filter((i) => i.concepts[0] === plan.concept)
       .sort((a, b) => a.level - b.level)
       .flatMap((i) => (byItem.get(i.id) ?? []).map((q) => ({ q, item: i })));
-    plan.results.forEach((correct, k) => {
+    for (const [k, correct] of plan.results.entries()) {
       const pick = questions[k % Math.max(questions.length, 1)];
-      if (!pick) return;
+      if (!pick) continue;
       const { answer, misconception } = fakeAnswer(pick.q, correct);
       const dayOffset = days - 1 - Math.floor((n / total) * days);
-      insertAttempt({
+      await insertAttempt({
         sessionId,
         questionId: pick.q.id,
         codeItemId: pick.item.id,
@@ -109,7 +108,7 @@ export async function loadPersona(sessionId: string, persona: Persona) {
         createdAt: Date.now() - dayOffset * 86400_000 - (total - n) * 60_000,
       });
       n++;
-    });
+    }
   }
   // 10문제마다 하는 학습자 분석을 데모에서도 한 번 실행 (목업 모드면 AI 흉내, 아니면 규칙 기반)
   await runLearnerAnalysis(sessionId, level);

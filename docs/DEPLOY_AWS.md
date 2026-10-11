@@ -1,272 +1,146 @@
-# AWS EC2 에 처음 배포하기 (1단계: EC2 한 대 + Docker + 목업 AI)
-
-목표: `http://<공인 IP>` 로 접속하면 코드리딩 서비스가 뜨는 것.
-이 단계에서는 AI 를 **목업 모드(`AI_MODE=mock`)** 로 두어 비용 없이 동작부터 확인합니다. Bedrock·RDS·S3 는 다음 단계입니다.
+# 배포하기: GitHub Pages(화면) + AWS Lambda(API) + Aurora PostgreSQL(DB)
 
 ```
-브라우저 ──(80/443)──→ EC2 (Amazon Linux 2023)
-                        ├─ caddy 컨테이너  : 웹 서버 (도메인 연결 시 HTTPS 자동)
-                        └─ app 컨테이너    : Next.js + SQLite(Docker 볼륨에 저장)
+브라우저 ──→ GitHub Pages             정적 화면 (HTML/JS) — 무료
+   │
+   └─fetch─→ Lambda 함수 URL          API: 채점·기록·추천·AI (src/api)
+                └─ Data API(HTTPS) ─→ Aurora PostgreSQL (jobase)
 ```
 
-> AWS 콘솔 화면의 메뉴 이름이나 위치는 조금씩 바뀔 수 있어요. 아래 이름과 비슷한 항목을 찾으면 됩니다.
+- 서버를 계속 켜 두지 않습니다. 요청이 올 때만 Lambda 가 실행됩니다.
+- Lambda 는 VPC 에 넣지 않고 **Aurora Data API**(HTTPS)로 DB 에 접근합니다. 그래서 DB 연결 수 걱정이 없고, 나중에 AI API 를 부를 인터넷 연결도 그대로 쓸 수 있습니다.
+- 정답·해설·채점 기준은 Lambda 안에서만 다룹니다. 화면에는 문제만 내려갑니다.
+
+> AWS 콘솔 메뉴 이름은 조금씩 바뀔 수 있어요. 비슷한 이름을 찾으면 됩니다. 학교 계정에서 막힌 단계가 있으면 그 화면의 메시지를 그대로 공유해 주세요.
 
 ---
 
-## 학교 계정(권한이 제한된 계정)으로 진행할 때 — 먼저 읽기
+## 0단계. 정리: 쓰지 않는 EC2 끄기
 
-학교 계정(AWS Academy 등)은 IAM 역할 생성, 일부 리전·인스턴스 유형, 탄력적 IP 등이 막혀 있을 수 있어요.
-아래처럼 **보안 그룹 + EC2 + 키(.ppk/.pem)** 만으로 진행하면 됩니다.
+EC2 방식에서 바꿨으므로 EC2 는 필요 없습니다 (크레딧 절약).
 
-| 이 문서의 단계 | 학교 계정에서는 |
+1. EC2 → 인스턴스 → `codereading-server` → 인스턴스 상태 → **종료(삭제)**
+2. 탄력적 IP 를 만들었다면 → **릴리스**
+3. Aurora 를 만들 때 "EC2 연결"로 생긴 보안 그룹은 그대로 둬도 괜찮습니다 (Data API 는 보안 그룹을 거치지 않음)
+
+---
+
+## 1단계. Aurora: Data API 켜기 + 암호를 Secrets Manager 에 저장
+
+### 1-1. Data API 켜기
+1. RDS → 데이터베이스 → `codereading-db` (**클러스터**) 선택 → **수정**
+2. 연결 항목에서 **RDS Data API** 체크 → 계속 → **즉시 적용** → 클러스터 수정
+3. 클러스터 → **구성** 탭의 **ARN** 을 복사해 둡니다 → `DB_CLUSTER_ARN`
+   (예: `arn:aws:rds:ap-northeast-2:123456789012:cluster:codereading-db`)
+
+### 1-2. DB 암호를 Secrets Manager 에 저장
+Data API 는 암호를 Secrets Manager 에서 읽습니다.
+
+1. Secrets Manager → **새 보안 암호 저장**
+2. 유형: **Amazon RDS 데이터베이스에 대한 자격 증명**
+3. 사용자 이름 `codereading`, 암호: Aurora 를 만들 때 정한 마스터 암호
+4. 데이터베이스: `codereading-db` 선택 → 다음
+5. 이름: `codereading-db-credentials` → (교체는 끈 채로) 저장
+6. 만든 비밀을 열어 **보안 암호 ARN** 복사 → `DB_SECRET_ARN`
+
+> 비용: 비밀 1개 월 약 $0.40. Aurora 를 만들 때 자격 증명을 "Secrets Manager 에서 관리"로 했다면 이미 비밀이 있으니 그 ARN 을 쓰면 됩니다.
+
+---
+
+## 2단계. Lambda 함수 만들기
+
+### 2-1. 배포 파일 준비 (`lambda.zip`)
+둘 중 하나:
+- **GitHub Actions**: 저장소 → Actions → 최근 **CI** 실행 → 아래 **Artifacts** 의 `lambda-zip` 다운로드 → 압축을 한 번 풀면 `lambda.zip` 이 나옵니다
+- **내 컴퓨터**: `npm install` 후 `npm run build:lambda` → `dist/lambda.zip`
+
+### 2-2. 함수 생성
+Lambda → **함수 생성** → 새로 작성
+
+| 항목 | 값 |
 | --- | --- |
-| 0단계 예산·MFA | 학교가 관리하므로 **건너뜀**. 대신 남은 크레딧을 가끔 확인 |
-| 리전 | 서울이 막혀 있으면 **허용된 리전**(예: 미국 동부 버지니아 us-east-1) 사용 — 화면이 조금 느린 것 말고는 차이 없음 |
-| 1단계 IAM 역할 | **건너뜀**. 2단계의 IAM 인스턴스 프로파일은 비워 두거나, 목록에 `LabInstanceProfile` 이 있으면 그것 선택 |
-| 인스턴스 유형 | `t4g.small` 이 막히면 **`t3.small`** + AMI 아키텍처 **64비트(x86)** (Docker 구성은 둘 다 동작) |
-| 키 페어 | 학교에서 받은 키(예: AWS Details 의 `labsuser.ppk` / `vockey`)가 있으면 그 키 선택, 없으면 새로 생성(.ppk) |
-| 3단계 탄력적 IP | 허용되면 사용. **막히면 건너뜀** — 대신 인스턴스를 다시 켤 때마다 **퍼블릭 IP 가 바뀌니** 콘솔에서 새 IP 확인 |
-| 4단계 접속 | **방법 B (PuTTY + .ppk)** 그대로 |
-| 5~8단계 | **그대로** |
+| 함수 이름 | `codereading-api` |
+| 런타임 | **Node.js 22.x** |
+| 아키텍처 | arm64 (또는 x86_64, 둘 다 동작) |
+| 실행 역할 | 학교 계정: **기존 역할 사용** → `LabRole` 등 제공된 역할 / 개인 계정: 새 역할 생성 후 아래 권한 추가 |
 
-> 실습 세션이 끝나면 인스턴스가 자동으로 중지되는 계정도 있어요. 다시 시작하면 Docker 가 서비스를 자동으로 다시 띄우지만(`restart: unless-stopped`), IP 는 바뀔 수 있어요.
+함수가 만들어지면:
+1. **코드** 탭 → 업로드 대상 → **.zip 파일** → `lambda.zip` 업로드
+2. **런타임 설정** → 편집 → 핸들러: `index.handler`
+3. **구성 → 일반 구성** → 편집 → 메모리 **1024 MB**, 제한 시간 **5분** (AI 생성·관리자 작업용)
+4. **구성 → 환경 변수** → 편집:
 
----
+| 키 | 값 |
+| --- | --- |
+| `DB_DRIVER` | `data-api` |
+| `DB_CLUSTER_ARN` | 1-1 에서 복사한 클러스터 ARN |
+| `DB_SECRET_ARN` | 1-2 에서 복사한 비밀 ARN |
+| `DB_NAME` | `jobase` |
+| `AI_MODE` | `mock` (실제 AI 연결 전까지) |
+| `ADMIN_TOKEN` | 긴 무작위 문자열 (관리자 화면 비밀번호) |
+| `ALLOWED_ORIGINS` | 3단계 후에 `https://torgeleli22-lang.github.io` (처음엔 비워 둬도 됨) |
 
-## 0단계. 시작 전 확인 (5분)
+5. **구성 → 함수 URL** → 함수 URL 생성 → 인증 유형 **NONE** → **CORS 는 체크하지 않음** (CORS 는 코드가 처리합니다. 둘 다 켜면 헤더가 겹쳐서 오류가 납니다) → 저장
+6. 생긴 **함수 URL** 을 복사합니다 (예: `https://abcd1234.lambda-url.ap-northeast-2.on.aws/`)
 
-- [ ] **루트 계정 MFA** 설정 (우측 상단 계정 이름 → 보안 자격 증명)
-- [ ] **예산 알림**: Billing and Cost Management → Budgets → 월 $10, $30 알림
-- [ ] 평소에는 루트 계정 대신 관리자 권한 사용자(IAM Identity Center 또는 IAM 사용자)로 로그인
-- [ ] 우측 상단 리전을 **아시아 태평양(서울) ap-northeast-2** 로 선택 — 이후 모든 작업을 같은 리전에서
-- [ ] **액세스 키를 코드나 GitHub 에 절대 넣지 않기.** EC2 는 아래의 "IAM 역할"로 권한을 받습니다.
+### 2-3. 실행 역할 권한 (개인 계정이거나 권한 오류가 날 때)
+IAM → 역할 → (Lambda 실행 역할) → 권한 추가 → 인라인 정책(JSON):
 
----
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": ["rds-data:ExecuteStatement", "rds-data:BeginTransaction", "rds-data:CommitTransaction", "rds-data:RollbackTransaction"], "Resource": "<DB_CLUSTER_ARN>" },
+    { "Effect": "Allow", "Action": "secretsmanager:GetSecretValue", "Resource": "<DB_SECRET_ARN>" },
+    { "Effect": "Allow", "Action": "lambda:InvokeFunction", "Resource": "arn:aws:lambda:ap-northeast-2:<계정>:function:codereading-api" }
+  ]
+}
+```
+- `lambda:InvokeFunction` 은 AI 생성·학습자 분석을 **응답 뒤에** 실행하기 위한 권한입니다. 없어도 동작하지만 해당 요청이 조금 느려집니다.
 
-## 1단계. EC2 용 IAM 역할 만들기
+### 2-4. 확인
+브라우저에서 `<함수 URL>/health` 를 엽니다.
 
-나중에 EC2 가 Bedrock 을 부를 권한을 이 역할에 붙입니다. (SSH 키로 접속하더라도 미리 만들어 두면 편해요.
-`AmazonSSMManagedInstanceCore` 는 키를 잃어버렸을 때 Session Manager 로 들어갈 수 있게 해 주는 비상구예요.)
-
-1. 콘솔 검색창에 **IAM** → 왼쪽 **역할(Roles)** → **역할 생성**
-2. 신뢰할 수 있는 엔터티: **AWS 서비스** → 사용 사례 **EC2** → 다음
-3. 권한 정책 검색: **`AmazonSSMManagedInstanceCore`** 체크 → 다음
-4. 역할 이름: **`codereading-ec2-role`** → 역할 생성
-
-✅ 확인: 역할 목록에 `codereading-ec2-role` 이 보이면 성공.
-
----
-
-## 2단계. EC2 인스턴스 만들기
-
-콘솔 검색창에 **EC2** → **인스턴스 시작(Launch instance)**
-
-| 항목 | 선택 | 이유 |
-| --- | --- | --- |
-| 이름 | `codereading-server` | |
-| AMI | **Amazon Linux 2023**, 아키텍처 **64비트(Arm)** | t4g 는 ARM(Graviton) |
-| 인스턴스 유형 | **t4g.small** (2 vCPU, 2GB) | 빌드까지 하려면 최소 2GB 권장 |
-| 키 페어 | **새 키 페어 생성** → 이름 `codereading-key`, 유형 **RSA**, 형식 **.pem**(권장) 또는 **.ppk**(PuTTY) | 생성 즉시 파일이 **한 번만** 다운로드됨 — 잃어버리면 다시 받을 수 없어요 |
-| 네트워크 설정 → 편집 | VPC: 기본값, 퍼블릭 IP 자동 할당: **활성화** | |
-| 보안 그룹 | **보안 그룹 생성**, 이름 `codereading-sg` | |
-| 인바운드 규칙 | **SSH(22) 소스: 내 IP**, **HTTP(80) 0.0.0.0/0**, **HTTPS(443) 0.0.0.0/0** | SSH 를 `0.0.0.0/0`(전체 공개)로 열지 않기 |
-| 스토리지 | **20 GiB, gp3** | Docker 이미지·빌드용 |
-| 고급 세부 정보 → IAM 인스턴스 프로파일 | **`codereading-ec2-role`** | ← 꼭 선택! |
-
-→ **인스턴스 시작**
-
-✅ 확인: 인스턴스 목록에서 상태 **실행 중**, 상태 검사 **2/2 통과** (2~3분 걸림).
+```json
+{"ok":true,"db":"data-api","ai":"mock"}
+```
+- 처음 한 번은 Aurora 가 깨어나고 테이블·시드 문제를 만드느라 **20~40초** 걸릴 수 있어요. 그다음부터는 빠릅니다.
+- `<함수 URL>/concepts` 를 열었을 때 문제 목록 JSON 이 나오면 DB 연결까지 성공입니다.
 
 ---
 
-## 3단계. 고정 IP(Elastic IP) 붙이기
+## 3단계. GitHub Pages 로 화면 배포
 
-인스턴스를 껐다 켜면 공인 IP 가 바뀌므로 고정 IP 를 붙입니다.
-
-1. EC2 왼쪽 메뉴 **탄력적 IP** → **탄력적 IP 주소 할당** → 할당
-2. 방금 만든 IP 선택 → 작업 → **탄력적 IP 주소 연결** → 인스턴스 `codereading-server` 선택 → 연결
-
-✅ 확인: 인스턴스 상세의 "퍼블릭 IPv4 주소"가 탄력적 IP 와 같으면 성공. 이 IP 를 메모해 두세요.
-
-> 공인 IPv4 는 사용 중이든 아니든 시간당 요금이 붙어요(약 월 $3.6). 인스턴스를 완전히 정리할 때는 탄력적 IP 도 **릴리스**하세요.
-
----
-
-## 4단계. 서버에 접속하기 (SSH 키: .pem / .ppk)
-
-### 키 파일 보관
-- 다운로드한 키를 안전한 폴더로 옮기세요. 예: Windows `C:\Users\<내이름>\.ssh\codereading-key.pem`
-- **GitHub·프로젝트 폴더에 절대 넣지 마세요.** 키가 있으면 누구나 서버에 들어올 수 있어요.
-- 접속 계정 이름은 Amazon Linux 기준 **`ec2-user`** 예요.
-
-### 방법 A. Windows PowerShell + .pem (권장, 설치 불필요)
-1. 키 파일 권한 좁히기 (안 하면 `UNPROTECTED PRIVATE KEY FILE` 오류):
-   ```powershell
-   cd $HOME\.ssh
-   icacls .\codereading-key.pem /inheritance:r
-   icacls .\codereading-key.pem /grant:r "$($env:USERNAME):(R)"
-   ```
-2. 접속:
-   ```powershell
-   ssh -i $HOME\.ssh\codereading-key.pem ec2-user@<탄력적 IP>
-   ```
-3. 처음에 `Are you sure you want to continue connecting (yes/no)?` → `yes`
-
-macOS / Linux 라면: `chmod 400 ~/.ssh/codereading-key.pem` 후 같은 `ssh` 명령.
-
-### 방법 B. PuTTY + .ppk
-1. (키를 .pem 으로 받았다면) **PuTTYgen** → Load → .pem 선택(파일 형식 All Files) → **Save private key** → `.ppk` 저장
-2. **PuTTY** 실행
-   - Session → Host Name: `ec2-user@<탄력적 IP>`, Port `22`
-   - Connection → SSH → Auth → Credentials → Private key file: `.ppk` 선택
-   - Session 으로 돌아와 Saved Sessions 에 `codereading` 입력 → **Save** (다음부터 더블클릭)
-3. **Open** → 경고 창에서 **Accept**
-
-### 방법 C. VS Code 로 접속 (파일 편집이 편함)
-1. 확장 **Remote - SSH** 설치
-2. `F1` → `Remote-SSH: Open SSH Configuration File` → `C:\Users\<내이름>\.ssh\config` 에 추가:
-   ```
-   Host codereading
-     HostName <탄력적 IP>
-     User ec2-user
-     IdentityFile C:\Users\<내이름>\.ssh\codereading-key.pem
-   ```
-3. `F1` → `Remote-SSH: Connect to Host` → `codereading` (방법 A 의 권한 설정이 먼저 되어 있어야 해요)
-
-✅ 확인: 프롬프트가 `[ec2-user@ip-... ~]$` 로 바뀌면 성공.
-
-> **내 IP 가 바뀌면**(집 ↔ 학교, 와이파이 변경) 접속이 안 될 수 있어요. 보안 그룹 → 인바운드 규칙 편집 → SSH 소스를 다시 **내 IP** 로 저장하세요.
+1. 저장소 → **Settings → Pages** → Build and deployment → Source: **GitHub Actions**
+2. **Settings → Secrets and variables → Actions → Variables** 탭 → New repository variable
+   - 이름 `API_URL`, 값: 함수 URL (끝의 `/` 는 빼도 되고 있어도 됩니다)
+3. 작업 브랜치를 **main 에 병합**하면 `Deploy web (GitHub Pages)` 워크플로가 자동으로 실행됩니다 (Actions 탭에서 확인).
+   - Pages 배포는 기본 설정상 main 에서만 허용됩니다.
+4. 완료되면 화면 주소: **https://torgeleli22-lang.github.io/teamProject_night_first/**
+5. Lambda 환경 변수 `ALLOWED_ORIGINS` 에 `https://torgeleli22-lang.github.io` 를 넣어 다른 사이트에서 API 를 못 쓰게 막습니다.
 
 ---
 
-## 5단계. Docker · Git 설치 (한 번만)
+## 4단계. 업데이트하는 방법
 
-터미널에 한 줄씩 붙여 넣으세요.
+| 바뀐 것 | 할 일 |
+| --- | --- |
+| 화면 (src/app, src/components) | main 에 push → Pages 자동 배포 |
+| API·채점·콘텐츠 (src/api, src/lib) | CI 의 `lambda-zip` 다운로드 → Lambda → 코드 → .zip 업로드 |
+| 환경 변수 (AI 모드 등) | Lambda → 구성 → 환경 변수 (코드 재배포 필요 없음) |
+
+> 학교 계정은 임시 자격 증명이라 GitHub Actions 에서 Lambda 로 자동 배포하기 어렵습니다. 개인 계정으로 옮기면 Actions 에서 바로 업데이트하도록 바꿀 수 있습니다.
+
+---
+
+## 로컬에서 PostgreSQL 로 확인하고 싶을 때 (선택)
 
 ```bash
-# 1) 패키지 업데이트 + docker, git 설치
-sudo dnf update -y
-sudo dnf install -y docker git
-
-# 2) Docker 켜기 (재부팅해도 자동 시작)
-sudo systemctl enable --now docker
-sudo usermod -aG docker ec2-user   # 다음 접속부터는 sudo 없이 docker 사용 가능 (지금은 sudo 그대로 사용)
-
-# 3) docker compose 플러그인 설치
-sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
-  -o /usr/local/lib/docker/cli-plugins/docker-compose
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-
-# 4) 메모리 부족 방지용 스왑 2GB (t4g.small 은 RAM 2GB 라 빌드 중 멈출 수 있음)
-sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
-sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
-echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
+# .env
+DB_DRIVER=postgres
+DATABASE_URL=postgres://postgres@localhost:5432/jobase
+npm run smoke   # API 전체 흐름 점검
 ```
-
-✅ 확인:
-
-```bash
-sudo docker --version
-sudo docker compose version
-free -h            # Swap 2.0Gi 가 보이면 성공
-```
-
----
-
-## 6단계. 코드 받기
-
-```bash
-cd ~
-git clone -b claude/ai-code-learning-service-s0rp6l https://github.com/torgeleli22-lang/teamProject_night_first.git
-cd teamProject_night_first
-```
-
-- 저장소가 **비공개(private)** 라면 비밀번호 대신 GitHub **Personal Access Token** 을 입력해야 해요.
-  GitHub → Settings → Developer settings → Fine-grained tokens → 이 저장소만, **Contents: Read-only** 로 발급.
-- main 에 병합한 뒤에는 `-b claude/...` 부분을 빼고 받으면 됩니다.
-
----
-
-## 7단계. 환경 변수(.env) 만들기
-
-```bash
-cp .env.example .env
-echo "ADMIN_TOKEN=$(openssl rand -hex 16)" >> .env
-nano .env
-```
-
-`nano` 편집기에서 확인할 것:
-
-```env
-AI_MODE=mock          # 지금은 목업. Bedrock 연결 후 live 로 바꿈
-ADMIN_TOKEN=...       # 방금 자동으로 들어간 값. /admin 접속에 사용 — 따로 메모
-```
-
-저장: `Ctrl + O` → `Enter`, 나가기: `Ctrl + X`
-
-> `.env` 는 `.gitignore` 에 들어 있어 GitHub 에 올라가지 않아요. 서버에서만 관리합니다.
-
----
-
-## 8단계. 빌드하고 실행하기
-
-```bash
-# 1) 앱 이미지 만들기 (처음 5~10분). 이미지 안에서 콘텐츠 실행 검증 → 빌드까지 해요.
-sudo docker build -t codereading-app .
-
-# 2) 실행 (앱 + 웹 서버)
-sudo docker compose up -d
-
-# 3) 상태 확인
-sudo docker compose ps          # app, caddy 둘 다 running(Up) 이면 성공
-sudo docker compose logs -f app # "Ready" 가 보이면 Ctrl + C 로 빠져나오기
-```
-
-✅ 확인: 내 컴퓨터 브라우저에서 **`http://<탄력적 IP>`** 접속 → 코드리딩 첫 화면.
-`/learn` 에서 문제를 풀어 보고, `/admin` 에서 ADMIN_TOKEN 을 넣어 보세요.
-
-> 주소는 반드시 `http://` 로 입력하세요. 도메인 없이 `https://IP` 로는 접속되지 않아요(10단계에서 해결).
-
----
-
-## 9단계. 운영할 때 자주 쓰는 명령
-
-```bash
-cd ~/teamProject_night_first
-
-# 코드가 바뀌었을 때 (새 버전 배포)
-git pull
-sudo docker build -t codereading-app .
-sudo docker compose up -d       # 새 이미지로 교체. 학습 기록(DB)은 볼륨에 남아 있어요
-
-# 로그 보기 / 재시작 / 끄기
-sudo docker compose logs --tail 100 app
-sudo docker compose restart app
-sudo docker compose down        # 끄기 (데이터는 유지)
-
-# 디스크 정리 (오래된 이미지)
-sudo docker image prune -f
-```
-
-**비용 아끼기**: 쓰지 않는 동안 EC2 콘솔에서 인스턴스를 **중지**하면 인스턴스 요금이 멈춰요.
-(디스크와 탄력적 IP 요금은 계속 나와요.) 다시 **시작**하면 Docker 가 자동으로 서비스를 다시 띄웁니다.
-
-대략 비용(서울, 온디맨드 기준 추정): t4g.small 약 월 $15 + 디스크 20GB 약 $2 + 공인 IP 약 $3.6.
-
----
-
-## 10단계. (선택) 도메인 + HTTPS
-
-1. 도메인을 구입(Route 53 또는 다른 업체)하고 **A 레코드**를 탄력적 IP 로 지정
-2. 서버에서:
-
-```bash
-echo "SITE_ADDRESS=내도메인.com" >> .env
-sudo docker compose up -d
-```
-
-Caddy 가 Let's Encrypt 인증서를 자동으로 받아 `https://내도메인.com` 으로 연결해요 (보안 그룹 80·443 이 열려 있어야 함).
 
 ---
 
@@ -274,23 +148,22 @@ Caddy 가 Let's Encrypt 인증서를 자동으로 받아 `https://내도메인.c
 
 | 증상 | 원인 / 해결 |
 | --- | --- |
-| `ssh: connect ... timed out` | 보안 그룹 SSH(22) 소스가 지금 내 IP 가 아님 → **내 IP** 로 다시 저장. 학교·회사 망이 22번 포트를 막는 경우도 있어요 (그때는 Session Manager 사용) |
-| `Permission denied (publickey)` | 사용자 이름이 `ec2-user` 인지, 이 인스턴스를 만들 때 고른 키 파일인지 확인 |
-| `UNPROTECTED PRIVATE KEY FILE` / `bad permissions` | 4단계 방법 A 의 `icacls`(Windows) 또는 `chmod 400`(macOS) 실행 |
-| PuTTY `Unable to use key file` | .pem 을 그대로 넣은 경우 → PuTTYgen 으로 .ppk 변환 |
-| 키 파일을 잃어버림 | 1단계 역할이 붙어 있으면 인스턴스 → 연결 → **Session Manager** 로 들어갈 수 있어요 |
-| 브라우저에서 접속이 안 됨(시간 초과) | 보안 그룹 인바운드에 HTTP 80 이 있는지, 주소를 `http://` 로 입력했는지 확인 |
-| `502 Bad Gateway` | 앱이 아직 시작 중이거나 멈춤 → `sudo docker compose logs app` 확인 |
-| 빌드 중 멈추거나 `Killed` | 메모리 부족 → 5단계 스왑 설정 확인 (`free -h`) |
-| `permission denied ... docker.sock` | 명령 앞에 `sudo` 를 붙이기 |
-| `git clone` 에서 인증 실패 | 비공개 저장소 → 비밀번호 자리에 Personal Access Token 입력 |
-| 로그에 `ENOSPC: no space left on device` | 디스크가 가득 참 → `df -h /` 확인 후 `sudo docker system prune -af` 로 정리 (실행 중인 컨테이너·볼륨의 데이터는 남아요). 자주 차면 EC2 → 볼륨 → **볼륨 수정**으로 20GiB 이상으로 늘리기 |
-| 이미지 빌드 중 `verify` 실패 | 시드 콘텐츠 문제 → 로컬에서 `npm run verify` 로 먼저 고치고 push |
+| 화면에 "서버에 연결하지 못했어요" | 저장소 변수 `API_URL` 이 맞는지, 함수 URL 인증 유형이 NONE 인지 확인. 변수를 바꿨다면 Pages 워크플로를 다시 실행 |
+| 브라우저 콘솔에 CORS 오류 | 함수 URL 의 CORS 설정을 **끄기** (코드가 처리). `ALLOWED_ORIGINS` 에 화면 주소(`https://아이디.github.io`, 경로 없이)가 정확한지 확인 |
+| `/health` 가 500 | Lambda → 모니터링 → CloudWatch 로그에서 `[api]` 줄 확인. `BadRequestException ... Data API` → 1-1 의 Data API 가 꺼져 있음 |
+| `AccessDeniedException` | 실행 역할에 2-3 의 권한이 없음. 학교 계정이면 제공된 역할(LabRole)을 골랐는지 확인 |
+| `Task timed out after 3.00 seconds` | 2-2 의 제한 시간을 5분으로 |
+| 첫 화면이 10~20초 걸림 | Aurora 최소 용량 0 ACU 에서 깨어나는 중. 화면에 "서버를 깨우는 중" 안내가 나와요. 발표 때는 최소 용량을 0.5 로 |
+| `/admin` 이 401 | Lambda 환경 변수 `ADMIN_TOKEN` 값을 관리자 화면에 입력 |
 
 ---
 
-## 다음 단계 (이 문서 이후)
+## 비용 (대략, 서울 리전 기준 추정)
 
-1. **Bedrock 연결**: IAM 역할에 `bedrock:InvokeModel` 권한 추가 → 코드에 Bedrock 클라이언트 추가 → `AI_MODE=live`
-2. **CI/CD**: GitHub Actions 로 검사(typecheck·test·verify·build) → 이미지(ECR) → EC2 자동 배포
-3. **RDS(PostgreSQL)**, **S3**: 사용자가 늘어나거나 로그인 기능을 붙일 때 (`docs/PROJECT_BRIEF.md` §11)
+| 항목 | 비용 |
+| --- | --- |
+| GitHub Pages | 무료 |
+| Lambda | 월 100만 요청까지 무료 범위 안 (학습 서비스 규모에서는 거의 0) |
+| Aurora Serverless v2 | 쉬는 동안(0 ACU)은 저장 공간 비용만. 사용 중에는 ACU 사용 시간만큼 |
+| Secrets Manager | 비밀 1개 월 약 $0.40 |
+| Data API | 요청 100만 건당 약 $0.35 |

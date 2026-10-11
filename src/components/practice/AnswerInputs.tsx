@@ -42,7 +42,7 @@ export function ChoiceInput({
             aria-checked={selected}
             disabled={locked}
             onClick={() => onChange(i)}
-            className={`group flex items-start gap-3 rounded-2xl border bg-white px-4 py-3.5 text-left transition disabled:cursor-default ${
+            className={`group flex items-start gap-3 rounded-2xl border bg-white/75 backdrop-blur px-4 py-3.5 text-left transition disabled:cursor-default ${
               mark
                 ? MARK_STYLE[mark]
                 : selected
@@ -101,7 +101,7 @@ export function TextAnswer({
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit();
         }}
         placeholder={predict ? "예) 10 5" : "어려운 용어를 쓰지 않아도 괜찮아요. 코드가 어떻게 동작하는지 내 말로 적어보세요."}
-        className={`w-full resize-y rounded-2xl border border-ink-200 bg-white px-4 py-3 text-[15px] leading-relaxed outline-none transition placeholder:text-ink-300 focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10 disabled:bg-ink-50 ${
+        className={`w-full resize-y rounded-2xl border border-ink-200/80 bg-white/80 px-4 py-3 text-[15px] leading-relaxed outline-none transition placeholder:text-ink-300 focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10 disabled:bg-ink-50 ${
           predict ? "font-mono" : ""
         }`}
       />
@@ -162,7 +162,7 @@ export function ShuffleInput({
                 key={pieceIndex}
                 type="button"
                 onClick={() => onChange([...value, pieceIndex])}
-                className="max-w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-left font-mono text-[13px] text-ink-900 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card"
+                className="max-w-full rounded-xl border border-white/70 bg-white/80 backdrop-blur px-3 py-2 text-left font-mono text-[13px] text-ink-900 shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card"
               >
                 <span className="whitespace-pre-wrap break-all">{pieces[pieceIndex].trim()}</span>
               </button>

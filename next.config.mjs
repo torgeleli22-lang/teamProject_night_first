@@ -1,14 +1,19 @@
 /**
- * 운영 서버(Docker)에는 TypeScript 가 없으므로 설정 파일은 JS 로 둔다.
+ * 화면은 정적 파일(HTML/JS)로 내보내서 GitHub Pages 에 올린다 (서버 없음).
+ * 채점·기록·AI 는 모두 API(AWS Lambda 함수 URL)가 처리한다 — src/api/
+ *
+ * - NEXT_PUBLIC_BASE_PATH: GitHub Pages 프로젝트 주소의 하위 경로 (예: /teamProject_night_first)
+ * - NEXT_PUBLIC_API_URL  : Lambda 함수 URL (로컬 기본값 http://localhost:8787)
+ * TypeScript 가 없는 환경에서도 읽히도록 설정 파일은 JS 로 둔다.
  * @type {import("next").NextConfig}
  */
 const nextConfig = {
+  output: "export",
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || "",
+  // /learn → /learn/index.html 로 만들어서 GitHub Pages 에서 새로 고침해도 열리게 한다
+  trailingSlash: true,
+  images: { unoptimized: true },
   reactStrictMode: true,
-  webpack(config, { isServer }) {
-    // node:sqlite 는 Node 내장 모듈이지만 번들러의 내장 모듈 목록에 없어 직접 외부 모듈로 지정한다
-    if (isServer) config.externals = [...(config.externals ?? []), { "node:sqlite": "commonjs node:sqlite" }];
-    return config;
-  },
 };
 
 export default nextConfig;

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { Spinner } from "@/components/ui";
-import { postJSON } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 
 interface Turn {
   role: "user" | "tutor";
@@ -28,7 +28,7 @@ export function TutorChat({ questionId, solved }: { questionId: string; solved: 
     setInput("");
     setLoading(true);
     try {
-      const res = await postJSON<{ answer: string; source: "ai" | "offline" }>("/api/ask", {
+      const res = await apiPost<{ answer: string; source: "ai" | "offline" }>("/ask", {
         questionId,
         question: q,
         solved,
@@ -46,7 +46,7 @@ export function TutorChat({ questionId, solved }: { questionId: string; solved: 
   const suggestions = solved ? SUGGESTIONS_AFTER : SUGGESTIONS_BEFORE;
 
   return (
-    <div className="rounded-2xl border border-ink-200 bg-white">
+    <div className="glass-soft border border-white/60">
       <div className="max-h-80 space-y-3 overflow-y-auto p-4">
         {turns.length === 0 && (
           <p className="text-sm text-ink-500">

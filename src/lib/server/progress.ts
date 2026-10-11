@@ -1,4 +1,3 @@
-import "server-only";
 import { conceptStatsFromProgress, dayKey, learnerLevel, streakFromDays, type ConceptStat } from "../learner/stats";
 import type { ConceptId } from "../types";
 import { conceptProgress, dailyActivity, type DailyActivity } from "./session-repo";
@@ -16,12 +15,12 @@ export interface ProgressSummary {
 }
 
 /** 헤더·학습 홈·내 학습 화면이 읽는 요약. 요약 테이블 두 개만 읽는다 */
-export function loadProgress(sessionId: string): ProgressSummary {
-  const days = dailyActivity(sessionId);
+export async function loadProgress(sessionId: string): Promise<ProgressSummary> {
+  const [days, progress] = await Promise.all([dailyActivity(sessionId), conceptProgress(sessionId)]);
   const xp = days.reduce((s, d) => s + d.xp, 0);
   const today = dayKey(Date.now());
   return {
-    stats: conceptStatsFromProgress(conceptProgress(sessionId)),
+    stats: conceptStatsFromProgress(progress),
     days,
     xp,
     level: learnerLevel(xp),

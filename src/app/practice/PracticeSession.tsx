@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { QuestionView, type QuestionOutcome } from "@/components/practice/QuestionView";
 import { ProgressBar, Spinner } from "@/components/ui";
-import { postJSON } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 import { conceptName, levelInfo } from "@/lib/curriculum";
 import type { PublicQuestion, SessionPlan } from "@/lib/server/planner";
 import type { Level } from "@/lib/types";
@@ -50,7 +50,7 @@ function Session({ params }: { params: URLSearchParams }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    postJSON<Plan>("/api/session", { level, concept, mode, types, ids }, controller.signal)
+    apiPost<Plan>("/session", { level, concept, mode, types, ids }, { signal: controller.signal })
       .then((p) => {
         setPlan(p);
         setQueue(p.questions);
@@ -82,7 +82,7 @@ function Session({ params }: { params: URLSearchParams }) {
       />
     );
   }
-  if (done) return <SessionSummary plan={plan} queue={queue} results={results} again={`/practice?${params.toString()}`} />;
+  if (done) return <SessionSummary plan={plan} queue={queue} results={results} again={`/practice/?${params.toString()}`} />;
 
   const q = queue[index];
   const isLast = index === queue.length - 1;
@@ -93,7 +93,7 @@ function Session({ params }: { params: URLSearchParams }) {
     setSimilarLoading(true);
     try {
       // 비슷한 문제 = 지금 문제와 같은 개념의 새 문제 ('전체 개념' 세션이어도 지금 문제의 개념 기준)
-      const p = await postJSON<Plan>("/api/session", { level, concept: q.concepts[0], types, size: 1, exclude: queue.map((x) => x.id) });
+      const p = await apiPost<Plan>("/session", { level, concept: q.concepts[0], types, size: 1, exclude: queue.map((x) => x.id) });
       if (p.questions.length) {
         setQueue((list) => [...list.slice(0, index + 1), p.questions[0], ...list.slice(index + 1)]);
         setIndex((i) => i + 1);
@@ -107,7 +107,7 @@ function Session({ params }: { params: URLSearchParams }) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 pb-16">
-      <div className="sticky top-14 z-20 -mx-4 mb-6 bg-ink-50/90 px-4 pb-3 pt-4 backdrop-blur">
+      <div className="glass sticky top-[4.75rem] z-20 mb-6 mt-4 rounded-3xl px-4 pb-3 pt-3">
         <div className="mb-2.5 flex items-center gap-3 text-sm font-semibold">
           <Link href={mode === "review" ? "/review" : "/learn"} className="rounded-lg px-1.5 py-1 text-ink-500 hover:bg-ink-100 hover:text-ink-900" aria-label="나가기">
             ←
@@ -122,7 +122,7 @@ function Session({ params }: { params: URLSearchParams }) {
       </div>
 
       {index === 0 && results.length === 0 && (
-        <p className="mb-4 rounded-2xl bg-white px-4 py-3 text-sm text-ink-500 ring-1 ring-ink-200/70">
+        <p className="glass-soft mb-4 px-4 py-3 text-sm text-ink-500">
           {levelInfo(level).emoji} {levelInfo(level).name} · {REASON_TEXT[plan.reason]}
           {plan.generating && " · AI가 이 개념의 새 문제를 준비하고 있어요"}
         </p>
@@ -195,7 +195,8 @@ function SessionSummary({ plan, queue, results, again }: { plan: Plan; queue: Pu
         </div>
       </div>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
-        <a href={plan.mode === "review" ? `/practice?mode=review&level=${plan.level}` : again.replace(/&?ids=[^&]*/, "")} className="btn-primary">
+        {/* 같은 주소로 새로 시작해야 하므로 Link 대신 페이지를 다시 연다 (GitHub Pages 하위 경로 포함) */}
+        <a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${plan.mode === "review" ? `/practice/?mode=review&level=${plan.level}` : again.replace(/&?ids=[^&]*/, "")}`} className="btn-primary">
           {plan.mode === "review" ? "복습 더 하기 →" : "같은 조건으로 한 세트 더 →"}
         </a>
         <Link href={analyzing ? "/dashboard" : results.some((r) => !r.correct) ? "/review" : "/learn"} className="btn-soft">

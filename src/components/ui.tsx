@@ -77,3 +77,37 @@ export function Spinner({ className = "" }: { className?: string }) {
     />
   );
 }
+
+/**
+ * 데이터를 불러오는 동안·실패했을 때 화면.
+ * 3초 넘게 걸리면 DB 가 쉬다가 깨어나는 중일 수 있다고 알려준다 (Aurora Serverless 0 ACU).
+ */
+export function LoadState({ error, slow, onRetry }: { error: string | null; slow: boolean; onRetry?: () => void }) {
+  if (error) {
+    return (
+      <div className="glass mx-auto mt-10 max-w-md p-8 text-center">
+        <p className="text-4xl" aria-hidden>
+          🌧️
+        </p>
+        <p className="mt-3 font-bold">데이터를 불러오지 못했어요</p>
+        <p className="mt-1 text-sm text-ink-500">{error}</p>
+        {onRetry && (
+          <button type="button" onClick={onRetry} className="btn-primary mt-5 px-5 py-2.5 text-sm">
+            다시 시도
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mx-auto mt-6 max-w-4xl space-y-4" aria-busy="true" aria-live="polite">
+      <div className="skeleton h-8 w-56" />
+      <div className="skeleton h-4 w-80" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="skeleton h-40" />
+        <div className="skeleton h-40" />
+      </div>
+      {slow && <p className="text-center text-sm text-ink-500">☕ 서버를 깨우는 중이에요. 잠시만 기다려 주세요 (처음 한 번은 10~20초 걸릴 수 있어요).</p>}
+    </div>
+  );
+}

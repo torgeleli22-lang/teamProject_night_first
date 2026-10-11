@@ -1,12 +1,13 @@
-import "server-only";
+import crypto from "node:crypto";
 import { attemptQuality, dayKey, xpForAttempt } from "../learner/stats";
 import type { Answer, Attempt, ConceptId, GradedBy, Level, QuestionType } from "../types";
 import { getDb } from "./db";
 
 /**
  * ② 사용자(세션) 그룹과 ③ 학습 기록 그룹을 다루는 저장소.
- * 지금은 로그인이 없으므로 브라우저 세션 하나가 사용자 한 명이다.
- * 세션 쿠키는 브라우저를 닫으면 사라지고, 서버의 기록도 일정 시간 뒤 자동으로 지운다.
+ * 지금은 로그인이 없으므로 브라우저 탭의 세션 하나가 사용자 한 명이다.
+ * 세션 id 는 브라우저의 sessionStorage 에만 있어서 창(탭)을 닫으면 사라지고,
+ * 서버의 기록도 일정 시간 쓰이지 않으면 자동으로 지운다.
  */
 
 /** 마지막 사용 후 이 시간이 지나면 세션과 학습 기록을 모두 삭제 */
@@ -23,30 +24,48 @@ export interface SessionInfo {
 
 let lastPurge = 0;
 
-/** 만료된 세션 삭제 (학습 기록·요약·분석은 ON DELETE CASCADE 로 함께 삭제). 10분에 한 번만 실행 */
-export function purgeExpiredSessions(now = Date.now()) {
+/** 만료된 세션 삭제 (학습 기록·요약·분석은 ON DELETE CASCADE 로 함께 삭제). 인스턴스마다 10분에 한 번만 */
+export async function purgeExpiredSessions(now = Date.now()) {
   if (now - lastPurge < 10 * 60_000) return;
   lastPurge = now;
-  getDb().prepare("DELETE FROM sessions WHERE last_seen_at < ?").run(now - SESSION_TTL_MS);
+  await (await getDb()).run("DELETE FROM sessions WHERE last_seen_at < ?", [now - SESSION_TTL_MS]);
 }
 
-/** 요청마다 호출: 세션이 없으면 만들고, 마지막 사용 시각을 갱신 */
-export function touchSession(id: string): SessionInfo {
-  purgeExpiredSessions();
-  const db = getDb();
+/** 세션 id 형식: 서버가 만든 UUID 만 받는다 */
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * 요청마다 호출: 알려진 세션이면 마지막 사용 시각을 갱신하고, 없거나 만료됐으면 새 세션을 만든다.
+ * (클라이언트가 보낸 임의의 id 로 세션을 만들지 않는다)
+ */
+export async function touchSession(id: string | null): Promise<SessionInfo> {
+  await purgeExpiredSessions();
+  const db = await getDb();
   const now = Date.now();
-  db.prepare(
-    "INSERT INTO sessions (id, nickname, created_at, last_seen_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at",
-  ).run(id, randomNickname(), now, now);
-  const row = db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as {
-    id: string;
-    nickname: string;
-    preferred_level: number | null;
-    daily_goal: number;
-    created_at: number;
-  };
-  return { id: row.id, nickname: row.nickname, preferredLevel: (row.preferred_level as Level) ?? null, dailyGoal: row.daily_goal, createdAt: row.created_at };
+  if (id && SESSION_ID.test(id) && (await db.run("UPDATE sessions SET last_seen_at = ? WHERE id = ?", [now, id])) > 0) {
+    const row = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [id]);
+    if (row) return toSession(row);
+  }
+  const fresh = crypto.randomUUID();
+  await db.run("INSERT INTO sessions (id, nickname, created_at, last_seen_at) VALUES (?, ?, ?, ?)", [fresh, randomNickname(), now, now]);
+  return toSession((await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [fresh]))!);
 }
+
+interface SessionRow {
+  id: string;
+  nickname: string;
+  preferred_level: number | null;
+  daily_goal: number;
+  created_at: number;
+}
+
+const toSession = (row: SessionRow): SessionInfo => ({
+  id: row.id,
+  nickname: row.nickname,
+  preferredLevel: (row.preferred_level as Level) ?? null,
+  dailyGoal: row.daily_goal,
+  createdAt: row.created_at,
+});
 
 const ADJECTIVES = ["성실한", "호기심 많은", "차분한", "부지런한", "용감한", "꼼꼼한", "즐거운", "끈기 있는", "반짝이는", "느긋한"];
 const ANIMALS = ["고양이", "판다", "수달", "펭귄", "다람쥐", "고래", "여우", "부엉이", "코알라", "햄스터"];
@@ -56,97 +75,97 @@ export function randomNickname(): string {
   return `${pick(ADJECTIVES)} ${pick(ANIMALS)} ${Math.floor(Math.random() * 90) + 10}`;
 }
 
-export function setNickname(id: string, nickname: string) {
-  getDb().prepare("UPDATE sessions SET nickname = ? WHERE id = ?").run(nickname, id);
+export async function setNickname(id: string, nickname: string) {
+  await (await getDb()).run("UPDATE sessions SET nickname = ? WHERE id = ?", [nickname, id]);
+}
+
+export async function setPreferredLevel(id: string, level: Level) {
+  await (await getDb()).run("UPDATE sessions SET preferred_level = ? WHERE id = ?", [level, id]);
+}
+
+export async function resetSession(id: string) {
+  const db = await getDb();
+  await db.transaction(async (tx) => {
+    for (const table of ["attempts", "daily_activity", "concept_progress", "analyses"]) {
+      await tx.run(`DELETE FROM ${table} WHERE session_id = ?`, [id]);
+    }
+    await tx.run("UPDATE sessions SET preferred_level = NULL WHERE id = ?", [id]);
+  });
 }
 
 // ───────────────────────── 랭킹 ─────────────────────────
 
+/** 다른 사람의 세션 id 는 곧 그 사람의 '열쇠'이므로 응답에 넣지 않고 나인지 여부만 보낸다 */
 export interface RankRow {
-  sessionId: string;
   nickname: string;
   xp: number;
   solved: number;
   rank: number;
+  isMe: boolean;
 }
 
 /**
  * 지금 참여 중인 세션(최근 SESSION_TTL 안에 사용) 가운데 XP 순위.
  * 하루 요약 테이블(daily_activity)의 XP 합계만 읽는다. 문제를 1개 이상 푼 세션만 집계.
  */
-export function ranking(limit = 10): { top: RankRow[]; total: number } {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT s.id AS session_id, s.nickname, SUM(d.xp) AS xp, SUM(d.solved) AS solved,
-              RANK() OVER (ORDER BY SUM(d.xp) DESC) AS rank
-       FROM daily_activity d JOIN sessions s ON s.id = d.session_id
-       GROUP BY s.id HAVING solved > 0 ORDER BY xp DESC, s.created_at ASC LIMIT ?`,
-    )
-    .all(limit) as { session_id: string; nickname: string; xp: number; solved: number; rank: number }[];
-  const total = (
-    db.prepare("SELECT COUNT(*) AS n FROM (SELECT session_id FROM daily_activity GROUP BY session_id HAVING SUM(solved) > 0)").get() as { n: number }
-  ).n;
-  return { top: rows.map((r) => ({ sessionId: r.session_id, nickname: r.nickname, xp: r.xp, solved: r.solved, rank: r.rank })), total };
+export async function ranking(meId: string, limit = 10): Promise<{ top: RankRow[]; total: number }> {
+  const db = await getDb();
+  const rows = await db.all<{ session_id: string; nickname: string; xp: number; solved: number; rank: number }>(
+    `SELECT s.id AS session_id, s.nickname, CAST(SUM(d.xp) AS INTEGER) AS xp, CAST(SUM(d.solved) AS INTEGER) AS solved,
+            CAST(RANK() OVER (ORDER BY SUM(d.xp) DESC) AS INTEGER) AS rank
+     FROM daily_activity d JOIN sessions s ON s.id = d.session_id
+     GROUP BY s.id, s.nickname, s.created_at HAVING SUM(d.solved) > 0
+     ORDER BY xp DESC, s.created_at ASC LIMIT ?`,
+    [limit],
+  );
+  const total = await db.get<{ n: number }>(
+    "SELECT CAST(COUNT(*) AS INTEGER) AS n FROM (SELECT session_id FROM daily_activity GROUP BY session_id HAVING SUM(solved) > 0) t",
+  );
+  return { top: rows.map((r) => ({ nickname: r.nickname, xp: r.xp, solved: r.solved, rank: r.rank, isMe: r.session_id === meId })), total: total?.n ?? 0 };
 }
 
 /** 내 등수: 나보다 XP 가 많은 세션 수 + 1. 바로 위 등수와의 XP 차이도 함께 */
-export function myRank(sessionId: string): { rank: number; xp: number; nextXp: number | null } | null {
-  const db = getDb();
-  const mine = db.prepare("SELECT SUM(xp) AS xp, SUM(solved) AS solved FROM daily_activity WHERE session_id = ?").get(sessionId) as {
-    xp: number | null;
-    solved: number | null;
-  };
-  if (!mine.solved) return null;
+export async function myRank(sessionId: string): Promise<{ rank: number; xp: number; nextXp: number | null } | null> {
+  const db = await getDb();
+  const mine = await db.get<{ xp: number | null; solved: number | null }>(
+    "SELECT CAST(SUM(xp) AS INTEGER) AS xp, CAST(SUM(solved) AS INTEGER) AS solved FROM daily_activity WHERE session_id = ?",
+    [sessionId],
+  );
+  if (!mine?.solved) return null;
   const xp = mine.xp ?? 0;
-  const above = db
-    .prepare("SELECT COUNT(*) AS n, MIN(t) AS next FROM (SELECT SUM(xp) AS t FROM daily_activity GROUP BY session_id HAVING SUM(solved) > 0 AND SUM(xp) > ?)")
-    .get(xp) as { n: number; next: number | null };
-  return { rank: above.n + 1, xp, nextXp: above.next };
+  const above = await db.get<{ n: number; next: number | null }>(
+    `SELECT CAST(COUNT(*) AS INTEGER) AS n, CAST(MIN(t) AS INTEGER) AS next
+     FROM (SELECT SUM(xp) AS t FROM daily_activity GROUP BY session_id HAVING SUM(solved) > 0 AND SUM(xp) > ?) a`,
+    [xp],
+  );
+  return { rank: (above?.n ?? 0) + 1, xp, nextXp: above?.next ?? null };
 }
 
 /** 데모용 가상 참가자 (랭킹 화면 확인용). is_demo = 1 로 표시해 따로 지울 수 있다 */
-export function seedDemoPeers(count: number) {
-  const db = getDb();
+export async function seedDemoPeers(count: number) {
+  const db = await getDb();
   const now = Date.now();
-  db.exec("BEGIN");
-  try {
+  await db.transaction(async (tx) => {
     for (let i = 0; i < count; i++) {
-      const id = `demo-${crypto.randomUUID()}`;
+      const id = crypto.randomUUID();
       // XP 분포: 대부분 낮고 일부만 높게 (실제 학습자 분포처럼)
       const xp = Math.round(20 + Math.pow(Math.random(), 2.2) * 600);
       const solved = Math.max(1, Math.round(xp / 11));
-      db.prepare("INSERT INTO sessions (id, nickname, is_demo, created_at, last_seen_at) VALUES (?, ?, 1, ?, ?)").run(id, randomNickname(), now, now);
-      db.prepare("INSERT INTO daily_activity (session_id, day, solved, correct, time_ms, xp) VALUES (?, ?, ?, ?, ?, ?)").run(
+      await tx.run("INSERT INTO sessions (id, nickname, is_demo, created_at, last_seen_at) VALUES (?, ?, 1, ?, ?)", [id, randomNickname(), now, now]);
+      await tx.run("INSERT INTO daily_activity (session_id, day, solved, correct, time_ms, xp) VALUES (?, ?, ?, ?, ?, ?)", [
         id,
         dayKey(now),
         solved,
         Math.round(solved * 0.7),
         solved * 30_000,
         xp,
-      );
+      ]);
     }
-    db.exec("COMMIT");
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+  });
 }
 
-export function removeDemoPeers() {
-  getDb().prepare("DELETE FROM sessions WHERE is_demo = 1").run();
-}
-
-export function setPreferredLevel(id: string, level: Level) {
-  getDb().prepare("UPDATE sessions SET preferred_level = ? WHERE id = ?").run(level, id);
-}
-
-export function resetSession(id: string) {
-  const db = getDb();
-  for (const table of ["attempts", "daily_activity", "concept_progress", "analyses"]) {
-    db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(id);
-  }
-  db.prepare("UPDATE sessions SET preferred_level = NULL WHERE id = ?").run(id);
+export async function removeDemoPeers() {
+  await (await getDb()).run("DELETE FROM sessions WHERE is_demo = 1");
 }
 
 // ───────────────────────── 풀이 기록 + 요약 갱신 ─────────────────────────
@@ -175,45 +194,37 @@ const pushRecent = <T>(json: string, value: T, keep: number): string => JSON.str
  * 풀이 1건을 기록하면서 캘린더(하루 요약)와 개념별 이해도 요약을 같은 트랜잭션에서 갱신한다.
  * 화면은 요약 테이블만 읽으므로 기록이 쌓여도 느려지지 않는다.
  */
-export function insertAttempt(a: NewAttempt): number {
-  const db = getDb();
+export async function insertAttempt(a: NewAttempt): Promise<number> {
+  const db = await getDb();
   const at = a.createdAt ?? Date.now();
   const xp = xpForAttempt(a);
   const quality = attemptQuality(a);
-  db.exec("BEGIN");
-  try {
-    const result = db
-      .prepare(
-        `INSERT INTO attempts (session_id, question_id, code_item_id, question_type, concepts, level, correct, partial, hints_used, time_ms, misconception, graded_by, answer, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(a.sessionId, a.questionId, a.codeItemId, a.questionType, JSON.stringify(a.concepts), a.level, a.correct ? 1 : 0, a.partial ? 1 : 0, a.hintsUsed, a.timeMs, a.misconception, a.gradedBy, JSON.stringify(a.answer), at);
-
-    db.prepare(
+  return db.transaction(async (tx) => {
+    const id = await tx.insert(
+      `INSERT INTO attempts (session_id, question_id, code_item_id, question_type, concepts, level, correct, partial, hints_used, time_ms, misconception, graded_by, answer, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [a.sessionId, a.questionId, a.codeItemId, a.questionType, JSON.stringify(a.concepts), a.level, a.correct, a.partial, a.hintsUsed, a.timeMs, a.misconception, a.gradedBy, JSON.stringify(a.answer), at],
+    );
+    await tx.run(
       `INSERT INTO daily_activity (session_id, day, solved, correct, time_ms, xp) VALUES (?, ?, 1, ?, ?, ?)
-       ON CONFLICT(session_id, day) DO UPDATE SET solved = solved + 1, correct = correct + excluded.correct,
-         time_ms = time_ms + excluded.time_ms, xp = xp + excluded.xp`,
-    ).run(a.sessionId, dayKey(at), a.correct ? 1 : 0, a.timeMs, xp);
-
-    const getProgress = db.prepare("SELECT recent_quality, recent_results FROM concept_progress WHERE session_id = ? AND concept = ?");
-    const upsertProgress = db.prepare(
-      `INSERT INTO concept_progress (session_id, concept, attempts, correct, time_ms, recent_quality, recent_results) VALUES (?, ?, 1, ?, ?, ?, ?)
-       ON CONFLICT(session_id, concept) DO UPDATE SET attempts = attempts + 1, correct = correct + excluded.correct,
-         time_ms = time_ms + excluded.time_ms, recent_quality = excluded.recent_quality, recent_results = excluded.recent_results`,
+       ON CONFLICT(session_id, day) DO UPDATE SET solved = daily_activity.solved + 1, correct = daily_activity.correct + excluded.correct,
+         time_ms = daily_activity.time_ms + excluded.time_ms, xp = daily_activity.xp + excluded.xp`,
+      [a.sessionId, dayKey(at), a.correct, a.timeMs, xp],
     );
     for (const concept of a.concepts) {
-      const prev = (getProgress.get(a.sessionId, concept) as { recent_quality: string; recent_results: string } | undefined) ?? {
-        recent_quality: "[]",
-        recent_results: "[]",
-      };
-      upsertProgress.run(a.sessionId, concept, a.correct ? 1 : 0, a.timeMs, pushRecent(prev.recent_quality, quality, 5), pushRecent(prev.recent_results, a.correct, 10));
+      const prev = (await tx.get<{ recent_quality: string; recent_results: string }>(
+        "SELECT recent_quality, recent_results FROM concept_progress WHERE session_id = ? AND concept = ?",
+        [a.sessionId, concept],
+      )) ?? { recent_quality: "[]", recent_results: "[]" };
+      await tx.run(
+        `INSERT INTO concept_progress (session_id, concept, attempts, correct, time_ms, recent_quality, recent_results) VALUES (?, ?, 1, ?, ?, ?, ?)
+         ON CONFLICT(session_id, concept) DO UPDATE SET attempts = concept_progress.attempts + 1, correct = concept_progress.correct + excluded.correct,
+           time_ms = concept_progress.time_ms + excluded.time_ms, recent_quality = excluded.recent_quality, recent_results = excluded.recent_results`,
+        [a.sessionId, concept, a.correct, a.timeMs, pushRecent(prev.recent_quality, quality, 5), pushRecent(prev.recent_results, a.correct, 10)],
+      );
     }
-    db.exec("COMMIT");
-    return Number(result.lastInsertRowid);
-  } catch (e) {
-    db.exec("ROLLBACK");
-    throw e;
-  }
+    return id;
+  });
 }
 
 interface AttemptRow {
@@ -234,10 +245,12 @@ interface AttemptRow {
 }
 
 /** 세션의 풀이 기록 (세션 단위라 양이 많지 않다) */
-export function listAttempts(sessionId: string): Attempt[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM attempts WHERE session_id = ? ORDER BY created_at ASC, id ASC")
-    .all(sessionId) as unknown as AttemptRow[];
+export async function listAttempts(sessionId: string): Promise<Attempt[]> {
+  const rows = await (await getDb()).all<AttemptRow>(
+    `SELECT id, session_id, question_id, code_item_id, question_type, concepts, level, correct, partial, hints_used, time_ms, misconception, graded_by, created_at
+     FROM attempts WHERE session_id = ? ORDER BY created_at ASC, id ASC`,
+    [sessionId],
+  );
   return rows.map((r) => ({
     id: r.id,
     sessionId: r.session_id,
@@ -256,15 +269,16 @@ export function listAttempts(sessionId: string): Attempt[] {
   }));
 }
 
-export function attemptCount(sessionId: string): number {
-  return (getDb().prepare("SELECT COUNT(*) AS n FROM attempts WHERE session_id = ?").get(sessionId) as { n: number }).n;
+export async function attemptCount(sessionId: string): Promise<number> {
+  return (await (await getDb()).get<{ n: number }>("SELECT CAST(COUNT(*) AS INTEGER) AS n FROM attempts WHERE session_id = ?", [sessionId]))?.n ?? 0;
 }
 
 /** 주관식 답변 원문 (AI 학습자 분석 재료) */
-export function recentShortAnswers(sessionId: string, limit = 5): { questionId: string; text: string; correct: boolean }[] {
-  const rows = getDb()
-    .prepare("SELECT question_id, answer, correct FROM attempts WHERE session_id = ? AND question_type = 'short_answer' ORDER BY created_at DESC LIMIT ?")
-    .all(sessionId, limit) as { question_id: string; answer: string; correct: number }[];
+export async function recentShortAnswers(sessionId: string, limit = 5): Promise<{ questionId: string; text: string; correct: boolean }[]> {
+  const rows = await (await getDb()).all<{ question_id: string; answer: string; correct: number }>(
+    "SELECT question_id, answer, correct FROM attempts WHERE session_id = ? AND question_type = 'short_answer' ORDER BY created_at DESC LIMIT ?",
+    [sessionId, limit],
+  );
   return rows.map((r) => ({ questionId: r.question_id, text: (JSON.parse(r.answer) as { text: string }).text, correct: r.correct === 1 }));
 }
 
@@ -278,16 +292,12 @@ export interface DailyActivity {
   xp: number;
 }
 
-export function dailyActivity(sessionId: string): DailyActivity[] {
-  return (
-    getDb().prepare("SELECT day, solved, correct, time_ms, xp FROM daily_activity WHERE session_id = ? ORDER BY day").all(sessionId) as {
-      day: string;
-      solved: number;
-      correct: number;
-      time_ms: number;
-      xp: number;
-    }[]
-  ).map((r) => ({ day: r.day, solved: r.solved, correct: r.correct, timeMs: r.time_ms, xp: r.xp }));
+export async function dailyActivity(sessionId: string): Promise<DailyActivity[]> {
+  const rows = await (await getDb()).all<{ day: string; solved: number; correct: number; time_ms: number; xp: number }>(
+    "SELECT day, solved, correct, time_ms, xp FROM daily_activity WHERE session_id = ? ORDER BY day",
+    [sessionId],
+  );
+  return rows.map((r) => ({ day: r.day, solved: r.solved, correct: r.correct, timeMs: r.time_ms, xp: r.xp }));
 }
 
 export interface ConceptProgressRow {
@@ -299,17 +309,16 @@ export interface ConceptProgressRow {
   recentResults: boolean[];
 }
 
-export function conceptProgress(sessionId: string): ConceptProgressRow[] {
-  return (
-    getDb().prepare("SELECT * FROM concept_progress WHERE session_id = ?").all(sessionId) as {
-      concept: string;
-      attempts: number;
-      correct: number;
-      time_ms: number;
-      recent_quality: string;
-      recent_results: string;
-    }[]
-  ).map((r) => ({
+export async function conceptProgress(sessionId: string): Promise<ConceptProgressRow[]> {
+  const rows = await (await getDb()).all<{
+    concept: string;
+    attempts: number;
+    correct: number;
+    time_ms: number;
+    recent_quality: string;
+    recent_results: string;
+  }>("SELECT concept, attempts, correct, time_ms, recent_quality, recent_results FROM concept_progress WHERE session_id = ?", [sessionId]);
+  return rows.map((r) => ({
     concept: r.concept,
     attempts: r.attempts,
     correct: r.correct,
@@ -329,15 +338,20 @@ export interface StoredAnalysis<T> {
   createdAt: number;
 }
 
-export function latestAnalysis<T>(sessionId: string): StoredAnalysis<T> | null {
-  const row = getDb().prepare("SELECT * FROM analyses WHERE session_id = ? ORDER BY id DESC LIMIT 1").get(sessionId) as
-    | { id: number; attempt_count: number; result: string; source: string; created_at: number }
-    | undefined;
+export async function latestAnalysis<T>(sessionId: string): Promise<StoredAnalysis<T> | null> {
+  const row = await (await getDb()).get<{ id: number; attempt_count: number; result: string; source: string; created_at: number }>(
+    "SELECT id, attempt_count, result, source, created_at FROM analyses WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+    [sessionId],
+  );
   return row ? { id: row.id, attemptCount: row.attempt_count, result: JSON.parse(row.result), source: row.source as "ai" | "rule", createdAt: row.created_at } : null;
 }
 
-export function insertAnalysis(sessionId: string, attemptCount: number, result: unknown, source: "ai" | "rule") {
-  getDb()
-    .prepare("INSERT INTO analyses (session_id, attempt_count, result, source, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(sessionId, attemptCount, JSON.stringify(result), source, Date.now());
+export async function insertAnalysis(sessionId: string, attemptCount: number, result: unknown, source: "ai" | "rule") {
+  await (await getDb()).run("INSERT INTO analyses (session_id, attempt_count, result, source, created_at) VALUES (?, ?, ?, ?, ?)", [
+    sessionId,
+    attemptCount,
+    JSON.stringify(result),
+    source,
+    Date.now(),
+  ]);
 }

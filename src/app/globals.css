@@ -2,6 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Liquid Glass 디자인 (참고: dashersw/liquid-glass-js README)
+ * README 의 개념을 CSS 로 옮겼다. WebGL·html2canvas 는 쓰지 않는다
+ * (요소마다 WebGL 캔버스 + 페이지 캡처는 모바일에서 무겁고, 화면 내용이 자주 바뀌는 학습 앱에 맞지 않음).
+ *
+ *   README 매개변수        → 여기서
+ *   Blur Radius            → --glass-blur (backdrop-filter blur)
+ *   Tint Opacity           → --glass-tint (유리 바탕의 흰색 농도)
+ *   Rim Intensity          → 안쪽 테두리 빛 (inset 1px 흰 선)
+ *   Edge Intensity         → 가장자리 굴절 그림자 (inset 아래쪽 그늘)
+ *   Corner Boost / 반사광  → ::before 위쪽 하이라이트 그라디언트
+ *   Shape: rounded / pill / circle → .glass / .glass-bar·.glass-pill / .glass-orb
+ *   Nested Glass           → 유리 안의 유리(.glass-soft, 칩·버튼)는 더 옅게
+ */
+:root {
+  --glass-blur: 18px;
+  --glass-tint: 0.62;
+  --glass-rim: rgba(255, 255, 255, 0.75);
+  --glass-edge: rgba(90, 72, 227, 0.1);
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
@@ -10,31 +31,151 @@
     @apply bg-ink-50 text-ink-900 antialiased;
     word-break: keep-all;
   }
+  /* 유리가 비칠 배경: 은은하게 움직이는 색 번짐 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -20vmax;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38vmax 32vmax at 12% 18%, rgba(139, 128, 249, 0.34), transparent 60%),
+      radial-gradient(34vmax 30vmax at 88% 12%, rgba(32, 178, 122, 0.2), transparent 60%),
+      radial-gradient(40vmax 34vmax at 78% 88%, rgba(245, 176, 20, 0.16), transparent 60%),
+      radial-gradient(36vmax 30vmax at 20% 92%, rgba(242, 105, 75, 0.12), transparent 60%);
+    animation: ambient 28s ease-in-out infinite alternate;
+  }
   :focus-visible {
     @apply outline-none ring-2 ring-brand-400 ring-offset-2 ring-offset-white;
   }
 }
 
-@layer components {
-  .card {
-    @apply rounded-3xl border border-ink-200/70 bg-white shadow-card;
+@keyframes ambient {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
   }
+  100% {
+    transform: translate3d(-3vmax, 2vmax, 0) scale(1.06);
+  }
+}
+
+@layer components {
+  /* ── 유리 기본형 (rounded) ── */
+  .glass {
+    position: relative;
+    isolation: isolate;
+    border-radius: 1.5rem;
+    background: linear-gradient(160deg, rgba(255, 255, 255, calc(var(--glass-tint) + 0.14)), rgba(255, 255, 255, var(--glass-tint)));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+      inset 0 -10px 22px -16px var(--glass-edge),
+      0 1px 2px rgba(29, 27, 47, 0.04),
+      0 10px 30px -8px rgba(52, 46, 124, 0.14);
+  }
+  /* 위쪽 반사광 (corner boost) */
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 38%);
+    opacity: 0.6;
+  }
+  /* 유리 안의 유리 (nested): 더 옅고 얇게 */
+  .glass-soft {
+    border-radius: 1.125rem;
+    background: rgba(255, 255, 255, 0.5);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    backdrop-filter: blur(10px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.7),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  }
+  /* 캡슐 (pill): 상단 메뉴, 하단 메뉴 */
+  .glass-bar {
+    @apply glass;
+    border-radius: 9999px;
+    --glass-tint: 0.58;
+  }
+  .glass-pill {
+    @apply glass-soft;
+    border-radius: 9999px;
+  }
+  /* 원형 (circle): 로고 */
+  .glass-orb {
+    background: radial-gradient(120% 120% at 30% 20%, #8b80f9, #5a48e3 55%, #3d329d);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.6),
+      inset 0 -4px 8px rgba(29, 27, 47, 0.25),
+      0 4px 12px -2px rgba(90, 72, 227, 0.45);
+  }
+  /* 색이 들어간 유리 (진한 tint): 랭킹 배너 등 */
+  .glass-hero {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 45%),
+      linear-gradient(135deg, rgba(90, 72, 227, 0.95), rgba(108, 95, 242, 0.88) 55%, rgba(32, 178, 122, 0.75));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  .glass-input {
+    @apply rounded-xl outline-none transition;
+    background: rgba(255, 255, 255, 0.7);
+    box-shadow:
+      inset 0 1px 2px rgba(29, 27, 47, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+      0 0 0 1px rgba(196, 194, 212, 0.7);
+  }
+  .glass-input:focus {
+    box-shadow:
+      inset 0 1px 2px rgba(29, 27, 47, 0.08),
+      0 0 0 2px rgba(139, 128, 249, 0.7);
+  }
+
+  /* 기존 카드는 모두 유리로 */
+  .card {
+    @apply glass;
+  }
+
+  /* ── 버튼: 유리 위의 물방울처럼 (warp: 누르면 살짝 눌림) ── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[15px] font-semibold transition
-      disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[15px] font-semibold transition duration-200
+      disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.97];
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700;
+    @apply btn text-white;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 50%),
+      linear-gradient(135deg, #6c5ff2, #5a48e3 60%, #4b3ac4);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -2px 6px rgba(29, 27, 47, 0.2),
+      0 6px 18px -6px rgba(90, 72, 227, 0.6);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -2px 6px rgba(29, 27, 47, 0.2),
+      0 10px 24px -6px rgba(90, 72, 227, 0.65);
   }
   .btn-soft {
-    @apply btn bg-brand-50 text-brand-700 hover:bg-brand-100;
+    @apply btn glass-soft text-brand-700 hover:bg-white/80;
   }
   .btn-ghost {
-    @apply btn bg-transparent text-ink-700 hover:bg-ink-100;
+    @apply btn bg-transparent text-ink-700 hover:bg-white/60;
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold;
   }
+  .skeleton {
+    @apply glass-soft animate-pulse;
+  }
+
   .tok-kw { color: #b9a6ff; }
   .tok-str { color: #9be3b8; }
   .tok-num { color: #ffc98a; }
@@ -43,8 +184,34 @@
   .tok-blank { @apply rounded bg-sun-500/25 px-1 text-sun-100; }
 }
 
+/* 유리 효과를 지원하지 않는 브라우저: 읽기 쉬운 불투명 바탕 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-bar {
+    background: rgba(255, 255, 255, 0.96);
+  }
+  .glass-soft,
+  .glass-pill {
+    background: rgba(255, 255, 255, 0.9);
+  }
+}
+
+/* 투명도 줄이기 설정을 켠 사용자 */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-bar,
+  .glass-soft,
+  .glass-pill {
+    background: #fff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }

@@ -58,7 +58,7 @@ export function StartPanel({
                 aria-checked={active}
                 onClick={() => setLevel(l.level)}
                 className={`relative flex flex-col items-center gap-1 rounded-2xl border px-1 py-3 transition ${
-                  active ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/20" : "border-ink-200 bg-white hover:border-brand-300"
+                  active ? "border-brand-500 bg-brand-50/85 ring-2 ring-brand-500/20" : "border-white/70 bg-white/55 backdrop-blur hover:border-brand-300 hover:bg-white/80"
                 }`}
               >
                 {suggestedLevel === l.level && <span className="absolute -top-2 rounded-full bg-sun-500 px-1.5 text-[10px] font-bold text-white">추천</span>}
@@ -87,7 +87,7 @@ export function StartPanel({
             aria-pressed={types.length === 0}
             onClick={() => setTypes([])}
             className={`col-span-2 flex items-center gap-2 rounded-2xl border px-3 py-2.5 text-left transition sm:col-span-3 ${
-              types.length === 0 ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/20" : "border-ink-200 bg-white hover:border-brand-300"
+              types.length === 0 ? "border-brand-500 bg-brand-50/85 ring-2 ring-brand-500/20" : "border-white/70 bg-white/55 backdrop-blur hover:border-brand-300 hover:bg-white/80"
             }`}
           >
             <span aria-hidden>🎲</span>
@@ -103,7 +103,7 @@ export function StartPanel({
                 aria-pressed={active}
                 onClick={() => toggle(o.type)}
                 className={`flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-left transition ${
-                  active ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/20" : "border-ink-200 bg-white hover:border-brand-300"
+                  active ? "border-brand-500 bg-brand-50/85 ring-2 ring-brand-500/20" : "border-white/70 bg-white/55 backdrop-blur hover:border-brand-300 hover:bg-white/80"
                 }`}
               >
                 <span aria-hidden>{o.icon}</span>
@@ -127,7 +127,7 @@ export function StartPanel({
           id="concept-select"
           value={concept}
           onChange={(e) => setConcept(e.target.value)}
-          className="w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-[15px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10"
+          className="w-full rounded-2xl border border-white/70 bg-white/70 backdrop-blur px-4 py-3 text-[15px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10"
         >
           <option value="">✨ 추천: {CONCEPTS.find((c) => c.id === recommendedConcept)?.name}</option>
           <option value="all">🌐 전체 개념 (여러 개념을 섞어서)</option>
