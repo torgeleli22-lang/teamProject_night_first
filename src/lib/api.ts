@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from "react";
  * - 정답·채점은 모두 서버(API)에서 한다. 이 파일은 요청만 보낸다.
  */
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
+/** 배포 화면인데 API 주소 없이 빌드된 경우 (화면 미리보기만 가능) */
+const API_MISSING = !process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_BASE_PATH;
 
 const SESSION_KEY = "codereading.sid";
 const SESSION_HEADER = "x-session-id";
@@ -40,6 +42,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: "GET" | "POST", path: string, body?: unknown, opts: { signal?: AbortSignal; headers?: Record<string, string> } = {}): Promise<T> {
+  if (API_MISSING) throw new ApiError("아직 서버(API)가 연결되지 않았어요. 지금은 화면 미리보기만 할 수 있어요.", 0);
   const sid = readSession();
   let res: Response;
   try {

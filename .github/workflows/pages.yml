@@ -1,6 +1,7 @@
 # 화면(정적 페이지)을 GitHub Pages 에 배포한다. main 에 push 하면 자동 실행.
 # 준비 (한 번만): 저장소 Settings → Pages → Source: GitHub Actions
 #                 Settings → Secrets and variables → Actions → Variables 탭 → API_URL = Lambda 함수 URL
+#                 (API_URL 이 없으면 화면만 배포된다 — 미리보기용)
 name: Deploy web (GitHub Pages)
 
 on:
@@ -24,8 +25,7 @@ jobs:
       - name: API 주소 확인
         run: |
           if [ -z "${{ vars.API_URL }}" ]; then
-            echo "::error::저장소 변수 API_URL(Lambda 함수 URL)이 없어요. Settings → Secrets and variables → Actions → Variables 에 추가하세요."
-            exit 1
+            echo "::warning::저장소 변수 API_URL(Lambda 함수 URL)이 아직 없어요. 화면만 배포하고, 데이터가 필요한 곳에는 '서버 연결 전' 안내가 보여요."
           fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

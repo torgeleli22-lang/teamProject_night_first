@@ -148,6 +148,7 @@ npm run smoke   # API 전체 흐름 점검
 
 | 증상 | 원인 / 해결 |
 | --- | --- |
+| 화면에 "아직 서버(API)가 연결되지 않았어요" | 저장소 변수 `API_URL` 없이 배포된 미리보기예요. 3단계 2번 후 Pages 워크플로 다시 실행 |
 | 화면에 "서버에 연결하지 못했어요" | 저장소 변수 `API_URL` 이 맞는지, 함수 URL 인증 유형이 NONE 인지 확인. 변수를 바꿨다면 Pages 워크플로를 다시 실행 |
 | 브라우저 콘솔에 CORS 오류 | 함수 URL 의 CORS 설정을 **끄기** (코드가 처리). `ALLOWED_ORIGINS` 에 화면 주소(`https://아이디.github.io`, 경로 없이)가 정확한지 확인 |
 | `/health` 가 500 | Lambda → 모니터링 → CloudWatch 로그에서 `[api]` 줄 확인. `BadRequestException ... Data API` → 1-1 의 Data API 가 꺼져 있음 |
