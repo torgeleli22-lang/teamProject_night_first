@@ -20,6 +20,7 @@ const REASON_TEXT: Record<SessionPlan["reason"], string> = {
   wrong: "틀렸던 문제를 먼저 다시 풀어요",
   weak: "헷갈렸던 개념의 문제를 다시 풀어요",
   picked: "오답 노트의 문제를 다시 풀어요",
+  all: "여러 개념의 새 문제를 섞어서 풀어요",
 };
 
 export function PracticeSession() {
@@ -91,6 +92,7 @@ function Session({ params }: { params: URLSearchParams }) {
   async function loadSimilar() {
     setSimilarLoading(true);
     try {
+      // 비슷한 문제 = 지금 문제와 같은 개념의 새 문제 ('전체 개념' 세션이어도 지금 문제의 개념 기준)
       const p = await postJSON<Plan>("/api/session", { level, concept: q.concepts[0], types, size: 1, exclude: queue.map((x) => x.id) });
       if (p.questions.length) {
         setQueue((list) => [...list.slice(0, index + 1), p.questions[0], ...list.slice(index + 1)]);

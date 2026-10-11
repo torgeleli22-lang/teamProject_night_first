@@ -67,13 +67,15 @@ export interface SessionPlan {
   mode: PlanMode;
   focusConcept: ConceptId;
   level: Level;
-  reason: "continue" | "next" | "chosen" | "polish" | "wrong" | "weak" | "picked";
+  reason: "continue" | "next" | "chosen" | "polish" | "wrong" | "weak" | "picked" | "all";
   questions: PublicQuestion[];
   /** 이 학습자가 집중 개념 × 선택 난이도에서 아직 안 푼 문제 수 (생성 기준 판단용) */
   unsolvedAtLevel: number;
 }
 
 const SESSION_SIZE = 6;
+/** 학습 탭에서 '전체 개념'을 고른 경우의 concept 값 */
+export const ALL_CONCEPTS = "all";
 const PER_ITEM = 3;
 
 type Pick = { q: Question; item: CodeItem };
@@ -92,13 +94,13 @@ export function wrongQuestions(attempts: Attempt[]): { questionId: string; lastA
 }
 
 /** 같은 코드의 문제를 연달아 묶고, 같은 코드 안에서는 쉬운 사고 → 어려운 사고 순서로 */
-function arrange(candidates: Pick[], size: number): Pick[] {
+function arrange(candidates: Pick[], size: number, perItemMax = PER_ITEM): Pick[] {
   const picked: Pick[] = [];
   const perItem = new Map<string, number>();
   for (const c of candidates) {
     if (picked.length >= size) break;
     const n = perItem.get(c.item.id) ?? 0;
-    if (n >= PER_ITEM) continue;
+    if (n >= perItemMax) continue;
     perItem.set(c.item.id, n + 1);
     picked.push(c);
   }
@@ -108,7 +110,7 @@ function arrange(candidates: Pick[], size: number): Pick[] {
 
 /**
  * 문제 고르기.
- * - learn : 선택한 난이도·문제 유형으로 '아직 풀지 않은' 문제. 개념은 지정하거나 커리큘럼 순서로 추천
+ * - learn : 선택한 난이도·문제 유형으로 '아직 풀지 않은' 문제. 개념은 지정 / 커리큘럼 순서로 추천 / "all"(전체 개념 섞기)
  * - review: 틀린 문제를 먼저, 그다음 취약 개념의 문제
  * - ids   : 특정 문제 다시 풀기 (오답 노트)
  */
@@ -168,6 +170,17 @@ export function planSession(opts: {
     const picked = [...wrong.slice(0, size), ...weakQs].slice(0, size);
     const focus = wrong[0]?.item.concepts[0] ?? weak[0] ?? CONCEPTS[0].id;
     return plan(focus, wrong.length ? "wrong" : "weak", picked);
+  }
+
+  // ── 새로운 학습 · 전체 개념: 선택한 난이도의 새 문제를 여러 개념에서 섞어서
+  if (opts.concept === ALL_CONCEPTS) {
+    const all = questionsOf((i) => Math.abs(i.level - level) <= 1).filter((p) => !seen.has(p.q.id));
+    // 선택한 난이도에 딱 맞는 문제를 먼저, 그 안에서는 코드 단위로 무작위 섞기 (매번 다른 개념 조합)
+    const itemOrder = new Map([...new Set(all.map((p) => p.item.id))].map((id) => [id, Math.random()]));
+    all.sort((a, b) => Math.abs(a.item.level - level) - Math.abs(b.item.level - level) || itemOrder.get(a.item.id)! - itemOrder.get(b.item.id)!);
+    // 한 코드에서 2문제까지만 → 한 세트에 여러 개념의 코드가 들어가게
+    const picked = arrange(all, size, 2);
+    return plan(picked[0]?.item.concepts[0] ?? CONCEPTS[0].id, "all", picked);
   }
 
   // ── 새로운 학습: 아직 풀지 않은 문제만

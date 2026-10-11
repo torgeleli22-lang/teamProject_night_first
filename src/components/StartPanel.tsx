@@ -37,7 +37,7 @@ export function StartPanel({
   if (types.length) params.set("types", types.join(","));
   if (concept) params.set("concept", concept);
   const info = LEVELS[level - 1];
-  const conceptName = CONCEPTS.find((c) => c.id === (concept || recommendedConcept))?.name;
+  const conceptName = concept === "all" ? "전체 개념" : CONCEPTS.find((c) => c.id === (concept || recommendedConcept))?.name;
 
   return (
     <div className="space-y-6">
@@ -121,7 +121,7 @@ export function StartPanel({
       <div>
         <label className="mb-2.5 block text-sm font-bold text-ink-700" htmlFor="concept-select">
           <span className="mr-1.5 inline-grid h-5 w-5 place-items-center rounded-full bg-brand-600 text-[11px] text-white">3</span>
-          개념 <span className="font-normal text-ink-400">· 선택하지 않으면 다음 배울 개념을 추천해요</span>
+          개념 <span className="font-normal text-ink-400">· 추천 개념, 전체 개념, 또는 원하는 개념 하나</span>
         </label>
         <select
           id="concept-select"
@@ -130,6 +130,7 @@ export function StartPanel({
           className="w-full rounded-2xl border border-ink-200 bg-white px-4 py-3 text-[15px] outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10"
         >
           <option value="">✨ 추천: {CONCEPTS.find((c) => c.id === recommendedConcept)?.name}</option>
+          <option value="all">🌐 전체 개념 (여러 개념을 섞어서)</option>
           {UNITS.map((u) => (
             <optgroup key={u.id} label={`${u.emoji} ${u.title}`}>
               {u.conceptIds.map((id) => (

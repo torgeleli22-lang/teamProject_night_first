@@ -10,12 +10,14 @@ import { coverage } from "@/lib/server/content-repo";
 import { parseBody } from "@/lib/server/http";
 import { currentSession } from "@/lib/server/visitor";
 import { listAttempts, setPreferredLevel } from "@/lib/server/session-repo";
+import { ALL_CONCEPTS } from "@/lib/server/planner";
 import { demandCount, recordDemand, runningJob } from "@/lib/server/ops-repo";
 import { planSession } from "@/lib/server/planner";
 
 const Body = z.object({
   level: LevelSchema,
-  concept: z.string().max(50).refine((c) => !!getConcept(c)).optional(),
+  /** 개념 id 또는 "all"(전체 개념 섞기) */
+  concept: z.string().max(50).refine((c) => c === ALL_CONCEPTS || !!getConcept(c)).optional(),
   types: z.array(QuestionTypeSchema).max(6).optional(),
   size: z.number().int().min(1).max(10).optional(),
   /** 이미 이번 세션에 나온 문제 ("비슷한 문제 풀어보기") */
@@ -39,7 +41,8 @@ export async function POST(req: Request) {
   const plan = planSession({ ...body, attempts });
 
   // 복습·다시 풀기는 기존 문제만 쓰므로 생성 판단을 하지 않는다
-  if (body.mode !== "learn" || body.ids?.length) return NextResponse.json({ ...plan, generating: false });
+  // 전체 개념 섞기도 특정 칸(개념 × 난이도)을 고른 게 아니므로 생성 판단을 하지 않는다
+  if (body.mode !== "learn" || body.ids?.length || body.concept === ALL_CONCEPTS) return NextResponse.json({ ...plan, generating: false });
 
   const concept = plan.focusConcept;
   const stock = coverage().get(`${concept}:${body.level}`) ?? 0;
