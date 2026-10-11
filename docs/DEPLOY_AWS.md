@@ -25,7 +25,8 @@
 
 ## 1단계. EC2 용 IAM 역할 만들기
 
-EC2 에 접속(Session Manager)할 권한, 나중에 Bedrock 을 부를 권한을 이 역할에 붙입니다.
+나중에 EC2 가 Bedrock 을 부를 권한을 이 역할에 붙입니다. (SSH 키로 접속하더라도 미리 만들어 두면 편해요.
+`AmazonSSMManagedInstanceCore` 는 키를 잃어버렸을 때 Session Manager 로 들어갈 수 있게 해 주는 비상구예요.)
 
 1. 콘솔 검색창에 **IAM** → 왼쪽 **역할(Roles)** → **역할 생성**
 2. 신뢰할 수 있는 엔터티: **AWS 서비스** → 사용 사례 **EC2** → 다음
@@ -45,10 +46,10 @@ EC2 에 접속(Session Manager)할 권한, 나중에 Bedrock 을 부를 권한�
 | 이름 | `codereading-server` | |
 | AMI | **Amazon Linux 2023**, 아키텍처 **64비트(Arm)** | t4g 는 ARM(Graviton) |
 | 인스턴스 유형 | **t4g.small** (2 vCPU, 2GB) | 빌드까지 하려면 최소 2GB 권장 |
-| 키 페어 | **키 페어 없이 계속 진행** | Session Manager 로 접속하므로 SSH 키 불필요 |
+| 키 페어 | **새 키 페어 생성** → 이름 `codereading-key`, 유형 **RSA**, 형식 **.pem**(권장) 또는 **.ppk**(PuTTY) | 생성 즉시 파일이 **한 번만** 다운로드됨 — 잃어버리면 다시 받을 수 없어요 |
 | 네트워크 설정 → 편집 | VPC: 기본값, 퍼블릭 IP 자동 할당: **활성화** | |
 | 보안 그룹 | **보안 그룹 생성**, 이름 `codereading-sg` | |
-| 인바운드 규칙 | **HTTP(80) 0.0.0.0/0**, **HTTPS(443) 0.0.0.0/0** | SSH(22) 는 **추가하지 않음** |
+| 인바운드 규칙 | **SSH(22) 소스: 내 IP**, **HTTP(80) 0.0.0.0/0**, **HTTPS(443) 0.0.0.0/0** | SSH 를 `0.0.0.0/0`(전체 공개)로 열지 않기 |
 | 스토리지 | **20 GiB, gp3** | Docker 이미지·빌드용 |
 | 고급 세부 정보 → IAM 인스턴스 프로파일 | **`codereading-ec2-role`** | ← 꼭 선택! |
 
@@ -71,16 +72,50 @@ EC2 에 접속(Session Manager)할 권한, 나중에 Bedrock 을 부를 권한�
 
 ---
 
-## 4단계. 서버에 접속하기 (Session Manager)
+## 4단계. 서버에 접속하기 (SSH 키: .pem / .ppk)
 
-1. 인스턴스 선택 → **연결(Connect)** → **Session Manager** 탭 → **연결**
-2. 브라우저에 검은 터미널 창이 열리면 성공. 먼저 홈 폴더로 이동:
+### 키 파일 보관
+- 다운로드한 키를 안전한 폴더로 옮기세요. 예: Windows `C:\Users\<내이름>\.ssh\codereading-key.pem`
+- **GitHub·프로젝트 폴더에 절대 넣지 마세요.** 키가 있으면 누구나 서버에 들어올 수 있어요.
+- 접속 계정 이름은 Amazon Linux 기준 **`ec2-user`** 예요.
 
-```bash
-cd ~ && whoami     # ssm-user
-```
+### 방법 A. Windows PowerShell + .pem (권장, 설치 불필요)
+1. 키 파일 권한 좁히기 (안 하면 `UNPROTECTED PRIVATE KEY FILE` 오류):
+   ```powershell
+   cd $HOME\.ssh
+   icacls .\codereading-key.pem /inheritance:r
+   icacls .\codereading-key.pem /grant:r "$($env:USERNAME):(R)"
+   ```
+2. 접속:
+   ```powershell
+   ssh -i $HOME\.ssh\codereading-key.pem ec2-user@<탄력적 IP>
+   ```
+3. 처음에 `Are you sure you want to continue connecting (yes/no)?` → `yes`
 
-"연결할 수 없음"이 뜨면 → [문제 해결](#문제-해결) 참고 (대부분 IAM 역할 미연결 또는 5분 정도 기다리면 해결).
+macOS / Linux 라면: `chmod 400 ~/.ssh/codereading-key.pem` 후 같은 `ssh` 명령.
+
+### 방법 B. PuTTY + .ppk
+1. (키를 .pem 으로 받았다면) **PuTTYgen** → Load → .pem 선택(파일 형식 All Files) → **Save private key** → `.ppk` 저장
+2. **PuTTY** 실행
+   - Session → Host Name: `ec2-user@<탄력적 IP>`, Port `22`
+   - Connection → SSH → Auth → Credentials → Private key file: `.ppk` 선택
+   - Session 으로 돌아와 Saved Sessions 에 `codereading` 입력 → **Save** (다음부터 더블클릭)
+3. **Open** → 경고 창에서 **Accept**
+
+### 방법 C. VS Code 로 접속 (파일 편집이 편함)
+1. 확장 **Remote - SSH** 설치
+2. `F1` → `Remote-SSH: Open SSH Configuration File` → `C:\Users\<내이름>\.ssh\config` 에 추가:
+   ```
+   Host codereading
+     HostName <탄력적 IP>
+     User ec2-user
+     IdentityFile C:\Users\<내이름>\.ssh\codereading-key.pem
+   ```
+3. `F1` → `Remote-SSH: Connect to Host` → `codereading` (방법 A 의 권한 설정이 먼저 되어 있어야 해요)
+
+✅ 확인: 프롬프트가 `[ec2-user@ip-... ~]$` 로 바뀌면 성공.
+
+> **내 IP 가 바뀌면**(집 ↔ 학교, 와이파이 변경) 접속이 안 될 수 있어요. 보안 그룹 → 인바운드 규칙 편집 → SSH 소스를 다시 **내 IP** 로 저장하세요.
 
 ---
 
@@ -95,6 +130,7 @@ sudo dnf install -y docker git
 
 # 2) Docker 켜기 (재부팅해도 자동 시작)
 sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user   # 다음 접속부터는 sudo 없이 docker 사용 가능 (지금은 sudo 그대로 사용)
 
 # 3) docker compose 플러그인 설치
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
@@ -218,7 +254,11 @@ Caddy 가 Let's Encrypt 인증서를 자동으로 받아 `https://내도메인.c
 
 | 증상 | 원인 / 해결 |
 | --- | --- |
-| Session Manager 에서 "연결할 수 없음" | 2단계에서 IAM 인스턴스 프로파일을 빠뜨린 경우: 인스턴스 → 작업 → 보안 → **IAM 역할 수정** → `codereading-ec2-role` → 5분 뒤 다시 시도 (안 되면 인스턴스 재부팅) |
+| `ssh: connect ... timed out` | 보안 그룹 SSH(22) 소스가 지금 내 IP 가 아님 → **내 IP** 로 다시 저장. 학교·회사 망이 22번 포트를 막는 경우도 있어요 (그때는 Session Manager 사용) |
+| `Permission denied (publickey)` | 사용자 이름이 `ec2-user` 인지, 이 인스턴스를 만들 때 고른 키 파일인지 확인 |
+| `UNPROTECTED PRIVATE KEY FILE` / `bad permissions` | 4단계 방법 A 의 `icacls`(Windows) 또는 `chmod 400`(macOS) 실행 |
+| PuTTY `Unable to use key file` | .pem 을 그대로 넣은 경우 → PuTTYgen 으로 .ppk 변환 |
+| 키 파일을 잃어버림 | 1단계 역할이 붙어 있으면 인스턴스 → 연결 → **Session Manager** 로 들어갈 수 있어요 |
 | 브라우저에서 접속이 안 됨(시간 초과) | 보안 그룹 인바운드에 HTTP 80 이 있는지, 주소를 `http://` 로 입력했는지 확인 |
 | `502 Bad Gateway` | 앱이 아직 시작 중이거나 멈춤 → `sudo docker compose logs app` 확인 |
 | 빌드 중 멈추거나 `Killed` | 메모리 부족 → 5단계 스왑 설정 확인 (`free -h`) |
