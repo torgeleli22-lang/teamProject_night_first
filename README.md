@@ -139,6 +139,15 @@ src/lib/
 src/app/api/{session,attempts,hint,ask,explain,me,admin/*}
 ```
 
+## 배포 (AWS EC2)
+
+EC2 한 대 + Docker 로 띄우는 순서는 [`docs/DEPLOY_AWS.md`](docs/DEPLOY_AWS.md) 를 따라 하세요.
+
+```bash
+docker build -t codereading-app .
+docker compose up -d   # http://<서버 IP>
+```
+
 ## 다음 단계
 
 - 로그인 + 계정 연결, 관리자 화면에서 반려 콘텐츠 수정·재검증

@@ -279,6 +279,8 @@ npm run typecheck && npm test && npm run verify && npm run build   # 작업 완�
 - `src/lib/ai/generate.ts`: 원본·보고서를 S3 에 저장
 - CI/CD: GitHub Actions 로 PR 마다 typecheck·test·verify·build (CI), main 병합 시 Docker 이미지 → ECR → EC2 배포 (CD)
 
+**1단계 배포(진행 중)**: EC2 한 대 + Docker(`Dockerfile`, `docker-compose.yml`, `Caddyfile`), SQLite 는 Docker 볼륨, `AI_MODE=mock`. 순서는 `docs/DEPLOY_AWS.md`.
+
 GitHub Pages 같은 정적 호스팅은 서버(채점·DB·AI·세션 쿠키)가 없어서 이 구조에 맞지 않는다.
 
 ---
