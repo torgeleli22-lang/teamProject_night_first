@@ -13,7 +13,9 @@
 4. **콘텐츠는 검증을 통과해야 공개된다.** 문제를 추가·수정하면 `npm run verify` 로 실제 실행 검증을 통과시킨다.
 5. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다.
 6. **사용자 화면 문구는 한국어 존댓말("~해요" 체)**, 초보자 눈높이, 친근하지만 유치하지 않게. 틀렸을 때도 실패감을 주지 않는다.
-7. 아키텍처의 AWS 부분(§11)은 **계획 단계**다. 계정·비용 검토 전까지 AWS 코드를 넣지 않는다.
+7. AWS 운영은 **§11 에 확정된 범위만** 진행한다. 지금 확정된 것은 EC2(Docker) 배포와 Aurora PostgreSQL 연결이다. Bedrock·S3·SQS 등은 사람이 요청하기 전까지 코드에 넣지 않는다.
+8. **비밀 값(DB 암호, API 키, ADMIN_TOKEN, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** 서버의 `.env` 에만 둔다.
+9. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager, 향상된 모니터링처럼 추가 권한이 필요한 기능에 의존하지 않는다.
 
 ---
 
@@ -249,6 +251,16 @@ docs/                      이 문서, AI 생성 기준
 
 ### 10.6 환경 변수 (`.env.example`)
 `AI_MODE`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_FAST`, `CLAUDE_MODEL_SMART`, `AI_GENERATION_DAILY_LIMIT`, `AI_MONTHLY_BUDGET_USD`, `ADMIN_TOKEN`, `DATABASE_PATH`, `SESSION_TTL_HOURS`
+(PostgreSQL 전환 후 추가 예정: `DB_DRIVER`, `DATABASE_URL` — §11.3)
+
+### 10.8 배포 파일
+| 파일 | 역할 |
+| --- | --- |
+| `Dockerfile` | `node:22-slim`. 빌드 단계에서 `npm run verify` → `npm run build` → 개발 의존성 제거. 실행: `next start -p 3000` |
+| `docker-compose.yml` | `app`(이미지 `codereading-app`, `.env` 사용, SQLite 는 볼륨 `app-data`) + `caddy`(80/443) |
+| `Caddyfile` | `SITE_ADDRESS` 가 `:80` 이면 HTTP, 도메인이면 HTTPS 자동 발급 |
+| `next.config.mjs` | **JS 로 유지.** 운영 이미지에는 TypeScript 가 없어서 `.ts` 설정 파일이면 앱이 시작되지 않는다 |
+| `docs/DEPLOY_AWS.md` | 사람이 따라 하는 EC2 배포 순서 (학교 계정용 안내 포함) |
 
 ### 10.7 명령
 
@@ -261,25 +273,52 @@ npm run typecheck && npm test && npm run verify && npm run build   # 작업 완�
 
 ---
 
-## 11. 목표 아키텍처 (계획 — AWS 계정·비용 검토 후 확정)
+## 11. AWS 운영 (진행 중)
 
-사용자가 기다리는 경로는 항상 켜져 있는 서버로(지연 최소화), 오래 걸리는 AI 작업만 비동기로 분리하는 방향.
-
+### 11.1 현재 인프라 (확정·동작 중)
 ```
-브라우저 → CloudFront → EC2 (Next.js, Docker)
-                          ├─ RDS PostgreSQL   ← SQLite 를 대체 (테이블 구조 그대로, JSON 칸은 jsonb)
-                          ├─ Amazon Bedrock   ← Anthropic API 를 대체 (AnthropicBedrockMantle 클라이언트, IAM 역할 인증)
-                          ├─ S3               ← AI 생성 원본·검증 보고서·콘텐츠 백업 (DB 에는 위치만)
-                          └─ (선택) SQS → Lambda: 콘텐츠 생성·학습자 분석 작업 분리
+브라우저 ──HTTP 80──→ EC2 (Amazon Linux 2023, Docker)
+                       ├─ caddy  : 웹 서버 (리버스 프록시)
+                       └─ app    : Next.js + SQLite(Docker 볼륨)   AI_MODE=mock
 ```
+| 항목 | 값 |
+| --- | --- |
+| 계정 | 학교 계정 (권한 제한). 리전 서울 ap-northeast-2 |
+| EC2 | 이름 `codereading-server`, Amazon Linux 2023, 접속 사용자 `ec2-user`, PuTTY + `.ppk` 키 |
+| 보안 그룹 | SSH 22: 관리자 IP 만 / HTTP 80, HTTPS 443: `0.0.0.0/0` 와 `::/0` |
+| 공인 IP | 고정 IP 없음 → 인스턴스를 다시 켜면 바뀔 수 있음 |
+| 배포 방법 | 서버에서 `git pull` → `docker build -t codereading-app .` → `docker compose up -d` (자동 배포 없음) |
+| 겪은 문제 | ① 보안 그룹이 IPv6 만 열려 접속 불가 → IPv4 규칙 추가 ② `next.config.ts` 때문에 운영 컨테이너가 TypeScript 설치를 시도하다 디스크 부족 → `next.config.mjs` 로 변경 |
 
-전환 시 바뀌는 곳 (다른 곳은 그대로 유지되도록 이미 분리되어 있음):
-- `src/lib/server/*-repo.ts`: SQLite → PostgreSQL (함수를 비동기로)
-- `src/lib/ai/client.ts`: Bedrock 클라이언트, 모델 ID 에 `anthropic.` 접두어, 서버 측 refusal fallback 대신 클라이언트 쪽 대체
-- `src/lib/ai/generate.ts`: 원본·보고서를 S3 에 저장
-- CI/CD: GitHub Actions 로 PR 마다 typecheck·test·verify·build (CI), main 병합 시 Docker 이미지 → ECR → EC2 배포 (CD)
+### 11.2 데이터베이스: Aurora PostgreSQL (생성 중)
+| 항목 | 값 |
+| --- | --- |
+| 엔진 | **Aurora (PostgreSQL Compatible)**, Serverless v2 — 팀 결정 |
+| 용량 | 최소 **0 ACU**(쉬면 자동 일시 중지, 깨어나는 데 10~20초), 최대 2 ACU |
+| 클러스터 | `codereading-db`, 복제본 없음, Aurora Standard 스토리지, 백업 1일 |
+| 데이터베이스 이름 | **`jobase`** (소문자) |
+| 마스터 사용자 | `codereading`, 자격 증명 **자체 관리**(Secrets Manager 사용 안 함) |
+| 네트워크 | 퍼블릭 액세스 없음. EC2 보안 그룹에서 오는 5432 만 허용 ("EC2 컴퓨팅 리소스에 연결") |
+| 접속 | **라이터(cluster) 엔드포인트** 사용. 리더 엔드포인트는 쓰지 않음 |
+| 앱 설정 | `DATABASE_URL=postgres://codereading:<암호>@<라이터 엔드포인트>:5432/jobase` (EC2 의 `.env` 에만) |
 
-**1단계 배포(진행 중)**: EC2 한 대 + Docker(`Dockerfile`, `docker-compose.yml`, `Caddyfile`), SQLite 는 Docker 볼륨, `AI_MODE=mock`. 순서는 `docs/DEPLOY_AWS.md`.
+### 11.3 SQLite → PostgreSQL 전환 요구사항 (다음 작업)
+1. **두 드라이버 지원**: `DB_DRIVER=sqlite`(기본, 로컬·테스트·verify) | `postgres`(`DATABASE_URL` 사용). 테스트와 `npm run verify` 는 DB 서버 없이 계속 돌아야 한다.
+2. 라이브러리는 `pg`(node-postgres) + 연결 풀. 저장소 함수(`src/lib/server/*-repo.ts`, `db.ts`, `progress.ts`, `planner.ts`, `grade.ts` 와 이를 쓰는 페이지·API)를 **비동기(async)** 로 바꾼다. 기능·화면·API 응답 형태는 바꾸지 않는다.
+3. 스키마: 테이블 구조는 그대로. JSON 칸은 `jsonb`, 시각은 지금처럼 epoch ms(`bigint`). `ON CONFLICT` 업서트, `RANK()` 랭킹, `ON DELETE CASCADE` 유지. 시작 시 `CREATE TABLE IF NOT EXISTS` + 시드 동기화(지금과 동일).
+4. **Aurora 일시 중지 대응**: 연결 타임아웃을 넉넉히(약 30초), 첫 연결 실패 시 재시도. 깨어나는 동안 사용자에게 오류 페이지 대신 기다리게 한다.
+5. 트랜잭션: `insertAttempt`(attempts + daily_activity + concept_progress)는 한 트랜잭션.
+6. 데이터 이전은 하지 않는다. 문제는 시드에서 다시 채워지고, 학습 기록은 원래 세션이 끝나면 지워지는 데이터다.
+7. 완료 기준: SQLite 로 typecheck·test·verify·build 통과 + 로컬 PostgreSQL 컨테이너로 주요 흐름(학습 시작 → 채점 → 복습 → 랭킹 → 관리자) 확인 + `docs/DEPLOY_AWS.md` 에 RDS 연결 순서 추가.
+
+### 11.4 이후 단계 (계획 — 사람이 요청하면 진행)
+| 단계 | 내용 | 비고 |
+| --- | --- | --- |
+| Bedrock | `AI_PROVIDER=anthropic\|bedrock` 스위치, `AnthropicBedrockMantle` 클라이언트, 모델 ID 에 `anthropic.` 접두어, `AI_MODE=live` | 학교 계정에서 Bedrock 모델 접근·IAM 역할 사용 가능 여부 먼저 확인 |
+| CI/CD | PR 마다 typecheck·test·verify·build (GitHub Actions). 배포는 학교 계정 권한에 맞춰 SSH 방식 또는 수동 | ECR·OIDC 는 권한 확인 후 |
+| 도메인·HTTPS | `.env` 에 `SITE_ADDRESS=도메인` → Caddy 자동 HTTPS | 고정 IP 필요 |
+| S3 | AI 생성 원본·검증 보고서 보관 | 선택 |
+| 로그인 | `users` 테이블, 로그인 사용자만 기록 영구 저장 | 방식 미정 (소셜 로그인 추천) |
 
 GitHub Pages 같은 정적 호스팅은 서버(채점·DB·AI·세션 쿠키)가 없어서 이 구조에 맞지 않는다.
 
@@ -299,12 +338,39 @@ GitHub Pages 같은 정적 호스팅은 서버(채점·DB·AI·세션 쿠키)가
 
 ## 13. 현재 상태와 다음 할 일
 
-**완료**: 위 기능 전부, 목업 AI 모드, 시드 콘텐츠 90문제(입문~초급 위주), 단위 테스트 23개, 콘텐츠 검증 스크립트.
+**완료**
+- 기능: 학습·복습·랭킹·내 학습·탐색·문제 풀이·관리자·데모 (§5), 목업 AI 모드
+- 콘텐츠: 시드 64개 코드 / 90문제 (입문~초급 위주, 중급·심화 적음)
+- 품질: 단위 테스트 23개, 콘텐츠 실행 검증 스크립트
+- 배포: EC2 + Docker 로 실제 서버에서 동작 확인 (§11.1)
 
-**미정 / 다음 단계**
-1. AWS 계정·비용 검토 → §11 전환 (PostgreSQL, Bedrock, S3, CI/CD)
-2. 로그인 방식 결정 (소셜 로그인 추천) → 로그인 사용자만 영구 기록
-3. 생성 기준 숫자 확정 (`docs/ai-generation-policy.md` 의 "팀이 정해야 할 것")
-4. 중급·심화 콘텐츠 채우기 (`/admin` 출시 전 채우기)
-5. 랭킹 범위(전체 / 오늘 / 이번 주)와 하위권 표시 방식
-6. 반려된 AI 콘텐츠 처리 방식 (버림 / 관리자 수정 후 재검증)
+**진행 중**
+- Aurora PostgreSQL 클러스터 생성 (§11.2) → 코드 전환 (§11.3)
+
+**최종 목표까지 남은 순서**
+1. PostgreSQL 전환 코드 (§11.3) → EC2 에서 Aurora 연결 확인
+2. 실제 AI 연결 (Bedrock 또는 Anthropic API) → `AI_MODE=live`, `/admin` 에서 출시 전 콘텐츠 채우기 (중급·심화)
+3. CI (PR 마다 자동 검사) → 가능하면 자동 배포
+4. 도메인 + HTTPS
+5. 로그인 → 로그인 사용자 기록 영구 저장, 캘린더·복습이 브라우저를 닫아도 유지
+
+**팀이 정해야 할 것**
+- 생성 기준 숫자 (`docs/ai-generation-policy.md` 의 "팀이 정해야 할 것")
+- 랭킹 범위(전체 / 오늘 / 이번 주)와 하위권 표시 방식
+- 반려된 AI 콘텐츠 처리 방식 (버림 / 관리자 수정 후 재검증)
+- 로그인 방식
+
+---
+
+## 14. AI 에게 작업을 맡길 때 (요청 템플릿)
+
+```
+이 저장소의 docs/PROJECT_BRIEF.md 를 먼저 읽고 규칙(§0)을 지켜 주세요.
+작업: <예: §11.3 SQLite → PostgreSQL 전환>
+완료 기준: <예: §11.3 의 7번>
+제약: 화면 문구는 한국어 존댓말, 비밀 값은 코드에 넣지 않기, 학교 AWS 계정(권한 제한)
+마무리: typecheck · test · verify · build 통과 후, 바뀐 점과 사람이 서버에서 할 일을 정리해 주세요.
+```
+- 한 번에 하나의 단계만 맡긴다. 큰 작업(DB 전환 등)은 "계획 먼저 보여 주고 진행"을 요청한다.
+- 서버 오류를 물을 때는 `sudo docker compose ps`, `sudo docker compose logs --tail 50 app` 출력을 함께 준다.
+- 작업이 끝나면 이 문서의 §11·§13 을 최신 상태로 고치게 한다.

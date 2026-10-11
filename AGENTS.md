@@ -10,7 +10,7 @@ AI 문제 생성 기준은 `docs/ai-generation-policy.md` 에 있습니다.
 - `src/lib/server/**` 와 `src/lib/ai/**` 는 서버 전용이다.
 - 문제 콘텐츠를 추가·수정하면 실행 검증(`npm run verify`)을 통과시킨다.
 - 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이.
-- AWS(Bedrock·RDS·S3) 전환은 계획 단계다. 요청 없이 AWS 코드를 넣지 않는다.
+- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위(EC2 배포, Aurora PostgreSQL)만 진행한다. Bedrock·S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
 
 ## 명령
 ```bash
