@@ -247,6 +247,7 @@ sudo docker compose logs --tail 20 api     # "(DB: postgres, AI: live)"
 
 | 메시지 | 원인 / 해결 |
 |---|---|
+| `{"Message":"Forbidden"}` (curl) / `relay 403` | 함수 URL 인증 유형이 `AWS_IAM` 임 → CloudShell: `aws lambda update-function-url-config --region ap-northeast-2 --function-name <함수 이름> --auth-type NONE` 후 `add-permission` 2개 (`lambda:InvokeFunctionUrl` + `--function-url-auth-type NONE`, `lambda:InvokeFunction` + `--invoked-via-function-url`, 둘 다 `--principal "*"`) |
 | `relay 401: unauthorized` | `.env` 의 `AI_RELAY_TOKEN` 과 Lambda 의 `RELAY_TOKEN` 이 다름 (앞뒤 공백 확인) |
 | `relay 502: bedrock: AccessDeniedException` | 역할이 `SafeRole-...` 인지, 모델 ID 확인 (Lambda 로그) |
 | `relay 502: bedrock: ReadTimeoutError` / Lambda `Task timed out` | 8-2 의 제한 시간 3분 확인 |
