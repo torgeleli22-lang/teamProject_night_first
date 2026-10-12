@@ -5,7 +5,7 @@ import { validateItem, type ValidationReport } from "../content/validate";
 import { CONCEPTS, getConcept, levelInfo } from "../curriculum";
 import { saveGeneratedItem } from "../server/content-repo";
 import { POLICY, isGeneratable, type Trigger } from "../content/policy";
-import { createJob, finishJob, jobsSince, monthToDateCostUsd, runningJob } from "../server/ops-repo";
+import { autoGenerationEnabled, createJob, finishJob, jobCancelled, jobsSince, monthToDateCostUsd, runningJob, stopRequestedSince } from "../server/ops-repo";
 import type { ConceptId, Level, Question, Skill } from "../types";
 import { AIUnavailableError, aiEnabled, aiMode, askStructured } from "./client";
 import { MOCK_GENERATIONS } from "./mock-content";
@@ -147,8 +147,9 @@ const ReviewSchema = z.object({
   issues: z.array(z.string()).describe("발견한 문제. 없으면 빈 배열"),
 });
 
-async function reviewContent(g: Generated, actualOutput: string | null, level: Level): Promise<{ approve: boolean; issues: string[] }> {
+async function reviewContent(g: Generated, actualOutput: string | null, level: Level, signal?: AbortSignal): Promise<{ approve: boolean; issues: string[] }> {
   return askStructured({
+    signal,
     task: "content_review",
     tier: "fast",
     maxTokens: 4000,
@@ -175,12 +176,23 @@ async function reviewContent(g: Generated, actualOutput: string | null, level: L
 
 export interface GenerateResult {
   jobId: number;
-  status: "published" | "rejected" | "failed" | "skipped";
+  status: "published" | "rejected" | "failed" | "skipped" | "cancelled";
   itemId?: string;
   report?: ValidationReport;
   issues?: string[];
   error?: string;
 }
+
+/** 이 서버에서 진행 중인 생성 작업 (관리자가 중지하면 기다리던 AI 응답을 끊는다) */
+const running = new Map<number, AbortController>();
+
+/** 중지된 작업의 AI 호출을 끊는다. 다른 서버(인스턴스)에서 도는 작업은 DB 상태를 보고 결과를 버린다 */
+export function abortJobs(ids: number[]) {
+  for (const id of ids) running.get(id)?.abort();
+}
+
+/** 문제가 부족할 때 AI 가 알아서 일으키는 생성 (관리자 화면의 '자동 생성' 스위치 대상) */
+const AUTO_TRIGGERS: Trigger[] = ["stock_floor", "demand", "personal_review"];
 
 export async function generateCodeSet(opts: {
   concept: ConceptId;
@@ -192,16 +204,27 @@ export async function generateCodeSet(opts: {
   sessionId?: string;
   /** 학습자에게서 발견된 오개념/혼동 (개인화된 복습 콘텐츠) */
   focus?: string[];
+  /** 여러 칸을 차례로 만드는 작업(출시 전 채우기)의 시작 시각 — 그 뒤에 '전부 중지'가 눌렸으면 멈춘다 */
+  stopSince?: number;
 }): Promise<GenerateResult> {
   const skip = (error: string): GenerateResult => ({ jobId: 0, status: "skipped", error });
   if (!aiEnabled()) return skip("AI 가 설정되어 있지 않습니다.");
   if (!getConcept(opts.concept)) return skip("알 수 없는 개념");
   if (opts.trigger !== "manual" && !isGeneratable(opts.concept, opts.level)) return skip("AI 생성 대상이 아닌 칸입니다.");
+  if (AUTO_TRIGGERS.includes(opts.trigger) && !(await autoGenerationEnabled())) return skip("자동 생성이 꺼져 있습니다.");
   if (await runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
   if ((await jobsSince(Date.now() - 86400_000)) >= POLICY.dailyLimit) return skip("오늘의 생성 한도에 도달했습니다.");
   if (aiMode() === "live" && (await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) return skip("이번 달 AI 예산에 도달했습니다.");
 
   const jobId = await createJob({ ...opts, mock: aiMode() === "mock" });
+  const controller = new AbortController();
+  running.set(jobId, controller);
+  const cancelled = async () =>
+    controller.signal.aborted || (await jobCancelled(jobId)) || (opts.stopSince !== undefined && (await stopRequestedSince(opts.stopSince)));
+  const stopped = async (): Promise<GenerateResult> => {
+    await finishJob(jobId, "cancelled", null, "관리자가 중지했어요");
+    return { jobId, status: "cancelled", error: "관리자가 중지했어요" };
+  };
   const concept = getConcept(opts.concept)!;
   const info = levelInfo(opts.level);
   let feedback = "";
@@ -209,7 +232,9 @@ export async function generateCodeSet(opts: {
 
   try {
     for (let round = 0; round < 2; round++) {
+      if (await cancelled()) return stopped();
       const g = await askStructured({
+        signal: controller.signal,
         task: "content_generation",
         tier: "smart",
         effort: "high",
@@ -249,7 +274,8 @@ export async function generateCodeSet(opts: {
 
       let issues: string[] = [];
       if (report.ok) {
-        const review = await reviewContent(g, report.actualOutput, opts.level);
+        if (await cancelled()) return stopped();
+        const review = await reviewContent(g, report.actualOutput, opts.level, controller.signal);
         issues = review.issues;
         report.checks.push({ name: "AI 검수 (해설 일치·정답 유일성·난이도·불필요한 개념)", pass: review.approve, detail: issues.join(" / ") || undefined });
         report.ok = review.approve;
@@ -257,6 +283,7 @@ export async function generateCodeSet(opts: {
 
       if (feedback) report.checks.unshift({ name: "1차 생성물이 검증에 실패해 재생성함", pass: true, detail: firstFailure });
       const lastRound = round === 1;
+      if (await cancelled()) return stopped();
       if (report.ok || lastRound) {
         const status = report.ok ? "published" : "rejected";
         await saveGeneratedItem(
@@ -284,9 +311,12 @@ export async function generateCodeSet(opts: {
     }
     throw new Error("unreachable");
   } catch (err) {
+    if (await cancelled()) return stopped();
     const message = err instanceof Error ? err.message : String(err);
     await finishJob(jobId, "failed", null, message);
     return { jobId, status: "failed", error: message };
+  } finally {
+    running.delete(jobId);
   }
 }
 

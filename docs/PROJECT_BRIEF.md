@@ -13,7 +13,7 @@
 4. **콘텐츠는 검증을 통과해야 공개된다.** 문제를 추가·수정하면 `npm run verify` 로 실제 실행 검증을 통과시킨다.
 5. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다.
 6. **사용자 화면 문구는 한국어 존댓말("~해요" 체)**, 초보자 눈높이, 친근하지만 유치하지 않게. 틀렸을 때도 실패감을 주지 않는다.
-7. 구조는 **GitHub Pages(정적 화면) + EC2(API, Docker) + RDS PostgreSQL** 로 확정됐다 (§10, §11 — 학교 계정에서 Aurora·Lambda 역할/VPC 권한이 막혀 있음). API 코드(`src/api`)는 같은 라우터로 EC2(`server.ts`)와 Lambda(`lambda.ts`)를 모두 지원한다. 화면 코드(`src/app`, `src/components`)는 서버 코드(`src/lib/server`, `src/lib/ai`, `src/api`)를 `import type` 으로만 가져온다 (`tests/boundaries.test.ts`). Bedrock·S3 등은 사람이 요청하기 전까지 넣지 않는다.
+7. 구조는 **GitHub Pages(정적 화면) + EC2(API, Docker) + RDS PostgreSQL + Bedrock(실제 AI, us-east-1 Claude Haiku 4.5 — 중계 Lambda 경유)** 로 확정됐다 (§10, §11 — 학교 계정에서 Aurora·Lambda 역할/VPC 권한이 막혀 있음). API 코드(`src/api`)는 같은 라우터로 EC2(`server.ts`)와 Lambda(`lambda.ts`)를 모두 지원한다. 화면 코드(`src/app`, `src/components`)는 서버 코드(`src/lib/server`, `src/lib/ai`, `src/api`)를 `import type` 으로만 가져온다 (`tests/boundaries.test.ts`). S3 등 그 밖의 AWS 서비스는 사람이 요청하기 전까지 넣지 않는다.
 8. **비밀 값(DB 암호, API 키, ADMIN_TOKEN, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** 서버의 `.env` 에만 둔다.
 9. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager, 향상된 모니터링처럼 추가 권한이 필요한 기능에 의존하지 않는다.
 
@@ -282,14 +282,14 @@ npm run build:lambda           # dist/lambda.zip (Lambda 를 쓸 때)
 | RDS | `database-jojo`, PostgreSQL 18, db.t4g.micro, 퍼블릭 액세스 없음, 보안 그룹 `default`, DB `jojobase`, 마스터 `jojo` |
 | API 서버 | EC2 `codereading-api` (Amazon Linux 2023, Docker: api + caddy). 보안 그룹: 80·443 공개 그룹 + **default**(RDS 접속용). 주소 `https://<공인IP-대시>.sslip.io` (Caddy 자동 HTTPS). 설정은 서버의 `.env` |
 | 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URL`) |
-| Bedrock | us-east-1 에서 Claude Haiku 4.5, Amazon Nova Micro/Lite 등 사용 가능. EC2 는 인터넷이 되므로 권한·코드만 추가하면 연결 가능 — 미정 |
+| Bedrock | us-east-1 Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`). 액세스 키·역할 생성이 막혀 있어 **EC2 → 중계 Lambda(VPC 밖, 실행 역할 `SafeRole-sgu-202688`, 함수 URL + `RELAY_TOKEN`) → Bedrock Converse API**. Lambda 코드: `infra/bedrock-relay/lambda_function.py` (구조화 응답은 도구 강제 호출, 모델 고정). EC2 `.env`: `AI_PROVIDER=relay`, `AI_RELAY_URL`, `AI_RELAY_TOKEN`. 키가 있는 환경용 `AI_PROVIDER=bedrock`(직접 호출)도 남아 있음 |
 
 배포 순서와 문제 해결: `docs/DEPLOY_AWS.md`. 코드는 Aurora Data API(`DB_DRIVER=data-api`)도 지원하므로, Aurora 가 허용되는 계정에서는 VPC 없이 배포할 수 있다.
 
 ### 11.2 이후 단계 (계획 — 사람이 요청하면 진행)
 | 단계 | 내용 | 비고 |
 | --- | --- | --- |
-| 실제 AI | `AI_MODE=live` + API 키, 또는 Bedrock(`AI_PROVIDER` 스위치, 모델 ID `anthropic.` 접두어) | Lambda 가 VPC 밖이라 인터넷 사용 가능 |
+| 실제 AI | 코드 완료 (`AI_PROVIDER=relay`). Lambda 만들고 EC2 `.env` 설정 후 `AI_MODE=live` (`docs/DEPLOY_AWS.md` 8단계) | 예산(`AI_MONTHLY_BUDGET_USD`)을 넘으면 자동으로 규칙 기반으로 바뀜 |
 | API 자동 배포 | Actions → EC2 (SSH) | 지금은 서버에서 git pull + docker build |
 | S3 | AI 생성 원본·검증 보고서 보관 | 선택 |
 | 로그인 | `users` 테이블, 로그인 사용자만 기록 영구 저장 | 방식 미정 (소셜 로그인 추천) |

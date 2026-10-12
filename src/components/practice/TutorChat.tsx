@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { Spinner } from "@/components/ui";
 import { apiPost } from "@/lib/api";
 
-interface Turn {
+export interface Turn {
   role: "user" | "tutor";
   text: string;
   source?: "ai" | "offline";
@@ -14,8 +14,24 @@ interface Turn {
 const SUGGESTIONS_BEFORE = ["어디부터 읽어야 할지 모르겠어요", "이 문법이 뭔지 모르겠어요"];
 const SUGGESTIONS_AFTER = ["왜 다른 답은 틀린 건가요?", "이 개념을 다른 예시로 보여주세요", "실제로는 어디에 쓰이나요?"];
 
-export function TutorChat({ questionId, solved }: { questionId: string; solved: boolean }) {
-  const [turns, setTurns] = useState<Turn[]>([]);
+/** AI 에게 보내는 이전 대화 수 (질문·답 5번) — 비용을 위해 오래된 대화는 빼고 보낸다 */
+const HISTORY_TURNS = 10;
+
+/**
+ * 한 문제에 대한 튜터 대화. 대화 내용(turns)은 문제 화면(QuestionView)이 들고 있어서
+ * 제출 전후·창을 닫았다 열어도 이어지고, 다음 문제로 넘어가면 사라진다.
+ */
+export function TutorChat({
+  questionId,
+  solved,
+  turns,
+  setTurns,
+}: {
+  questionId: string;
+  solved: boolean;
+  turns: Turn[];
+  setTurns: Dispatch<SetStateAction<Turn[]>>;
+}) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -23,7 +39,7 @@ export function TutorChat({ questionId, solved }: { questionId: string; solved: 
   async function send(question: string) {
     const q = question.trim();
     if (!q || loading) return;
-    const history = turns.slice(-6).map(({ role, text }) => ({ role, text }));
+    const history = turns.slice(-HISTORY_TURNS).map(({ role, text }) => ({ role, text }));
     setTurns((t) => [...t, { role: "user", text: q }]);
     setInput("");
     setLoading(true);

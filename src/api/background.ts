@@ -1,5 +1,6 @@
 import { runLearnerAnalysis } from "../lib/ai/analysis";
 import { generateCodeSet } from "../lib/ai/generate";
+import { stopRequestedSince } from "../lib/server/ops-repo";
 import type { Trigger } from "../lib/content/policy";
 import type { ConceptId, Level } from "../lib/types";
 
@@ -31,11 +32,15 @@ export async function runTask(task: BackgroundTask): Promise<void> {
     case "analysis":
       await runLearnerAnalysis(task.sessionId, task.level);
       return;
-    case "fill":
+    case "fill": {
+      const startedAt = Date.now();
       for (const c of task.cells) {
-        await generateCodeSet({ concept: c.concept, level: c.level, trigger: "launch_fill", reason: `출시 전 채우기: 공개 문제 ${c.stock}개` });
+        // 관리자가 '생성 중지'를 누르면 남은 칸은 만들지 않는다
+        if (await stopRequestedSince(startedAt)) return;
+        await generateCodeSet({ concept: c.concept, level: c.level, trigger: "launch_fill", reason: `출시 전 채우기: 공개 문제 ${c.stock}개`, stopSince: startedAt });
       }
       return;
+    }
   }
 }
 

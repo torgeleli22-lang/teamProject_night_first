@@ -12,6 +12,7 @@ import type { Job, UsageRow } from "@/lib/server/ops-repo";
 
 interface Overview {
   mode: "live" | "mock" | "off";
+  autoGeneration: boolean;
   models: { fast: string; smart: string };
   policy: typeof PolicyType;
   triggerLabels: Record<Trigger, string>;
@@ -35,6 +36,7 @@ const STATUS_STYLE: Record<string, string> = {
   running: "bg-brand-50 text-brand-700",
   rejected: "bg-coral-50 text-coral-600",
   failed: "bg-coral-50 text-coral-600",
+  cancelled: "bg-ink-100 text-ink-600",
 };
 
 export default function AdminPage() {
@@ -43,7 +45,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [concept, setConcept] = useState(CONCEPTS[0].id);
   const [level, setLevel] = useState(2);
-  const [busy, setBusy] = useState<"generate" | "fill" | null>(null);
+  const [busy, setBusy] = useState<"generate" | "fill" | "auto" | "stop" | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -81,12 +83,21 @@ export default function AdminPage() {
   async function generate() {
     setBusy("generate");
     setMessage(null);
+    // 생성은 끝날 때까지 기다리므로, 진행 중 표시(와 중지 버튼)가 바로 보이게 한 번 새로고침
+    setTimeout(load, 800);
     try {
       const res = await fetch(`${API_URL}/admin/generate`, { method: "POST", headers: headers(), body: JSON.stringify({ concept, level }) });
       const r = (await res.json()) as GenerateResult;
       setMessage({
-        ok: r.status === "published",
-        text: r.status === "published" ? "✓ 검증을 통과해 공개되었어요." : r.status === "rejected" ? "✕ 검증에 실패해 반려되었어요. 아래 보고서를 확인하세요." : `✕ ${r.error}`,
+        ok: r.status === "published" || r.status === "cancelled",
+        text:
+          r.status === "published"
+            ? "✓ 검증을 통과해 공개되었어요."
+            : r.status === "rejected"
+              ? "✕ 검증에 실패해 반려되었어요. 아래 보고서를 확인하세요."
+              : r.status === "cancelled"
+                ? "생성을 중지했어요."
+                : `✕ ${r.error}`,
       });
       await load();
     } finally {
@@ -107,6 +118,40 @@ export default function AdminPage() {
     }
   }
 
+  async function toggleAuto() {
+    if (!data) return;
+    setBusy("auto");
+    setMessage(null);
+    try {
+      const enabled = !data.autoGeneration;
+      const res = await fetch(`${API_URL}/admin/auto`, { method: "POST", headers: headers(), body: JSON.stringify({ enabled }) });
+      setMessage(
+        res.ok
+          ? { ok: true, text: enabled ? "자동 생성을 켰어요. 문제가 부족한 칸은 AI가 알아서 만들어요." : "자동 생성을 껐어요. 이제 관리자가 직접 만들 때만 생성돼요." }
+          : { ok: false, text: (await res.json().catch(() => ({}))).error ?? "바꾸지 못했어요." },
+      );
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** jobId 가 없으면 진행 중인 생성을 모두 멈춘다 */
+  async function stop(jobId?: number) {
+    if (!jobId && !window.confirm("진행 중인 AI 생성을 모두 멈출까요? 남은 '출시 전 채우기' 칸도 만들지 않아요.")) return;
+    setBusy("stop");
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/stop`, { method: "POST", headers: headers(), body: JSON.stringify(jobId ? { jobId } : {}) });
+      const r = await res.json().catch(() => ({}));
+      setMessage(res.ok ? { ok: true, text: r.stopped ? `생성 작업 ${r.stopped}개를 멈췄어요.` : "진행 중인 생성 작업이 없어요." } : { ok: false, text: r.error ?? "멈추지 못했어요." });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const runningCount = data?.jobs.filter((j) => j.status === "running").length ?? 0;
   const graded = (data?.grading.rule ?? 0) + (data?.grading.ai ?? 0);
   const fillSets = data?.fillPlan.reduce((s, c) => s + c.sets, 0) ?? 0;
 
@@ -156,6 +201,38 @@ export default function AdminPage() {
               value={`${data.generated.filter((g) => g.status === "published").length}개 공개`}
               sub={`반려 ${data.generated.filter((g) => g.status === "rejected").length} · 실패 ${data.jobs.filter((j) => j.status === "failed").length}`}
             />
+          </section>
+
+          <section className="card mt-6 flex flex-wrap items-center gap-4 p-5">
+            <div className="min-w-0 flex-1">
+              <p className="font-bold">
+                AI 자동 생성{" "}
+                <span className={`chip ml-1 ${data.autoGeneration ? "bg-mint-50 text-mint-700" : "bg-ink-100 text-ink-600"}`}>{data.autoGeneration ? "켜짐" : "꺼짐"}</span>
+              </p>
+              <p className="mt-1 text-sm text-ink-500">
+                {data.autoGeneration
+                  ? "학습자가 고른 칸의 문제가 부족하면 AI가 알아서 새 문제를 만들어요 (아래 생성 기준 ②~④)."
+                  : "AI가 알아서 만들지 않아요. 아래 '출시 전 채우기'나 '수동 생성'을 누를 때만 만들어요."}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={data.autoGeneration}
+              onClick={toggleAuto}
+              disabled={!!busy}
+              className={data.autoGeneration ? "btn-ghost px-4 py-2.5 text-sm" : "btn-primary px-4 py-2.5 text-sm"}
+            >
+              {busy === "auto" ? <Spinner /> : null} {data.autoGeneration ? "자동 생성 끄기" : "자동 생성 켜기"}
+            </button>
+            <button
+              type="button"
+              onClick={() => stop()}
+              disabled={busy === "stop" || runningCount === 0}
+              className="rounded-xl bg-coral-50 px-4 py-2.5 text-sm font-semibold text-coral-700 hover:bg-coral-100 disabled:opacity-40"
+            >
+              {busy === "stop" ? <Spinner /> : "■"} 생성 중지{runningCount > 0 ? ` (${runningCount}개 진행 중)` : ""}
+            </button>
           </section>
 
           {message && <p className={`mt-4 rounded-2xl px-4 py-3 text-sm ${message.ok ? "bg-mint-50 text-mint-700" : "bg-coral-50 text-coral-700"}`}>{message.text}</p>}
@@ -320,6 +397,11 @@ export default function AdminPage() {
                           {j.status === "running" && <Spinner className="h-3 w-3" />} {j.status}
                         </span>
                         {j.mock && <span className="chip ml-1 bg-sun-50 text-sun-600">목업</span>}
+                        {j.status === "running" && (
+                          <button type="button" onClick={() => stop(j.id)} disabled={busy === "stop"} className="ml-1 text-xs font-semibold text-coral-600 hover:underline">
+                            중지
+                          </button>
+                        )}
                       </td>
                       <td className="py-2 font-semibold">
                         {conceptName(j.concept)} · Lv.{j.level}

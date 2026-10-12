@@ -12,7 +12,7 @@ import { ChoiceInput, ShuffleInput, TextAnswer } from "./AnswerInputs";
 import { ConceptSheet } from "./ConceptSheet";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { HintList } from "./HintPanel";
-import { TutorChat } from "./TutorChat";
+import { TutorChat, type Turn } from "./TutorChat";
 
 
 export type QuestionOutcome = AttemptResult & { analyzing: boolean };
@@ -42,6 +42,8 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
   const [error, setError] = useState<string | null>(null);
   const [showConcept, setShowConcept] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
+  /** 이 문제에서 튜터와 나눈 대화 (다음 문제로 넘어가면 이 화면과 함께 사라진다) */
+  const [chatTurns, setChatTurns] = useState<Turn[]>([]);
   const startedAt = useRef(Date.now());
   const feedbackRef = useRef<HTMLDivElement>(null);
 
@@ -198,7 +200,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
           </button>
         </div>
       )}
-      {!done && askOpen && <TutorChat questionId={q.id} solved={false} />}
+      {!done && askOpen && <TutorChat questionId={q.id} solved={false} turns={chatTurns} setTurns={setChatTurns} />}
 
       <div ref={feedbackRef} className="scroll-mt-28">
         {result && (
@@ -212,6 +214,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
             onSimilar={onSimilar}
             similarLoading={similarLoading}
             onConcept={() => setShowConcept(true)}
+            chat={{ turns: chatTurns, setTurns: setChatTurns }}
           />
         )}
       </div>
