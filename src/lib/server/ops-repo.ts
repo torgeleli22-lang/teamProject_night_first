@@ -46,7 +46,7 @@ export interface Job {
   trigger: Trigger;
   sessionId: string | null;
   mock: boolean;
-  status: "running" | "published" | "rejected" | "failed";
+  status: "running" | "published" | "rejected" | "failed" | "cancelled";
   reason: string;
   itemId: string | null;
   error: string | null;
@@ -91,8 +91,59 @@ export async function createJob(job: { concept: string; level: Level; trigger: T
   );
 }
 
+/** 진행 중인 작업만 끝낸다 (관리자가 이미 중지한 작업의 상태는 바꾸지 않음) */
 export async function finishJob(id: number, status: Job["status"], itemId: string | null, error: string | null) {
-  await (await getDb()).run("UPDATE generation_jobs SET status = ?, item_id = ?, error = ?, finished_at = ? WHERE id = ?", [status, itemId, error, Date.now(), id]);
+  await (await getDb()).run("UPDATE generation_jobs SET status = ?, item_id = ?, error = ?, finished_at = ? WHERE id = ? AND status = 'running'", [
+    status,
+    itemId,
+    error,
+    Date.now(),
+    id,
+  ]);
+}
+
+export async function jobCancelled(id: number): Promise<boolean> {
+  const row = await (await getDb()).get<{ status: string }>("SELECT status FROM generation_jobs WHERE id = ?", [id]);
+  return row?.status === "cancelled";
+}
+
+/**
+ * 관리자 '생성 중지': 진행 중인 작업(jobId 가 없으면 전부)을 cancelled 로 바꾸고 그 id 들을 돌려준다.
+ * 전부 중지할 때는 시각도 남겨서, 여러 칸을 차례로 만드는 '출시 전 채우기'가 다음 칸으로 넘어가지 않게 한다.
+ */
+export async function cancelJobs(jobId?: number): Promise<number[]> {
+  const db = await getDb();
+  const now = Date.now();
+  const where = jobId ? "status = 'running' AND id = ?" : "status = 'running'";
+  const params = jobId ? [jobId] : [];
+  const ids = (await db.all<{ id: number }>(`SELECT id FROM generation_jobs WHERE ${where}`, params)).map((r) => Number(r.id));
+  await db.run(`UPDATE generation_jobs SET status = 'cancelled', error = '관리자가 중지했어요', finished_at = ? WHERE ${where}`, [now, ...params]);
+  if (!jobId) await setMeta("generation_stop_at", String(now));
+  return ids;
+}
+
+/** since 이후에 '전부 중지'가 눌렸는지 */
+export async function stopRequestedSince(since: number): Promise<boolean> {
+  return Number((await getMeta("generation_stop_at")) ?? 0) >= since;
+}
+
+// ───────────────────────── 운영 설정 (app_meta) ─────────────────────────
+
+async function getMeta(key: string): Promise<string | null> {
+  return (await (await getDb()).get<{ value: string }>("SELECT value FROM app_meta WHERE key = ?", [key]))?.value ?? null;
+}
+
+async function setMeta(key: string, value: string) {
+  await (await getDb()).run("INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, value]);
+}
+
+/** 문제가 부족할 때 AI 가 알아서 만드는 자동 생성 (재고 하한·소진·맞춤 복습). 관리자 화면에서 켜고 끈다. 기본은 켜짐 */
+export async function autoGenerationEnabled(): Promise<boolean> {
+  return (await getMeta("auto_generation")) !== "off";
+}
+
+export async function setAutoGeneration(enabled: boolean) {
+  await setMeta("auto_generation", enabled ? "on" : "off");
 }
 
 /** 같은 개념·난이도로 진행 중인 작업 (중복 생성 방지). 10분 넘게 걸린 작업은 무시 */

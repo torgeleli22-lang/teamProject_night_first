@@ -116,6 +116,8 @@ export async function askStructured<T extends z.ZodType>(opts: {
   maxTokens?: number;
   /** 이전 대화 (튜터 대화처럼 이어지는 작업). 이번 요청(prompt)은 마지막 user 메시지가 된다 */
   history?: HistoryTurn[];
+  /** 관리자가 생성을 중지하면 기다리던 응답을 버린다 */
+  signal?: AbortSignal;
   /** 목업 모드에서 돌려줄 응답 (없으면 목업 모드에서도 실패 처리 → 대체 경로) */
   mock?: () => z.infer<T> | Promise<z.infer<T>>;
   mockDelayMs?: number;
@@ -125,6 +127,7 @@ export async function askStructured<T extends z.ZodType>(opts: {
   if (aiMode() === "mock") {
     if (!opts.mock) throw new AIUnavailableError("no mock for this task");
     await sleep(opts.mockDelayMs ?? MOCK_DELAY_MS[opts.tier]);
+    if (opts.signal?.aborted) throw new AIUnavailableError("stopped");
     const result = await opts.mock();
     // 비용 화면을 확인할 수 있도록 대략적인 토큰 수를 기록 (모델 이름 앞에 mock: 표시)
     await logUsage(opts.task, `mock:${model}`, { input: Math.round((opts.system.length + opts.prompt.length) / 2), output: Math.round(JSON.stringify(result).length / 2), cacheRead: 0 }, true);
@@ -154,7 +157,7 @@ export async function askStructured<T extends z.ZodType>(opts: {
         ...(NO_EFFORT.test(model) ? {} : { effort: opts.effort ?? "low" }),
         format: betaZodOutputFormat(opts.schema),
       },
-    });
+    }, { signal: opts.signal });
     usage = {
       input: response.usage.input_tokens,
       output: response.usage.output_tokens,
@@ -247,6 +250,7 @@ async function askViaRelay<T extends z.ZodType>(opts: {
   schema: T;
   maxTokens?: number;
   history?: HistoryTurn[];
+  signal?: AbortSignal;
 }): Promise<z.infer<T>> {
   const { $schema: _ignored, ...schema } = toJSONSchema(opts.schema) as Record<string, unknown>;
   let model = MODELS[opts.tier];
@@ -257,7 +261,7 @@ async function askViaRelay<T extends z.ZodType>(opts: {
       method: "POST",
       headers: { "content-type": "application/json", "x-relay-token": process.env.AI_RELAY_TOKEN ?? "" },
       body: JSON.stringify({ system: opts.system, messages: buildMessages(opts.history ?? [], opts.prompt), schema, maxTokens: opts.maxTokens ?? 16000 }),
-      signal: AbortSignal.timeout(180_000),
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
     });
     const data = (await res.json().catch(() => ({}))) as RelayResponse;
     if (!res.ok) throw new AIUnavailableError(`relay ${res.status}: ${data.error ?? "error"}`);

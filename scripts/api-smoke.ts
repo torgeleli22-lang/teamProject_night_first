@@ -97,9 +97,29 @@ const check = (cond: unknown, msg: string) => {
 
   const overview = await call<{ coverage: Record<string, number> }>("GET", "/admin/overview");
   check(Object.keys(overview.coverage).length > 10, "관리자 개요");
+  await call("POST", "/admin/auto", { enabled: false });
+  check(!(await call<{ autoGeneration: boolean }>("GET", "/admin/overview")).autoGeneration, "자동 생성 끄기");
+  const sparse = await call<{ generating: boolean; generation?: { decision: { generate: boolean } } }>("POST", "/session", { level: 1, concept: "variables", mode: "learn" });
+  check(!sparse.generating, `자동 생성이 꺼지면 부족한 칸도 생성하지 않음 (생성 기준 해당: ${sparse.generation?.decision.generate})`);
+  await call("POST", "/admin/auto", { enabled: true });
+  check((await call<{ autoGeneration: boolean }>("GET", "/admin/overview")).autoGeneration, "자동 생성 켜기");
+  check((await call<{ stopped: number }>("POST", "/admin/stop", {})).stopped === 0, "생성 중지 (진행 중 없음)");
   if (process.env.AI_MODE === "mock") {
     const gen = await call<{ status: string }>("POST", "/admin/generate", { concept: "reduce", level: 4 });
     check(["published", "rejected"].includes(gen.status), `AI 생성(목업): ${gen.status}`);
+    // 수동 생성 도중 중지 → 결과를 버리고 cancelled
+    const pending = call<{ status: string }>("POST", "/admin/generate", { concept: "filter", level: 2 });
+    await new Promise((r) => setTimeout(r, 500));
+    const stop = await call<{ stopped: number }>("POST", "/admin/stop", {});
+    check(stop.stopped === 1 && (await pending).status === "cancelled", "AI 생성 도중 중지(목업)");
+    // 출시 전 채우기 도중 전부 중지 → 남은 칸도 만들지 않음
+    const fill = await call<{ started: number }>("POST", "/admin/fill?limit=3", undefined);
+    await new Promise((r) => setTimeout(r, 300));
+    await call("POST", "/admin/stop", {});
+    await Promise.all(tasks);
+    const after = await call<{ jobs: { status: string; trigger: string }[] }>("GET", "/admin/overview");
+    const fillJobs = after.jobs.filter((j) => j.trigger === "launch_fill");
+    check(fill.started > 0 && fillJobs.length <= 1 && fillJobs.every((j) => j.status === "cancelled"), `출시 전 채우기 중지(목업): ${fillJobs.length}개 시작, 모두 중지`);
     const ask = await call<{ answer: string }>("POST", "/ask", { questionId: plan.questions[0].id, question: "왜 그렇게 돼요?" });
     check(ask.answer, "AI 튜터 질문(목업)");
   }

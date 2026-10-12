@@ -158,9 +158,29 @@ https://<IP-대시>.sslip.io/concepts   → 문제 목록 JSON (DB 연결까지 
 |---|---|
 | 화면 (src/app, src/components) | main 에 push → Pages 자동 배포 |
 | API·채점·콘텐츠 (src/api, src/lib) | EC2 에서 `git pull && sudo docker build -t codereading-api . && sudo docker compose up -d` |
-| 설정 (AI 모드 등) | EC2 의 `.env` 수정 → `sudo docker compose up -d` |
+| 설정 (AI 모드 등) | EC2 의 `.env` 수정 → `sudo docker compose up -d --force-recreate` |
+| AI 자동 생성 켜기/끄기, 생성 중지 | 관리자 화면(`/admin`) 위쪽 **AI 자동 생성** 칸의 버튼 (설정은 DB 에 저장되어 재시작해도 유지) |
 
-**비용 아끼기**: 안 쓸 때 EC2 와 RDS 를 **중지**하세요 (RDS 는 7일 뒤 자동 재시작). 탄력적 IP 가 없으면 다시 켤 때 공인 IP 가 바뀌므로 `SITE_ADDRESS` 와 GitHub `API_URL` 을 새 주소로 바꾸고 Pages 워크플로를 다시 실행하세요.
+**비용 아끼기**: 안 쓸 때 EC2 와 RDS 를 **중지**하세요 (RDS 는 7일 뒤 자동 재시작).
+
+## EC2 를 껐다 켰을 때
+
+Docker 는 부팅할 때 자동으로 켜지고(`systemctl enable docker`), 컨테이너도 `restart: unless-stopped` 라서 **API 는 저절로 다시 실행**됩니다. DB(RDS)·Lambda·`.env` 는 그대로입니다. 바뀌는 건 **공인 IP** 뿐입니다 (탄력적 IP 가 없을 때).
+
+1. (RDS 를 중지했다면) RDS → `database-jojo` → **작업 → 시작** → 상태가 "사용 가능" 이 될 때까지 기다리기
+2. EC2 → 인스턴스 시작 → **새 공인 IP** 확인 → PuTTY 접속 주소도 새 IP 로
+3. 새 IP 로 `SITE_ADDRESS` 바꾸기 (점 → 대시):
+   ```bash
+   cd ~/teamProject_night_first
+   nano .env                                   # SITE_ADDRESS=<새 IP-대시>.sslip.io
+   sudo docker compose up -d --force-recreate
+   sudo docker compose ps                      # api, caddy 둘 다 Up
+   ```
+4. 브라우저에서 `https://<새 IP-대시>.sslip.io/health` → `{"ok":true,...,"ai":"live"}` (처음 30초는 인증서 발급 중)
+5. GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables** → `API_URL` 을 `https://<새 IP-대시>.sslip.io` 로 수정 → **Actions → Deploy web (GitHub Pages) → Run workflow**
+6. 화면에서 문제 하나 열어 보기
+
+**탄력적 IP 를 붙여 두면** 공인 IP 가 바뀌지 않아서 3·5단계가 필요 없습니다 (1·2·4·6 만). 탄력적 IP 는 인스턴스를 중지한 동안에도 시간당 요금이 조금 나갑니다.
 
 ---
 

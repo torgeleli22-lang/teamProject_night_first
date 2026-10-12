@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 import { analysisDue } from "../lib/ai/analysis";
 import { aiEnabled, aiMode, MODELS } from "../lib/ai/client";
-import { generateCodeSet } from "../lib/ai/generate";
+import { abortJobs, generateCodeSet } from "../lib/ai/generate";
 import { askAboutQuestion, evaluateShortAnswer as aiEvaluate } from "../lib/ai/tutor";
 import { decideOnSession, generatableLevels, launchFillPlan, POLICY, TRIGGER_LABEL } from "../lib/content/policy";
 import { CONCEPTS, getConcept } from "../lib/curriculum";
@@ -12,7 +12,20 @@ import { coverage, getQuestion, listGeneratedItems, loadContent } from "../lib/s
 import { dbDriver } from "../lib/server/db";
 import { loadPersona, PERSONAS } from "../lib/server/demo";
 import { gradeAttempt } from "../lib/server/grade";
-import { demandByCell, demandCount, estimateCost, gradingSplit, listJobs, monthToDateCostUsd, recordDemand, runningJob, usageSummary } from "../lib/server/ops-repo";
+import {
+  autoGenerationEnabled,
+  cancelJobs,
+  demandByCell,
+  demandCount,
+  estimateCost,
+  gradingSplit,
+  listJobs,
+  monthToDateCostUsd,
+  recordDemand,
+  runningJob,
+  setAutoGeneration,
+  usageSummary,
+} from "../lib/server/ops-repo";
 import { ALL_CONCEPTS, planSession } from "../lib/server/planner";
 import { attemptCount, listAttempts, removeDemoPeers, resetSession, seedDemoPeers, setNickname, setPreferredLevel } from "../lib/server/session-repo";
 import { HttpError, isProduction, notFound, parse, requireAdmin, type Ctx } from "./core";
@@ -59,7 +72,7 @@ const startSession: Handler = async (ctx) => {
   if (!decision.generate && decision.recordDemand) await recordDemand(concept, body.level, me.id);
 
   let generating = !!(await runningJob(concept, body.level));
-  if (decision.generate && aiEnabled() && !generating) {
+  if (decision.generate && aiEnabled() && !generating && (await autoGenerationEnabled())) {
     generating = true;
     const focus = misconceptionCounts(attempts.filter((a) => a.concepts.includes(concept)))
       .slice(0, 3)
@@ -179,6 +192,7 @@ const adminOverview: Handler = async (ctx) => {
   const [stock, usage] = await Promise.all([coverage(), usageSummary()]);
   return {
     mode: aiMode(),
+    autoGeneration: await autoGenerationEnabled(),
     models: MODELS,
     db: dbDriver(),
     policy: POLICY,
@@ -224,6 +238,23 @@ const adminFill: Handler = async (ctx) => {
   return { started: cells.length, cells };
 };
 
+/** 자동 생성 켜기/끄기 (문제가 부족할 때 AI 가 알아서 만드는 것). 관리자 수동 생성·출시 전 채우기는 그대로 쓸 수 있다 */
+const adminAuto: Handler = async (ctx) => {
+  requireAdmin(ctx.req);
+  const body = parse(z.object({ enabled: z.boolean() }), ctx.req.body);
+  await setAutoGeneration(body.enabled);
+  return { autoGeneration: body.enabled };
+};
+
+/** 생성 중지: jobId 가 있으면 그 작업만, 없으면 진행 중인 생성을 모두 멈춘다 (이미 보낸 AI 요청 비용은 나갈 수 있음) */
+const adminStop: Handler = async (ctx) => {
+  requireAdmin(ctx.req);
+  const body = parse(z.object({ jobId: z.number().int().positive().optional() }), ctx.req.body ?? {});
+  const ids = await cancelJobs(body.jobId);
+  abortJobs(ids);
+  return { stopped: ids.length };
+};
+
 // ───────────────────────── 경로 표 ─────────────────────────
 
 export const ROUTES: Record<string, Handler> = {
@@ -246,4 +277,6 @@ export const ROUTES: Record<string, Handler> = {
   "POST /admin/generate": adminGenerate,
   "GET /admin/fill": adminFillPlan,
   "POST /admin/fill": adminFill,
+  "POST /admin/auto": adminAuto,
+  "POST /admin/stop": adminStop,
 };
