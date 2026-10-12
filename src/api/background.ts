@@ -20,7 +20,8 @@ export type BackgroundTask =
       focus?: string[];
     }
   | { kind: "analysis"; sessionId: string; level: Level | null }
-  | { kind: "fill"; cells: { concept: ConceptId; level: Level; stock: number }[] };
+  | { kind: "fill"; cells: { concept: ConceptId; level: Level; stock: number }[] }
+  | { kind: "batch"; concept: ConceptId; level: Level; count: number; instructions?: string };
 
 export async function runTask(task: BackgroundTask): Promise<void> {
   switch (task.kind) {
@@ -32,6 +33,9 @@ export async function runTask(task: BackgroundTask): Promise<void> {
     case "analysis":
       await runLearnerAnalysis(task.sessionId, task.level);
       return;
+    case "batch":
+      await runBatch(task);
+      return;
     case "fill": {
       const startedAt = Date.now();
       for (const c of task.cells) {
@@ -42,6 +46,30 @@ export async function runTask(task: BackgroundTask): Promise<void> {
       return;
     }
   }
+}
+
+/** 관리자 맞춤 생성: 같은 칸에 코드 세트 여러 개를 차례로 만든다 ('전부 중지'를 누르면 남은 것은 만들지 않음) */
+async function runBatch(task: Extract<BackgroundTask, { kind: "batch" }>) {
+  const startedAt = Date.now();
+  for (let i = 1; i <= task.count; i++) {
+    if (await stopRequestedSince(startedAt)) return;
+    await generateCodeSet({
+      concept: task.concept,
+      level: task.level,
+      trigger: "manual",
+      reason: manualReason(task.instructions, task.count > 1 ? `${i}/${task.count}` : ""),
+      instructions: task.instructions,
+      stopSince: startedAt,
+    });
+  }
+}
+
+/** 생성 기록의 '이유' 칸: 관리자 요청이 있으면 앞부분을 보여 준다 */
+export function manualReason(instructions: string | undefined, progress = ""): string {
+  const head = `관리자 수동 생성${progress ? ` ${progress}` : ""}`;
+  if (!instructions) return head;
+  const short = instructions.replace(/\s+/g, " ").trim();
+  return `${head}: ${short.length > 60 ? `${short.slice(0, 60)}…` : short}`;
 }
 
 export type BackgroundRunner = (task: BackgroundTask) => Promise<void>;

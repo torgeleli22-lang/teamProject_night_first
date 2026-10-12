@@ -204,6 +204,8 @@ export async function generateCodeSet(opts: {
   sessionId?: string;
   /** 학습자에게서 발견된 오개념/혼동 (개인화된 복습 콘텐츠) */
   focus?: string[];
+  /** 관리자가 적은 요청 ("어떤 내용으로 문제를 만들까요?"). 없으면 기본 기준대로 만든다 */
+  instructions?: string;
   /** 여러 칸을 차례로 만드는 작업(출시 전 채우기)의 시작 시각 — 그 뒤에 '전부 중지'가 눌렸으면 멈춘다 */
   stopSince?: number;
 }): Promise<GenerateResult> {
@@ -253,6 +255,9 @@ export async function generateCodeSet(opts: {
           `문제마다 skill 은 ${SKILL_FOR_LEVEL[opts.level].join(", ")} 중에서 고르세요.`,
           `다음 문제 유형을 각각 최소 1개씩, 총 6~8문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
           opts.focus?.length ? `이 학습자에게서 발견된 혼동: ${opts.focus.join("; ")}. 이 혼동을 바로잡을 수 있도록 보기·오류·주관식을 설계하세요.` : "",
+          opts.instructions
+            ? `관리자가 원하는 내용입니다. 위의 개념·난이도·문제 유형·코드 규칙을 지키는 범위에서 최대한 반영하세요 (규칙과 부딪히면 규칙이 우선):\n<admin_request>\n${opts.instructions}\n</admin_request>`
+            : "",
           feedback,
         ]
           .filter(Boolean)
