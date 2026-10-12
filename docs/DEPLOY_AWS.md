@@ -178,6 +178,15 @@ IAM → **사용자** → 내 사용자(`sgu-...`) → **보안 자격 증명** 
 - 키는 **EC2 의 `.env` 에만** 넣습니다. 코드·문서·GitHub·채팅에는 절대 붙여 넣지 마세요 (유출되면 내 계정으로 요금이 나갑니다). 유출이 의심되면 같은 화면에서 **비활성화 → 삭제** 후 새로 만드세요.
 - 키 만들기가 막혀 있으면(권한 거부), 그 메시지를 그대로 공유해 주세요.
 
+### 8-2 대신: 액세스 키 없이 (EC2 IAM 역할)
+키를 만들지 않고 **EC2 에 IAM 역할을 붙이면**, 코드가 그 역할의 임시 자격 증명을 자동으로 씁니다 (코드 수정 필요 없음).
+1. IAM → **역할** 에서 Bedrock 호출 권한(`bedrock:InvokeModel`)이 있고, 신뢰 대상이 `ec2.amazonaws.com` 인 역할이 이미 있는지 확인 (학교 계정은 새 역할 만들기가 막혀 있음)
+2. EC2 → 인스턴스 → **작업 → 보안 → IAM 역할 수정** 에서 그 역할 선택. 막히면 인스턴스를 새로 만들 때 **고급 세부 정보 → IAM 인스턴스 프로필** 에서 선택 (보안 그룹 2개도 함께)
+3. EC2 에서 확인: `aws sts get-caller-identity` → `assumed-role/<역할 이름>/...` 이 보이면 연결됨
+4. 8-3 에서 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 두 줄만 빼고 나머지(`AI_MODE=live`, `AI_PROVIDER=bedrock`, `AWS_REGION=us-east-1`, 예산)는 그대로 넣기
+
+> Docker 안에서 역할 자격 증명을 못 읽으면(로그에 `Could not load credentials`): EC2 → 인스턴스 → 작업 → 인스턴스 설정 → **인스턴스 메타데이터 옵션 수정** → 응답 홉 제한 **2**.
+
 ### 8-3. EC2 `.env` 수정
 ```bash
 cd ~/teamProject_night_first
