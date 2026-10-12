@@ -7,10 +7,10 @@ AI 문제 생성 기준은 `docs/ai-generation-policy.md` 에 있습니다.
 - 이 서비스는 "코드를 대신 작성해주는 AI"가 아니라 "코드를 읽고 이해하도록 가르치는 AI"다.
 - 객관식·빈칸·셔플·실행 결과 예측·오류 찾기 채점, 통계, 추천, 힌트·해설 표시에 AI 를 쓰지 않는다. AI 호출은 `src/lib/ai/client.ts` 의 `askStructured()` 로만, 새 AI 작업에는 mock 응답도 함께 만든다.
 - 정답·해설·채점 기준을 클라이언트로 보내지 않는다 (`PublicQuestion` 만 보냄). 채점은 서버에서.
-- 구조: 화면은 정적 페이지(GitHub Pages), 서버는 Lambda API(`src/api`). `src/lib/server/**`, `src/lib/ai/**`, `src/api/**` 는 API 전용이고, 화면(`src/app`, `src/components`)은 이것들을 `import type` 으로만 가져온다. 화면에서 API 는 `src/lib/api.ts` 로만 부른다.
+- 구조: 화면은 정적 페이지(GitHub Pages), 서버는 API(`src/api` — EC2 에서 Docker 로 실행, Lambda 진입점도 유지). `src/lib/server/**`, `src/lib/ai/**`, `src/api/**` 는 API 전용이고, 화면(`src/app`, `src/components`)은 이것들을 `import type` 으로만 가져온다. 화면에서 API 는 `src/lib/api.ts` 로만 부른다.
 - 문제 콘텐츠를 추가·수정하면 실행 검증(`npm run verify`)을 통과시킨다.
 - 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이.
-- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위(Lambda, Aurora PostgreSQL Data API)만 진행한다. Bedrock·S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
+- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위(EC2 API 서버, RDS PostgreSQL)만 진행한다. Bedrock·S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
 - SQL 은 SQLite·PostgreSQL 공통으로 쓴다 (`src/lib/server/db/types.ts` 의 규칙).
 
 ## 명령
@@ -22,6 +22,6 @@ npm test             # 단위 테스트
 npm run verify       # 시드 콘텐츠 실제 실행 검증
 npm run build        # 정적 화면 빌드 (out/)
 npm run smoke        # API 전체 흐름 점검 (API 를 바꿨다면)
-npm run build:lambda # Lambda 배포 파일 dist/lambda.zip
+npm run build:server # EC2(Docker)용 API 묶음 dist/server/index.js
 ```
 작업을 마치기 전에 위 네 가지(typecheck, test, verify, build)를 모두 통과시키세요.
