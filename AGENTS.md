@@ -10,7 +10,7 @@ AI 문제 생성 기준은 `docs/ai-generation-policy.md` 에 있습니다.
 - 구조: 화면은 정적 페이지(GitHub Pages), 서버는 Lambda API(`src/api`). `src/lib/server/**`, `src/lib/ai/**`, `src/api/**` 는 API 전용이고, 화면(`src/app`, `src/components`)은 이것들을 `import type` 으로만 가져온다. 화면에서 API 는 `src/lib/api.ts` 로만 부른다.
 - 문제 콘텐츠를 추가·수정하면 실행 검증(`npm run verify`)을 통과시킨다.
 - 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이.
-- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위(Lambda, Aurora PostgreSQL Data API)만 진행한다. Bedrock·S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
+- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위(Lambda, RDS PostgreSQL)만 진행한다. Bedrock·S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
 - SQL 은 SQLite·PostgreSQL 공통으로 쓴다 (`src/lib/server/db/types.ts` 의 규칙).
 
 ## 명령

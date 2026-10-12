@@ -13,7 +13,7 @@
 4. **콘텐츠는 검증을 통과해야 공개된다.** 문제를 추가·수정하면 `npm run verify` 로 실제 실행 검증을 통과시킨다.
 5. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다.
 6. **사용자 화면 문구는 한국어 존댓말("~해요" 체)**, 초보자 눈높이, 친근하지만 유치하지 않게. 틀렸을 때도 실패감을 주지 않는다.
-7. 구조는 **GitHub Pages(정적 화면) + AWS Lambda(API) + Aurora PostgreSQL(Data API)** 로 확정됐다 (§10). 화면 코드(`src/app`, `src/components`)는 서버 코드(`src/lib/server`, `src/lib/ai`, `src/api`)를 `import type` 으로만 가져온다 (`tests/boundaries.test.ts`). Bedrock·S3 등은 사람이 요청하기 전까지 넣지 않는다.
+7. 구조는 **GitHub Pages(정적 화면) + AWS Lambda(API) + RDS PostgreSQL** 로 확정됐다 (§10, §11 — 학교 계정에서 Aurora 가 막혀 있어 Lambda 를 VPC 에 넣고 직접 연결). 화면 코드(`src/app`, `src/components`)는 서버 코드(`src/lib/server`, `src/lib/ai`, `src/api`)를 `import type` 으로만 가져온다 (`tests/boundaries.test.ts`). Bedrock·S3 등은 사람이 요청하기 전까지 넣지 않는다.
 8. **비밀 값(DB 암호, API 키, ADMIN_TOKEN, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** 서버의 `.env` 에만 둔다.
 9. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager, 향상된 모니터링처럼 추가 권한이 필요한 기능에 의존하지 않는다.
 
@@ -187,7 +187,7 @@ AI 생성은 검증 실패 시 실패 이유를 알려주고 1회 재생성 → 
                                     ├─ views.ts : 화면별 데이터 (화면당 요청 1번)
                                     ├─ 도메인 로직 (src/lib): 채점, 통계, 추천, 생성 기준, 검증
                                     ├─ background.ts: AI 생성·학습자 분석은 자기 자신을 비동기(Event) 호출해서 응답 뒤에 실행
-                                    ├─ DB (src/lib/server/db): Aurora PostgreSQL ← Data API (HTTPS, VPC 불필요)
+                                    ├─ DB (src/lib/server/db): RDS PostgreSQL ← pg 직접 연결 (Lambda 를 Default VPC·default 보안 그룹에)
                                     └─ Claude API ← AI_MODE=live 일 때만
 ```
 
@@ -195,14 +195,14 @@ AI 생성은 검증 실패 시 실패 이유를 알려주고 1회 재생성 → 
 | --- | --- |
 | 화면 | Next.js 15 정적 내보내기, React 19, TypeScript 5, Tailwind CSS 3 |
 | API | Node.js 22 Lambda (esbuild 로 한 파일: `npm run build:lambda` → `dist/lambda.zip`, 핸들러 `index.handler`) |
-| DB 드라이버 (`DB_DRIVER`) | `sqlite`(로컬·테스트, node:sqlite) · `postgres`(pg, 직접 연결) · `data-api`(Aurora Data API, 운영) |
+| DB 드라이버 (`DB_DRIVER`) | `sqlite`(로컬·테스트, node:sqlite) · `postgres`(pg, 직접 연결 — 운영) · `data-api`(Aurora Data API, Aurora 허용 계정용) |
 | 검증 | Zod 4 (API 입력, AI 구조화 출력) |
 | AI | Anthropic SDK (`client.beta.messages.parse` + 구조화 출력) |
 | 테스트 | `node:test` + `tsx`, API 흐름 점검 `scripts/api-smoke.ts` |
 | CI/CD | `.github/workflows/ci.yml`(검사 + lambda.zip), `pages.yml`(main → GitHub Pages) |
 
 ### 10.2 주요 요청 흐름
-1. **화면 열기** 정적 HTML 이 뜨고, 화면이 `GET /learn` 같은 화면용 API 를 한 번 부른다. 3초 넘게 걸리면 "서버를 깨우는 중" 안내 (Aurora 0 ACU 재개).
+1. **화면 열기** 정적 HTML 이 뜨고, 화면이 `GET /learn` 같은 화면용 API 를 한 번 부른다. 3초 넘게 걸리면 "서버를 깨우는 중" 안내 (Lambda 콜드 스타트·DB 재개).
 2. **학습 시작** `POST /session` → `planner.ts` 가 저장된 문제에서 6개 선택(AI 없음) → 정답을 뺀 `PublicQuestion` 반환. 생성 기준에 해당하면 백그라운드 생성.
 3. **답 제출** `POST /attempts` → `grade.ts` 가 규칙 채점(주관식만 필요 시 AI) → `attempts` + 요약 테이블 2개를 한 트랜잭션으로 저장 → 결과·해설·AI Tutor 내용 반환. 10문제마다 백그라운드로 학습자 분석.
 4. **화면 갱신** 풀이·이름 변경·초기화 뒤 `notifyChanged()` → 헤더(XP·연속 학습) 등이 다시 불러온다.
@@ -277,13 +277,14 @@ npm run build:lambda           # dist/lambda.zip
 | 자원 | 값 |
 | --- | --- |
 | 계정 | 학교 계정 (권한 제한). 리전 서울 ap-northeast-2 |
-| Aurora | `codereading-db`, Aurora PostgreSQL Serverless v2 (0~2 ACU), DB `jobase`, 마스터 `codereading`, 복제본 없음 |
-| Lambda | `codereading-api` (Node.js 22.x, `index.handler`, 메모리 1024MB, 제한 시간 5분, 함수 URL 인증 NONE·CORS 끔) |
-| DB 접근 | Aurora Data API + Secrets Manager 비밀 (`DB_DRIVER=data-api`) |
+| 막힌 권한 | Aurora 클러스터 생성(`Shingu-AdditionalRule-AuroraCluster`), 보안 그룹 인바운드 규칙 추가(`ec2:AuthorizeSecurityGroupIngress`) |
+| RDS | `database-jojo`, PostgreSQL 18, db.t4g.micro, 퍼블릭 액세스 없음, 보안 그룹 `default`, DB `jojobase`, 마스터 `jojo` |
+| Lambda | `codereading-api` (Node.js 22.x, `index.handler`), **Default VPC + 보안 그룹 default** (RDS 와 같은 그룹이라 규칙 추가 없이 통신), `DB_DRIVER=postgres`, `BACKGROUND_MODE=inline`, 함수 URL 인증 NONE·CORS 끔 |
 | 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URL`) |
+| Bedrock | us-east-1 에서 Claude Haiku 4.5, Amazon Nova Micro/Lite 등 사용 가능. 단, VPC 안의 Lambda 는 인터넷이 없어 실제 AI 연결에는 별도 경로(NAT 등)가 필요 — 미정 |
 | EC2 | 사용하지 않음 (종료) |
 
-배포 순서와 문제 해결: `docs/DEPLOY_AWS.md`.
+배포 순서와 문제 해결: `docs/DEPLOY_AWS.md`. 코드는 Aurora Data API(`DB_DRIVER=data-api`)도 지원하므로, Aurora 가 허용되는 계정에서는 VPC 없이 배포할 수 있다.
 
 ### 11.2 이후 단계 (계획 — 사람이 요청하면 진행)
 | 단계 | 내용 | 비고 |
@@ -318,7 +319,7 @@ npm run build:lambda           # dist/lambda.zip
 - 콘텐츠: 시드 64개 코드 / 90문제 (입문~초급 위주)
 
 **다음 순서**
-1. AWS 에 올리기: Data API·비밀 → Lambda → GitHub Pages (`docs/DEPLOY_AWS.md`)
+1. AWS 에 올리기: RDS(완료) → Lambda(VPC) → GitHub Pages (`docs/DEPLOY_AWS.md`)
 2. 실제 AI 연결 → `AI_MODE=live`, `/admin` 에서 출시 전 콘텐츠 채우기 (중급·심화)
 3. 로그인 → 로그인 사용자 기록 영구 저장
 

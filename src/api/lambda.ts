@@ -27,7 +27,8 @@ const invokeSelf: BackgroundRunner = async (task) => {
   const name = process.env.AWS_LAMBDA_FUNCTION_NAME;
   if (name && process.env.BACKGROUND_MODE !== "inline") {
     try {
-      lambdaClient ??= new LambdaClient({});
+      // VPC 안의 Lambda 는 인터넷이 없어 호출이 멈출 수 있으므로 짧게 기다리고 포기한다 (→ 이 요청 안에서 실행)
+      lambdaClient ??= new LambdaClient({ maxAttempts: 1, requestHandler: { connectionTimeout: 2000, requestTimeout: 3000 } });
       await lambdaClient.send(new InvokeCommand({ FunctionName: name, InvocationType: "Event", Payload: Buffer.from(JSON.stringify({ background: task })) }));
       return;
     } catch (e) {
