@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { CodeSnippet } from "@/components/CodeBlock";
 import { Spinner, UnderstandingChip } from "@/components/ui";
@@ -8,7 +8,7 @@ import { apiPost } from "@/lib/api";
 import type { ShortAnswerFeedback } from "@/lib/ai/tutor";
 import type { AttemptResult, TutorNote } from "@/lib/server/grade";
 import type { PublicQuestion } from "@/lib/server/planner";
-import { TutorChat } from "./TutorChat";
+import { TutorChat, type Turn } from "./TutorChat";
 
 interface Props {
   question: PublicQuestion;
@@ -21,12 +21,15 @@ interface Props {
   onSimilar?: () => void;
   similarLoading?: boolean;
   onConcept: () => void;
+  /** 제출 전에 나눈 튜터 대화를 이어서 쓴다 */
+  chat: { turns: Turn[]; setTurns: Dispatch<SetStateAction<Turn[]>> };
 }
 
-export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, onNext, onSimilar, similarLoading, onConcept }: Props) {
+export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, onNext, onSimilar, similarLoading, onConcept, chat }: Props) {
   const [tutor, setTutor] = useState<TutorNote>(result.tutor);
   const [deepLoading, setDeepLoading] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  // 제출 전에 대화했다면 이어서 볼 수 있게 열어 둔다
+  const [chatOpen, setChatOpen] = useState(chat.turns.length > 0);
   const { correct, partial } = result;
   const tone = gaveUp ? "neutral" : correct ? "good" : partial ? "partial" : "bad";
   const headerStyle = { good: "bg-mint-50 text-mint-700", partial: "bg-sun-50 text-sun-600", bad: "bg-coral-50 text-coral-600", neutral: "bg-ink-100 text-ink-700" }[tone];
@@ -115,7 +118,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
               💬 튜터에게 질문
             </button>
           </div>
-          {chatOpen && <TutorChat questionId={question.id} solved />}
+          {chatOpen && <TutorChat questionId={question.id} solved turns={chat.turns} setTurns={chat.setTurns} />}
         </div>
       </section>
 

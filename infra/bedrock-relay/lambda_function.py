@@ -10,7 +10,9 @@ EC2 의 API 서버가 이 함수의 '함수 URL'로 AI 요청을 보내면, 이 
   - 함수 URL → 인증 유형 NONE (대신 RELAY_TOKEN 으로 막는다)
 
 요청 (POST, 헤더 x-relay-token):
-  {"system": "...", "prompt": "...", "schema": {JSON Schema}, "maxTokens": 4000}
+  {"system": "...", "messages": [{"role": "user"|"assistant", "text": "..."}, ...],
+   "schema": {JSON Schema}, "maxTokens": 4000}
+  - messages: 이전 대화 + 이번 질문 (마지막은 user). 콘솔 테스트처럼 질문 하나면 "prompt": "..." 만 보내도 된다
 응답:
   {"output": {...스키마에 맞는 JSON}, "stopReason": "...", "model": "...",
    "usage": {"input": 0, "output": 0, "cacheRead": 0}}
@@ -28,6 +30,7 @@ from botocore.config import Config
 MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 MAX_TOKENS_LIMIT = 16000
 TOOL_NAME = "answer"
+MAX_MESSAGES = 30
 
 # 긴 답변(문제 생성)은 1분 넘게 걸릴 수 있어 읽기 제한 시간을 늘린다 (기본 60초)
 bedrock = boto3.client(
@@ -59,6 +62,29 @@ def read_request(event):
     return json.loads(body)
 
 
+def to_converse_messages(req):
+    """[{"role", "text"}] → Converse API 형식. user 로 시작해 user/assistant 가 번갈아 오도록 정리한다."""
+    raw = req.get("messages")
+    if raw is None and isinstance(req.get("prompt"), str):
+        raw = [{"role": "user", "text": req["prompt"]}]
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for m in raw[-MAX_MESSAGES:]:
+        if not isinstance(m, dict) or m.get("role") not in ("user", "assistant") or not isinstance(m.get("text"), str):
+            return None
+        text = m["text"].strip()
+        if not text or (not out and m["role"] != "user"):
+            continue
+        if out and out[-1]["role"] == m["role"]:
+            out[-1]["content"][0]["text"] += "\n\n" + text
+        else:
+            out.append({"role": m["role"], "content": [{"text": text}]})
+    if not out or out[-1]["role"] != "user":
+        return None
+    return out
+
+
 def lambda_handler(event, context):
     try:
         req = read_request(event)
@@ -68,10 +94,10 @@ def lambda_handler(event, context):
         return respond(400, {"error": "invalid json"})
 
     system = req.get("system")
-    prompt = req.get("prompt")
+    messages = to_converse_messages(req)
     schema = req.get("schema") or {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
-    if not isinstance(system, str) or not isinstance(prompt, str) or not isinstance(schema, dict):
-        return respond(400, {"error": "system, prompt (문자열), schema (객체) 가 필요해요"})
+    if not isinstance(system, str) or messages is None or not isinstance(schema, dict):
+        return respond(400, {"error": "system(문자열), messages(마지막은 user) 또는 prompt, schema(객체) 가 필요해요"})
     max_tokens = max(256, min(int(req.get("maxTokens") or 4000), MAX_TOKENS_LIMIT))
 
     # 구조화 응답: 도구 하나(answer)를 만들고 반드시 그 도구로 답하게 해서, 입력값(JSON)을 결과로 쓴다
@@ -79,7 +105,7 @@ def lambda_handler(event, context):
         response = bedrock.converse(
             modelId=MODEL_ID,
             system=[{"text": system}],
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            messages=messages,
             inferenceConfig={"maxTokens": max_tokens},
             toolConfig={
                 "tools": [{"toolSpec": {

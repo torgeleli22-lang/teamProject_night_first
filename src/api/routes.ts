@@ -103,8 +103,8 @@ const AskBody = z.object({
   question: z.string().min(1).max(500),
   solved: z.boolean().default(false),
   history: z
-    .array(z.object({ role: z.enum(["user", "tutor"]), text: z.string().max(2000) }))
-    .max(8)
+    .array(z.object({ role: z.enum(["user", "tutor"]), text: z.string().max(4000) }))
+    .max(12)
     .default([]),
 });
 

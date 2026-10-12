@@ -80,6 +80,28 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class AIUnavailableError extends Error {}
 
+/** 이전 대화 한 턴 (멀티 턴 대화) */
+export interface HistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+/**
+ * 이전 대화 + 이번 요청을 Claude 의 messages 형식으로 만든다.
+ * 대화는 user 로 시작해 user/assistant 가 번갈아 와야 하므로, 앞쪽 assistant 는 버리고 같은 역할이 이어지면 합친다.
+ */
+export function buildMessages(history: HistoryTurn[], prompt: string): HistoryTurn[] {
+  const out: HistoryTurn[] = [];
+  for (const turn of [...history, { role: "user" as const, text: prompt }]) {
+    const text = turn.text.trim();
+    if (!text || (out.length === 0 && turn.role !== "user")) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === turn.role) last.text += `\n\n${text}`;
+    else out.push({ role: turn.role, text });
+  }
+  return out;
+}
+
 /**
  * 구조화된 JSON 응답을 받는 공통 호출. 응답은 Zod 스키마로 검증되고, 호출마다 토큰 사용량을 기록한다.
  */
@@ -92,6 +114,8 @@ export async function askStructured<T extends z.ZodType>(opts: {
   schema: T;
   effort?: "low" | "medium" | "high";
   maxTokens?: number;
+  /** 이전 대화 (튜터 대화처럼 이어지는 작업). 이번 요청(prompt)은 마지막 user 메시지가 된다 */
+  history?: HistoryTurn[];
   /** 목업 모드에서 돌려줄 응답 (없으면 목업 모드에서도 실패 처리 → 대체 경로) */
   mock?: () => z.infer<T> | Promise<z.infer<T>>;
   mockDelayMs?: number;
@@ -125,7 +149,7 @@ export async function askStructured<T extends z.ZodType>(opts: {
       ...(fallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
       // 튜터 원칙(system)은 모든 요청에서 같으므로 캐시해서 반복 비용을 줄인다
       system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: opts.prompt }],
+      messages: buildMessages(opts.history ?? [], opts.prompt).map((m) => ({ role: m.role, content: m.text })),
       output_config: {
         ...(NO_EFFORT.test(model) ? {} : { effort: opts.effort ?? "low" }),
         format: betaZodOutputFormat(opts.schema),
@@ -159,7 +183,15 @@ type RelayResponse = {
 };
 
 /** Bedrock 중계 Lambda 호출 (infra/bedrock-relay/lambda_function.py). 응답은 같은 Zod 스키마로 검증한다. */
-async function askViaRelay<T extends z.ZodType>(opts: { task: string; tier: Tier; system: string; prompt: string; schema: T; maxTokens?: number }): Promise<z.infer<T>> {
+async function askViaRelay<T extends z.ZodType>(opts: {
+  task: string;
+  tier: Tier;
+  system: string;
+  prompt: string;
+  schema: T;
+  maxTokens?: number;
+  history?: HistoryTurn[];
+}): Promise<z.infer<T>> {
   const { $schema: _ignored, ...schema } = toJSONSchema(opts.schema) as Record<string, unknown>;
   let model = MODELS[opts.tier];
   let ok = false;
@@ -168,7 +200,7 @@ async function askViaRelay<T extends z.ZodType>(opts: { task: string; tier: Tier
     const res = await fetch(process.env.AI_RELAY_URL!, {
       method: "POST",
       headers: { "content-type": "application/json", "x-relay-token": process.env.AI_RELAY_TOKEN ?? "" },
-      body: JSON.stringify({ system: opts.system, prompt: opts.prompt, schema, maxTokens: opts.maxTokens ?? 16000 }),
+      body: JSON.stringify({ system: opts.system, messages: buildMessages(opts.history ?? [], opts.prompt), schema, maxTokens: opts.maxTokens ?? 16000 }),
       signal: AbortSignal.timeout(180_000),
     });
     const data = (await res.json().catch(() => ({}))) as RelayResponse;

@@ -133,7 +133,9 @@ function mockChat(q: Question, item: CodeItem, question: string, solved: boolean
   return `정답을 바로 알려드리기보다 힌트를 드릴게요. ${concept ? `이 코드는 '${concept.name}'이 핵심이에요 — ${concept.keyIdea}.` : ""} 이 생각을 바탕으로 코드를 한 줄씩 다시 읽어 보세요.`;
 }
 
-const AskSchema = z.object({ answer: z.string().describe("2~5문장의 답변. 필요하면 되묻는 질문으로 마무리") });
+const AskSchema = z.object({
+  answer: z.string().describe("첫 질문은 2~5문장. 학습자가 이어서 더 깊이 물으면 예시·단계별 설명을 더해 자세히(10문장 이내). 필요하면 되묻는 질문으로 마무리"),
+});
 
 export interface ChatTurn {
   role: "user" | "tutor";
@@ -156,12 +158,16 @@ export async function askAboutQuestion(
         system: TUTOR_SYSTEM,
         schema: AskSchema,
         mock: () => ({ answer: mockChat(q, item, question, solved) }),
+        // 이전 대화는 실제 대화(messages)로 넘겨서 앞에서 한 말을 기억하게 한다 (최근 10턴)
+        history: history.slice(-10).map((t) => ({ role: t.role === "user" ? ("user" as const) : ("assistant" as const), text: t.text })),
         prompt: [
           questionContext(q, item),
+          history.length
+            ? "같은 문제에 대한 이어지는 질문입니다. 앞의 대화를 기억하고, 이미 설명한 내용은 반복하지 말고 한 단계 더 깊이(왜 그런지, 다른 예시, 실행 순서) 설명하세요."
+            : "",
           solved
             ? "학습자는 이미 이 문제를 제출했으므로 정답을 이야기해도 됩니다."
             : "학습자는 아직 이 문제를 풀고 있습니다. 정답을 직접 말하지 말고 스스로 생각할 수 있게 실마리를 주세요.",
-          history.length ? `이전 대화:\n${history.map((t) => `${t.role === "user" ? "학습자" : "튜터"}: ${t.text}`).join("\n")}` : "",
           `<learner_answer>\n학습자 질문: ${question}\n</learner_answer>`,
           "코드 읽기 학습과 관계없는 요청(다른 코드 작성 대행 등)은 정중히 이 문제로 돌아오게 하세요.",
         ]
