@@ -14,14 +14,14 @@
 
 - **DB 는 인터넷에서 보이지 않습니다.** EC2 와 RDS 가 같은 `default` 보안 그룹에 있어서 둘만 통신할 수 있습니다.
 - 정답·해설·채점 기준은 API(EC2) 안에서만 다룹니다. 화면에는 문제만 내려갑니다.
-- 실제 AI 는 EC2 에서 **Bedrock(us-east-1, Claude Haiku 4.5)** 을 부릅니다 (8단계).
+- 실제 AI 는 EC2 → **Lambda 중계(SafeRole)** → **Bedrock(us-east-1, Claude Haiku 4.5)** 순서로 부릅니다 (8단계). EC2 에 AWS 키가 없습니다.
 
 ### 학교 계정에서 막혀 있던 것 (그래서 이렇게 구성함)
 | 시도 | 결과 |
 |---|---|
 | Aurora 클러스터 생성 | ❌ `Shingu-AdditionalRule-AuroraCluster` 정책으로 거부 |
 | RDS 생성 화면에서 보안 그룹 새로 만들기 (인바운드 규칙 자동 추가) | ❌ `ec2:AuthorizeSecurityGroupIngress` 거부 → `default` 보안 그룹 사용 |
-| Lambda 실행 역할 만들기 / 기존 역할로 VPC 연결 | ❌ `iam:CreateRole` 거부, 기존 역할에 `ec2:CreateNetworkInterface` 없음 → **Lambda 대신 EC2** |
+| Lambda 실행 역할 만들기 / 기존 역할로 VPC 연결 | ❌ `iam:CreateRole` 거부, 기존 역할에 `ec2:CreateNetworkInterface` 없음 → **API 는 EC2**, AI 만 VPC 밖 Lambda(SafeRole) 로 중계 |
 
 > AWS 콘솔 메뉴 이름은 조금씩 바뀔 수 있어요. 막힌 단계가 있으면 그 화면의 메시지를 그대로 공유해 주세요.
 
@@ -164,64 +164,86 @@ https://<IP-대시>.sslip.io/concepts   → 문제 목록 JSON (DB 연결까지 
 
 ---
 
-## 8단계. 실제 AI 연결 (Bedrock · Claude Haiku 4.5)
+## 8단계. 실제 AI 연결 (Lambda 중계 → Bedrock · Claude Haiku 4.5)
 
-이 계정에서 쓸 수 있는 Claude 모델은 **미국 동부(버지니아 북부, us-east-1)** 의 **Claude Haiku 4.5** 입니다. EC2(서울)에서 us-east-1 의 Bedrock 을 부르는 데 문제는 없습니다.
+학교 계정은 액세스 키·역할 만들기가 막혀 있어서, 수업에서 한 것처럼 **Lambda 가 `SafeRole-<계정>` 역할로 Bedrock 을 부르고**, EC2 는 그 Lambda 의 주소(함수 URL)로 요청만 보냅니다. EC2 에는 AWS 키가 없습니다.
 
-### 8-1. 모델 사용 확인
-AWS 콘솔 오른쪽 위 리전을 **미국 동부(버지니아 북부)** 로 바꾸고 → **Amazon Bedrock** → 왼쪽 **모델 액세스**(또는 Model catalog) → **Claude Haiku 4.5** 가 "액세스 권한 부여됨 / Available" 인지 확인. 아니면 요청(또는 담당 교수님께 문의).
+```
+EC2 (API) ──HTTPS + 중계 토큰──→ Lambda 함수 URL ──SafeRole 권한──→ Bedrock (us-east-1, Claude Haiku 4.5)
+```
+- 이 Lambda 는 VPC 에 넣지 않습니다 (예전에 막혔던 `CreateNetworkInterface` 가 필요 없음).
+- 모델은 Lambda 코드에 고정되어 있어서, 중계 토큰이 새어도 다른(비싼) 모델은 쓸 수 없습니다.
 
-### 8-2. 액세스 키 만들기
-IAM → **사용자** → 내 사용자(`sgu-...`) → **보안 자격 증명** 탭 → **액세스 키 만들기** → 사용 사례 "AWS 외부에서 실행되는 애플리케이션"(또는 "기타") → 만들기.
+### 8-1. 중계 토큰 만들기 (EC2 에서)
+```bash
+openssl rand -hex 24
+```
+나온 값을 메모해 두세요. Lambda(8-2) 와 EC2 `.env`(8-4) 두 곳에 **같은 값**을 넣습니다. GitHub·채팅에는 쓰지 마세요.
 
-- **비밀 액세스 키는 이 화면에서 한 번만 보여요.** `.csv 다운로드` 로 보관하세요.
-- 키는 **EC2 의 `.env` 에만** 넣습니다. 코드·문서·GitHub·채팅에는 절대 붙여 넣지 마세요 (유출되면 내 계정으로 요금이 나갑니다). 유출이 의심되면 같은 화면에서 **비활성화 → 삭제** 후 새로 만드세요.
-- 키 만들기가 막혀 있으면(권한 거부), 그 메시지를 그대로 공유해 주세요.
+### 8-2. Lambda 함수 만들기
+AWS 콘솔 리전을 **서울** 로 두고 Lambda → **함수 생성** (수업과 같은 방법)
 
-### 8-2 대신: 액세스 키 없이 (EC2 IAM 역할)
-키를 만들지 않고 **EC2 에 IAM 역할을 붙이면**, 코드가 그 역할의 임시 자격 증명을 자동으로 씁니다 (코드 수정 필요 없음).
-1. IAM → **역할** 에서 Bedrock 호출 권한(`bedrock:InvokeModel`)이 있고, 신뢰 대상이 `ec2.amazonaws.com` 인 역할이 이미 있는지 확인 (학교 계정은 새 역할 만들기가 막혀 있음)
-2. EC2 → 인스턴스 → **작업 → 보안 → IAM 역할 수정** 에서 그 역할 선택. 막히면 인스턴스를 새로 만들 때 **고급 세부 정보 → IAM 인스턴스 프로필** 에서 선택 (보안 그룹 2개도 함께)
-3. EC2 에서 확인: `aws sts get-caller-identity` → `assumed-role/<역할 이름>/...` 이 보이면 연결됨
-4. 8-3 에서 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 두 줄만 빼고 나머지(`AI_MODE=live`, `AI_PROVIDER=bedrock`, `AWS_REGION=us-east-1`, 예산)는 그대로 넣기
+| 항목 | 값 |
+|---|---|
+| 함수 이름 | `sgu-202688-codereading-ai` |
+| 런타임 | Python 3.14 (없으면 3.13) |
+| 추가 설정 → 사용자 지정 실행 역할 | **`SafeRole-sgu-202688`** |
 
-> Docker 안에서 역할 자격 증명을 못 읽으면(로그에 `Could not load credentials`): EC2 → 인스턴스 → 작업 → 인스턴스 설정 → **인스턴스 메타데이터 옵션 수정** → 응답 홉 제한 **2**.
+만든 뒤:
+1. **코드** 탭: `lambda_function.py` 내용을 지우고, 저장소의 [`infra/bedrock-relay/lambda_function.py`](../infra/bedrock-relay/lambda_function.py) 내용을 통째로 붙여 넣기 → **Deploy**
+2. **구성 → 일반 구성 → 편집**: 제한 시간 **3분** (기본 3초면 AI 답을 기다리지 못해요) → 저장
+3. **구성 → 환경 변수 → 편집**: 키 `RELAY_TOKEN`, 값 = 8-1 의 토큰 → 저장
+4. **구성 → 함수 URL → 함수 URL 생성**: 인증 유형 **NONE** → 저장. 생성된 주소(`https://xxxx.lambda-url.ap-northeast-2.on.aws/`)를 메모
 
-### 8-3. EC2 `.env` 수정
+### 8-3. Lambda 테스트 (콘솔)
+**테스트** 탭 → 이벤트 JSON:
+```json
+{"system": "너는 친절한 코딩 선생님이야. 한국어 존댓말로 답해.", "prompt": "변수가 뭐예요?"}
+```
+→ 응답 `body` 에 `"output": {"answer": "..."}` 가 보이면 Bedrock 연결 성공. (콘솔 테스트는 토큰 없이 됩니다. 함수 URL 로 오는 요청만 토큰을 확인해요.)
+
+EC2 에서 함수 URL 확인 (토큰이 틀리면 `unauthorized` 가 정상):
+```bash
+curl -s -X POST <함수 URL> -H "x-relay-token: <토큰>" -H "content-type: application/json" -d '{"system":"짧게 답해","prompt":"안녕"}'
+```
+
+### 8-4. EC2 `.env` 수정
 ```bash
 cd ~/teamProject_night_first
 nano .env
 ```
-`AI_MODE=mock` 줄을 **지우고** 아래를 추가합니다 (`<...>` 는 실제 값으로, `<` `>` 는 지우기):
+`AI_MODE=mock` 줄을 **지우고** 아래를 추가 (`<...>` 는 실제 값, `<` `>` 는 지우기):
 ```env
 AI_MODE=live
-AI_PROVIDER=bedrock
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=<액세스 키 ID>
-AWS_SECRET_ACCESS_KEY=<비밀 액세스 키>
+AI_PROVIDER=relay
+AI_RELAY_URL=<함수 URL>
+AI_RELAY_TOKEN=<8-1 의 토큰>
 AI_MONTHLY_BUDGET_USD=10
 ```
-- `AI_MONTHLY_BUDGET_USD` : 이번 달 AI 예상 비용이 이 금액(달러)을 넘으면 AI 를 자동으로 멈추고 규칙 기반으로 바뀝니다. API 주소가 공개되어 있으니 꼭 넣으세요.
+- `AI_MONTHLY_BUDGET_USD` : 이번 달 AI 예상 비용(달러)이 이 금액을 넘으면 AI 를 자동으로 멈추고 규칙 기반으로 바뀝니다.
 
-### 8-4. 새 코드 받고 다시 실행
+### 8-5. 새 코드 받고 다시 실행
 ```bash
 git pull
 sudo docker build -t codereading-api .
 sudo docker compose up -d
 sudo docker compose logs --tail 20 api     # "(DB: postgres, AI: live)"
 ```
-`https://<IP-대시>.sslip.io/health` → `"ai":"live"`
 
-### 8-5. 동작 확인
-화면에서 **주관식 문제 답 제출**(AI 평가)이나 **AI 튜터에게 질문하기** 를 해 보세요. 관리자 화면(`/admin`)의 사용량에 `anthropic.claude-haiku-4-5` 가 보이면 실제 AI 가 응답한 것입니다.
-실패하면 `sudo docker compose logs --tail 50 api` 에서 `[ai] 호출 실패` 줄을 확인하세요 (화면은 실패해도 규칙 기반으로 계속 동작합니다).
+### 8-6. 동작 확인
+화면에서 **주관식 문제 답 제출**(AI 평가)이나 **AI 튜터에게 질문하기** 를 해 보세요. 관리자 화면(`/admin`) 사용량에 `us.anthropic.claude-haiku-4-5-...` 가 보이면 실제 AI 가 응답한 것입니다.
+실패해도 화면은 규칙 기반으로 계속 동작합니다. 원인은 EC2 의 `sudo docker compose logs --tail 50 api` (`[ai] 호출 실패` 줄) 와 Lambda 의 **모니터링 → CloudWatch 로그** (`[bedrock] 호출 실패` 줄) 에서 봅니다.
 
-| 로그 메시지 | 원인 / 해결 |
+| 메시지 | 원인 / 해결 |
 |---|---|
-| `security token included in the request is invalid` / 401 | 키를 잘못 복사함 (앞뒤 공백, 꺾쇠 `< >`) |
-| `not authorized to perform: bedrock:InvokeModel` / 403 | 이 사용자에게 Bedrock 호출 권한이 없음 → 담당 교수님께 권한 요청 |
-| `You don't have access to the model` / `model ... not found` | 8-1 모델 액세스 확인, `AWS_REGION=us-east-1` 인지 확인 |
+| `relay 401: unauthorized` | `.env` 의 `AI_RELAY_TOKEN` 과 Lambda 의 `RELAY_TOKEN` 이 다름 (앞뒤 공백 확인) |
+| `relay 502: bedrock: AccessDeniedException` | 역할이 `SafeRole-...` 인지, 모델 ID 확인 (Lambda 로그) |
+| `relay 502: bedrock: ReadTimeoutError` / Lambda `Task timed out` | 8-2 의 제한 시간 3분 확인 |
+| `fetch failed` / `TimeoutError` | `AI_RELAY_URL` 오타 (함수 URL 전체, `https://` 포함) |
 | `monthly AI budget reached` | 이번 달 예산 도달 → `AI_MONTHLY_BUDGET_USD` 를 올리거나 다음 달까지 대기 |
+
+### (참고) 다른 연결 방법
+권한이 있는 계정이라면 Lambda 없이 EC2 가 Bedrock 을 직접 부를 수도 있습니다: `.env` 에 `AI_PROVIDER=bedrock`, `AWS_REGION=us-east-1` 과 함께 IAM 사용자 액세스 키(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)를 넣거나, Bedrock 권한이 있는 IAM 역할을 EC2 에 붙입니다 (Docker 안에서 역할을 못 읽으면 인스턴스 메타데이터 옵션의 응답 홉 제한을 2로).
 
 ---
 

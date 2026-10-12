@@ -160,9 +160,14 @@ export const PRICE: Record<string, { input: number; output: number; cacheRead: n
   "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 },
 };
 
+/** "mock:", "us.anthropic.", 날짜·버전 꼬리("-20251001-v1:0")를 떼어 가격표 이름으로 맞춘다 */
+export function normalizeModel(model: string): string {
+  return model.replace(/^mock:/, "").replace(/^(?:[a-z]{2,6}\.)?anthropic\./, "").replace(/-\d{8}(?:-v\d+(?::\d+)?)?$/, "");
+}
+
 export function estimateCost(rows: UsageRow[]): number {
   return rows.reduce((s, u) => {
-    const p = PRICE[u.model.replace(/^anthropic\./, "").replace(/^mock:/, "")];
+    const p = PRICE[normalizeModel(u.model)];
     return p ? s + (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead) / 1e6 : s;
   }, 0);
 }

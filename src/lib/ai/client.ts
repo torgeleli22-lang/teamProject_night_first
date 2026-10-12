@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import { toJSONSchema } from "zod/v4";
 import type * as z from "zod/v4";
 import { POLICY } from "../content/policy";
 import { logUsage, monthToDateCostUsd } from "../server/ops-repo";
@@ -14,14 +15,17 @@ import { logUsage, monthToDateCostUsd } from "../server/ops-repo";
  * AI 제공처
  * - anthropic: Claude API (ANTHROPIC_API_KEY)
  * - bedrock  : AWS Bedrock (AWS_REGION, AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 또는 EC2 IAM 역할)
+ * - relay    : Bedrock 중계 Lambda (infra/bedrock-relay). EC2 에 AWS 키 없이 Lambda 실행 역할로 Bedrock 을 부른다
+ *              (AI_RELAY_URL = Lambda 함수 URL, AI_RELAY_TOKEN = Lambda 의 RELAY_TOKEN 과 같은 값)
  */
-export const AI_PROVIDER = process.env.AI_PROVIDER === "bedrock" ? "bedrock" : "anthropic";
+export const AI_PROVIDER: "anthropic" | "bedrock" | "relay" =
+  process.env.AI_PROVIDER === "bedrock" ? "bedrock" : process.env.AI_PROVIDER === "relay" ? "relay" : "anthropic";
 
 /** Bedrock 은 계정에서 허용된 모델만 쓸 수 있어서 기본값을 따로 둔다 (학교 계정: Claude Haiku 4.5) */
 const DEFAULT_MODELS =
-  AI_PROVIDER === "bedrock"
-    ? { fast: "anthropic.claude-haiku-4-5", smart: "anthropic.claude-haiku-4-5" }
-    : { fast: "claude-haiku-5-5", smart: "claude-opus-5-5" };
+  AI_PROVIDER === "anthropic"
+    ? { fast: "claude-haiku-5-5", smart: "claude-opus-5-5" }
+    : { fast: "anthropic.claude-haiku-4-5", smart: "anthropic.claude-haiku-4-5" };
 
 export const MODELS = {
   fast: process.env.CLAUDE_MODEL_FAST || DEFAULT_MODELS.fast,
@@ -51,13 +55,14 @@ export function aiMode(): AIMode {
   const mode = process.env.AI_MODE;
   if (mode === "mock" || mode === "off") return mode;
   if (mode === "live") return "live";
+  if (AI_PROVIDER === "relay") return process.env.AI_RELAY_URL ? "live" : "off";
   if (AI_PROVIDER === "bedrock") return process.env.AWS_ACCESS_KEY_ID ? "live" : "off";
   return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "live" : "off";
 }
 
 export function getClient(): AIClient | null {
   if (client !== undefined) return client;
-  if (aiMode() !== "live") client = null;
+  if (aiMode() !== "live" || AI_PROVIDER === "relay") client = null;
   else if (AI_PROVIDER === "bedrock")
     // 자격 증명은 환경 변수(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) 또는 EC2 IAM 역할에서 자동으로 읽는다
     client = new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-1", timeout: 120_000, maxRetries: 1 });
@@ -102,10 +107,12 @@ export async function askStructured<T extends z.ZodType>(opts: {
     return result;
   }
 
-  const anthropic = getClient();
-  if (!anthropic) throw new AIUnavailableError("AI is not configured");
+  if (aiMode() !== "live") throw new AIUnavailableError("AI is not configured");
   // API 주소가 공개되어 있으므로, 이번 달 예산을 넘으면 모든 AI 호출을 멈추고 규칙 기반 대체 경로를 쓴다
   if ((await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) throw new AIUnavailableError("monthly AI budget reached");
+  if (AI_PROVIDER === "relay") return askViaRelay(opts);
+  const anthropic = getClient();
+  if (!anthropic) throw new AIUnavailableError("AI is not configured");
   // Bedrock 에는 서버 측 fallback 이 없다
   const fallback = AI_PROVIDER === "anthropic" && SUPPORTS_FALLBACK.test(model);
 
@@ -134,6 +141,45 @@ export async function askStructured<T extends z.ZodType>(opts: {
     if (response.parsed_output == null) throw new AIUnavailableError("could not parse response");
     ok = true;
     return response.parsed_output as z.infer<T>;
+  } finally {
+    try {
+      await logUsage(opts.task, model, usage, ok);
+    } catch {
+      /* 사용량 기록 실패가 학습을 막지 않도록 */
+    }
+  }
+}
+
+type RelayResponse = {
+  output?: unknown;
+  stopReason?: string;
+  model?: string;
+  usage?: { input?: number; output?: number; cacheRead?: number };
+  error?: string;
+};
+
+/** Bedrock 중계 Lambda 호출 (infra/bedrock-relay/lambda_function.py). 응답은 같은 Zod 스키마로 검증한다. */
+async function askViaRelay<T extends z.ZodType>(opts: { task: string; tier: Tier; system: string; prompt: string; schema: T; maxTokens?: number }): Promise<z.infer<T>> {
+  const { $schema: _ignored, ...schema } = toJSONSchema(opts.schema) as Record<string, unknown>;
+  let model = MODELS[opts.tier];
+  let ok = false;
+  let usage = { input: 0, output: 0, cacheRead: 0 };
+  try {
+    const res = await fetch(process.env.AI_RELAY_URL!, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-relay-token": process.env.AI_RELAY_TOKEN ?? "" },
+      body: JSON.stringify({ system: opts.system, prompt: opts.prompt, schema, maxTokens: opts.maxTokens ?? 16000 }),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const data = (await res.json().catch(() => ({}))) as RelayResponse;
+    if (!res.ok) throw new AIUnavailableError(`relay ${res.status}: ${data.error ?? "error"}`);
+    if (data.model) model = data.model;
+    usage = { input: data.usage?.input ?? 0, output: data.usage?.output ?? 0, cacheRead: data.usage?.cacheRead ?? 0 };
+    if (data.stopReason === "max_tokens") throw new AIUnavailableError("response was truncated");
+    const parsed = opts.schema.safeParse(data.output);
+    if (!parsed.success) throw new AIUnavailableError("could not parse response");
+    ok = true;
+    return parsed.data as z.infer<T>;
   } finally {
     try {
       await logUsage(opts.task, model, usage, ok);
