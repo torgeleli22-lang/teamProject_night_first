@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type * as z from "zod/v4";
 import { POLICY } from "../content/policy";
@@ -9,17 +10,33 @@ import { logUsage, monthToDateCostUsd } from "../server/ops-repo";
  * - fast : 힌트, 질문 답변, 오답 설명, 콘텐츠 검수처럼 간단한 작업 (저비용)
  * - smart: 주관식 평가, 학습자 분석, 콘텐츠 생성처럼 높은 추론이 필요한 작업
  */
+/**
+ * AI 제공처
+ * - anthropic: Claude API (ANTHROPIC_API_KEY)
+ * - bedrock  : AWS Bedrock (AWS_REGION, AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 또는 EC2 IAM 역할)
+ */
+export const AI_PROVIDER = process.env.AI_PROVIDER === "bedrock" ? "bedrock" : "anthropic";
+
+/** Bedrock 은 계정에서 허용된 모델만 쓸 수 있어서 기본값을 따로 둔다 (학교 계정: Claude Haiku 4.5) */
+const DEFAULT_MODELS =
+  AI_PROVIDER === "bedrock"
+    ? { fast: "anthropic.claude-haiku-4-5", smart: "anthropic.claude-haiku-4-5" }
+    : { fast: "claude-haiku-5-5", smart: "claude-opus-5-5" };
+
 export const MODELS = {
-  fast: process.env.CLAUDE_MODEL_FAST || "claude-haiku-5-5",
-  smart: process.env.CLAUDE_MODEL_SMART || "claude-opus-5-5",
+  fast: process.env.CLAUDE_MODEL_FAST || DEFAULT_MODELS.fast,
+  smart: process.env.CLAUDE_MODEL_SMART || DEFAULT_MODELS.smart,
 } as const;
 
 export type Tier = keyof typeof MODELS;
 
 /** 서버 측 refusal fallback 을 지원하는 모델 (Haiku 는 지원하지 않음) */
 const SUPPORTS_FALLBACK = /^claude-(opus|fable|sonnet)-5/;
+/** effort 설정이 없는 예전 모델 (보내면 오류) */
+const NO_EFFORT = /haiku-4-5|sonnet-4-5|claude-3/;
 
-let client: Anthropic | null | undefined;
+type AIClient = Anthropic | AnthropicBedrockMantle;
+let client: AIClient | null | undefined;
 
 /**
  * AI 동작 모드
@@ -34,12 +51,17 @@ export function aiMode(): AIMode {
   const mode = process.env.AI_MODE;
   if (mode === "mock" || mode === "off") return mode;
   if (mode === "live") return "live";
+  if (AI_PROVIDER === "bedrock") return process.env.AWS_ACCESS_KEY_ID ? "live" : "off";
   return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "live" : "off";
 }
 
-export function getClient(): Anthropic | null {
+export function getClient(): AIClient | null {
   if (client !== undefined) return client;
-  client = aiMode() === "live" ? new Anthropic({ timeout: 120_000, maxRetries: 1 }) : null;
+  if (aiMode() !== "live") client = null;
+  else if (AI_PROVIDER === "bedrock")
+    // 자격 증명은 환경 변수(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) 또는 EC2 IAM 역할에서 자동으로 읽는다
+    client = new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-1", timeout: 120_000, maxRetries: 1 });
+  else client = new Anthropic({ timeout: 120_000, maxRetries: 1 });
   return client;
 }
 
@@ -84,7 +106,8 @@ export async function askStructured<T extends z.ZodType>(opts: {
   if (!anthropic) throw new AIUnavailableError("AI is not configured");
   // API 주소가 공개되어 있으므로, 이번 달 예산을 넘으면 모든 AI 호출을 멈추고 규칙 기반 대체 경로를 쓴다
   if ((await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) throw new AIUnavailableError("monthly AI budget reached");
-  const fallback = SUPPORTS_FALLBACK.test(model);
+  // Bedrock 에는 서버 측 fallback 이 없다
+  const fallback = AI_PROVIDER === "anthropic" && SUPPORTS_FALLBACK.test(model);
 
   let ok = false;
   let usage = { input: 0, output: 0, cacheRead: 0 };
@@ -97,7 +120,7 @@ export async function askStructured<T extends z.ZodType>(opts: {
       system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: opts.prompt }],
       output_config: {
-        effort: opts.effort ?? "low",
+        ...(NO_EFFORT.test(model) ? {} : { effort: opts.effort ?? "low" }),
         format: betaZodOutputFormat(opts.schema),
       },
     });

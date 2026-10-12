@@ -14,8 +14,8 @@ await build({
   target: "node22",
   format: "cjs",
   minify: true,
-  // Aurora Data API(AWS SDK)·pg-native 는 이 서버에서 쓰지 않는다 (DB_DRIVER=postgres)
-  external: ["@aws-sdk/*", "pg-native", "pg-cloudflare"],
+  // Bedrock 연결에 AWS SDK 가 필요하므로 함께 묶는다. Aurora Data API(client-rds-data)·pg-native 는 이 서버에서 쓰지 않는다
+  external: ["@aws-sdk/client-rds-data", "pg-native", "pg-cloudflare"],
   define: { "process.env.NODE_ENV": '"production"' },
   logLevel: "warning",
 });

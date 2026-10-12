@@ -157,6 +157,7 @@ export async function demandByCell(sinceMs: number): Promise<Record<string, numb
 export const PRICE: Record<string, { input: number; output: number; cacheRead: number }> = {
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01 },
+  "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 },
 };
 
 export function estimateCost(rows: UsageRow[]): number {

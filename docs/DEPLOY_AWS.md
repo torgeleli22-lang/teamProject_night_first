@@ -1,4 +1,4 @@
-# 배포하기: GitHub Pages(화면) + EC2(API) + RDS PostgreSQL(DB)
+# 배포하기: GitHub Pages(화면) + EC2(API) + RDS PostgreSQL(DB) + Bedrock(AI)
 
 학교 계정(권한 제한)에 맞춘 구성입니다.
 
@@ -14,7 +14,7 @@
 
 - **DB 는 인터넷에서 보이지 않습니다.** EC2 와 RDS 가 같은 `default` 보안 그룹에 있어서 둘만 통신할 수 있습니다.
 - 정답·해설·채점 기준은 API(EC2) 안에서만 다룹니다. 화면에는 문제만 내려갑니다.
-- EC2 는 인터넷에 나갈 수 있으므로, 나중에 실제 AI(Bedrock 등)도 바로 연결할 수 있습니다.
+- 실제 AI 는 EC2 에서 **Bedrock(us-east-1, Claude Haiku 4.5)** 을 부릅니다 (8단계).
 
 ### 학교 계정에서 막혀 있던 것 (그래서 이렇게 구성함)
 | 시도 | 결과 |
@@ -164,10 +164,55 @@ https://<IP-대시>.sslip.io/concepts   → 문제 목록 JSON (DB 연결까지 
 
 ---
 
-## 나중에: 실제 AI 연결 (아직 하지 않음)
+## 8단계. 실제 AI 연결 (Bedrock · Claude Haiku 4.5)
 
-- 이 계정에서 쓸 수 있는 Bedrock 모델: **미국 동부(us-east-1)** 의 Claude Haiku 4.5, Amazon Nova Micro / Lite 등. 코드가 Claude 용 구조화 출력을 쓰므로 **Claude Haiku 4.5** 가 맞습니다.
-- EC2 는 인터넷이 되므로 경로 문제는 없습니다. 권한(EC2 가 Bedrock 을 부를 IAM 역할 또는 키)과 코드의 Bedrock 연결을 추가할 때 진행합니다.
+이 계정에서 쓸 수 있는 Claude 모델은 **미국 동부(버지니아 북부, us-east-1)** 의 **Claude Haiku 4.5** 입니다. EC2(서울)에서 us-east-1 의 Bedrock 을 부르는 데 문제는 없습니다.
+
+### 8-1. 모델 사용 확인
+AWS 콘솔 오른쪽 위 리전을 **미국 동부(버지니아 북부)** 로 바꾸고 → **Amazon Bedrock** → 왼쪽 **모델 액세스**(또는 Model catalog) → **Claude Haiku 4.5** 가 "액세스 권한 부여됨 / Available" 인지 확인. 아니면 요청(또는 담당 교수님께 문의).
+
+### 8-2. 액세스 키 만들기
+IAM → **사용자** → 내 사용자(`sgu-...`) → **보안 자격 증명** 탭 → **액세스 키 만들기** → 사용 사례 "AWS 외부에서 실행되는 애플리케이션"(또는 "기타") → 만들기.
+
+- **비밀 액세스 키는 이 화면에서 한 번만 보여요.** `.csv 다운로드` 로 보관하세요.
+- 키는 **EC2 의 `.env` 에만** 넣습니다. 코드·문서·GitHub·채팅에는 절대 붙여 넣지 마세요 (유출되면 내 계정으로 요금이 나갑니다). 유출이 의심되면 같은 화면에서 **비활성화 → 삭제** 후 새로 만드세요.
+- 키 만들기가 막혀 있으면(권한 거부), 그 메시지를 그대로 공유해 주세요.
+
+### 8-3. EC2 `.env` 수정
+```bash
+cd ~/teamProject_night_first
+nano .env
+```
+`AI_MODE=mock` 줄을 **지우고** 아래를 추가합니다 (`<...>` 는 실제 값으로, `<` `>` 는 지우기):
+```env
+AI_MODE=live
+AI_PROVIDER=bedrock
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=<액세스 키 ID>
+AWS_SECRET_ACCESS_KEY=<비밀 액세스 키>
+AI_MONTHLY_BUDGET_USD=10
+```
+- `AI_MONTHLY_BUDGET_USD` : 이번 달 AI 예상 비용이 이 금액(달러)을 넘으면 AI 를 자동으로 멈추고 규칙 기반으로 바뀝니다. API 주소가 공개되어 있으니 꼭 넣으세요.
+
+### 8-4. 새 코드 받고 다시 실행
+```bash
+git pull
+sudo docker build -t codereading-api .
+sudo docker compose up -d
+sudo docker compose logs --tail 20 api     # "(DB: postgres, AI: live)"
+```
+`https://<IP-대시>.sslip.io/health` → `"ai":"live"`
+
+### 8-5. 동작 확인
+화면에서 **주관식 문제 답 제출**(AI 평가)이나 **AI 튜터에게 질문하기** 를 해 보세요. 관리자 화면(`/admin`)의 사용량에 `anthropic.claude-haiku-4-5` 가 보이면 실제 AI 가 응답한 것입니다.
+실패하면 `sudo docker compose logs --tail 50 api` 에서 `[ai] 호출 실패` 줄을 확인하세요 (화면은 실패해도 규칙 기반으로 계속 동작합니다).
+
+| 로그 메시지 | 원인 / 해결 |
+|---|---|
+| `security token included in the request is invalid` / 401 | 키를 잘못 복사함 (앞뒤 공백, 꺾쇠 `< >`) |
+| `not authorized to perform: bedrock:InvokeModel` / 403 | 이 사용자에게 Bedrock 호출 권한이 없음 → 담당 교수님께 권한 요청 |
+| `You don't have access to the model` / `model ... not found` | 8-1 모델 액세스 확인, `AWS_REGION=us-east-1` 인지 확인 |
+| `monthly AI budget reached` | 이번 달 예산 도달 → `AI_MONTHLY_BUDGET_USD` 를 올리거나 다음 달까지 대기 |
 
 ---
 
