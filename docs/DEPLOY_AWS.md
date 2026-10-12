@@ -237,7 +237,7 @@ AI_MONTHLY_BUDGET_USD=10
 ```bash
 git pull
 sudo docker build -t codereading-api .
-sudo docker compose up -d
+sudo docker compose up -d --force-recreate
 sudo docker compose logs --tail 20 api     # "(DB: postgres, AI: live)"
 ```
 
