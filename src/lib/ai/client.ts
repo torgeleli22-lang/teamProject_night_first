@@ -174,6 +174,62 @@ export async function askStructured<T extends z.ZodType>(opts: {
   }
 }
 
+type JsonSchema = {
+  type?: string | string[];
+  anyOf?: JsonSchema[];
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema;
+};
+
+function allowsType(schema: JsonSchema, type: string): boolean {
+  if (schema.anyOf) return schema.anyOf.some((s) => allowsType(s, type));
+  return Array.isArray(schema.type) ? schema.type.includes(type) : schema.type === type || (type === "number" && schema.type === "integer");
+}
+
+/**
+ * 도구 호출로 받은 JSON 은 형식이 강제되지 않아서 자주 어긋난다. 스키마를 보고 흔한 어긋남만 고친다.
+ * - "해당 없음" 칸을 null 대신 아예 빼먹음 → null
+ * - 배열·객체를 JSON 문자열로 감싸 보냄 → 풀어서 넣음
+ * - 숫자를 "3" 처럼 문자열로 보냄 → 숫자
+ * 고친 뒤에도 Zod 검증은 그대로 거친다.
+ */
+export function repairForSchema(value: unknown, schema: JsonSchema): unknown {
+  if (typeof value === "string" && (allowsType(schema, "array") || allowsType(schema, "object")) && !allowsType(schema, "string")) {
+    const t = value.trim();
+    if (t.startsWith("[") || t.startsWith("{")) {
+      try {
+        value = JSON.parse(t);
+      } catch {
+        /* 그대로 둠 */
+      }
+    }
+  }
+  if (typeof value === "string" && allowsType(schema, "number") && !allowsType(schema, "string") && value.trim() !== "" && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+  const branch = schema.anyOf?.find((s) => (Array.isArray(value) ? allowsType(s, "array") : value !== null && typeof value === "object" ? allowsType(s, "object") : false)) ?? schema;
+  if (Array.isArray(value) && branch.items) return value.map((v) => repairForSchema(v, branch.items!));
+  if (value !== null && typeof value === "object" && !Array.isArray(value) && branch.properties) {
+    const obj: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    for (const [key, sub] of Object.entries(branch.properties)) {
+      if (obj[key] === undefined) {
+        if (allowsType(sub, "null")) obj[key] = null;
+      } else obj[key] = repairForSchema(obj[key], sub);
+    }
+    return obj;
+  }
+  return value;
+}
+
+/** 검증 실패 이유를 짧게 (관리자 화면의 생성 기록에 보인다) */
+function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .slice(0, 3)
+    .map((i) => `${i.path.join(".") || "(전체)"}: ${i.message}`)
+    .join("; ");
+}
+
 type RelayResponse = {
   output?: unknown;
   stopReason?: string;
@@ -208,8 +264,12 @@ async function askViaRelay<T extends z.ZodType>(opts: {
     if (data.model) model = data.model;
     usage = { input: data.usage?.input ?? 0, output: data.usage?.output ?? 0, cacheRead: data.usage?.cacheRead ?? 0 };
     if (data.stopReason === "max_tokens") throw new AIUnavailableError("response was truncated");
-    const parsed = opts.schema.safeParse(data.output);
-    if (!parsed.success) throw new AIUnavailableError("could not parse response");
+    if (data.output == null) throw new AIUnavailableError("could not parse response: 응답에 결과(JSON)가 없음");
+    const parsed = opts.schema.safeParse(repairForSchema(data.output, schema as JsonSchema));
+    if (!parsed.success) {
+      console.error("[ai] 응답 형식 불일치:", opts.task, describeIssues(parsed.error));
+      throw new AIUnavailableError(`could not parse response: ${describeIssues(parsed.error)}`);
+    }
     ok = true;
     return parsed.data as z.infer<T>;
   } finally {

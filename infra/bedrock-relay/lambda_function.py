@@ -110,7 +110,7 @@ def lambda_handler(event, context):
             toolConfig={
                 "tools": [{"toolSpec": {
                     "name": TOOL_NAME,
-                    "description": "결과를 이 형식(JSON)으로 제출한다.",
+                    "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다.",
                     "inputSchema": {"json": schema},
                 }}],
                 "toolChoice": {"tool": {"name": TOOL_NAME}},
