@@ -60,7 +60,13 @@ class PgDb implements Db {
 const isTransient = (e: unknown) => /ECONNRESET|ECONNREFUSED|timeout|terminat/i.test(e instanceof Error ? e.message : String(e));
 
 export function openPostgres(url: string): Db {
-  const host = new URL(url).hostname;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    // 원래 오류에는 주소 전체(암호 포함)가 들어 있어 로그에 남으므로, 암호 없는 안내로 바꿔서 던진다
+    throw new Error("DATABASE_URL 형식이 올바르지 않아요. 예: postgres://사용자:암호@호스트:5432/DB이름 (꺾쇠 <> 는 빼고, 암호에 @ : / ? # % 가 없어야 해요)");
+  }
   const local = host === "localhost" || host === "127.0.0.1";
   const pool = new pg.Pool({
     connectionString: url,
