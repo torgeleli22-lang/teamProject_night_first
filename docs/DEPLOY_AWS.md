@@ -50,18 +50,20 @@ EC2 → **인스턴스 시작**
 | 인스턴스 유형 | **t4g.small** (막히면 t3.small + 64비트(x86)) |
 | 키 페어 | 전에 쓰던 키(.ppk) 또는 새로 만들기 |
 | 네트워크 설정 → 편집 | VPC: **Default VPC** (RDS 와 같은 것), 퍼블릭 IP 자동 할당: **활성화** |
-| 방화벽(보안 그룹) | **보안 그룹 생성**: SSH(22) 소스 **내 IP**, HTTP(80) **0.0.0.0/0**, HTTPS(443) **0.0.0.0/0** (IPv4 로) |
+| 방화벽(보안 그룹) | ⭐ **기존 보안 그룹 선택** → 80·443(전체)과 22(내 IP)가 열린 그룹 **과 `default` 를 함께** 선택 |
 | 스토리지 | 20 GiB |
 
 → 인스턴스 시작
 
-> 보안 그룹을 만들다 권한 오류가 나면: "기존 보안 그룹 선택"에서 예전에 80·443 이 열려 있던 보안 그룹을 고르세요.
+> 학교 계정에서는 **만든 뒤에 보안 그룹을 바꾸는 것(보안 그룹 변경)이 막혀 있어요.** 반드시 **인스턴스를 만들 때** 두 그룹을 함께 고르세요. 빠뜨렸다면 인스턴스를 새로 만들어야 해요.
+> 80·443 이 열린 그룹이 아직 없다면 "보안 그룹 생성"으로 먼저 만들고(SSH 내 IP, HTTP·HTTPS 0.0.0.0/0), 인스턴스를 다시 시작할 때 그 그룹과 `default` 를 함께 고르세요.
 
-### 2-1. EC2 에 `default` 보안 그룹 추가 (DB 연결용) ⭐
-EC2 → 인스턴스 `codereading-api` 선택 → **작업 → 보안 → 보안 그룹 변경** → `default` 를 찾아 **보안 그룹 추가** → 저장
-(기존 그룹은 그대로 두고 `default` 를 하나 더 붙이는 것)
-
-✅ 인스턴스 **보안** 탭에 보안 그룹이 2개(새 그룹 + `default`) 보이면 성공
+### 2-1. 확인: 보안 그룹 2개 + DB 포트 연결
+- 인스턴스 **보안** 탭에 보안 그룹이 2개(웹용 그룹 + `default`) 보이면 정상
+- 접속 후 (3단계 다음) DB 포트 확인:
+  ```bash
+  timeout 5 bash -c "</dev/tcp/<RDS 엔드포인트>/5432" && echo "5432 연결 OK" || echo "5432 연결 안 됨"
+  ```
 
 ### 2-2. (권장) 탄력적 IP
 EC2 → 탄력적 IP → 할당 → 인스턴스에 연결. 공인 IP 가 고정되어 API 주소가 바뀌지 않습니다. 막히면 건너뛰어도 되지만, 인스턴스를 껐다 켜면 주소가 바뀔 수 있습니다 (→ 7단계 다시).
@@ -97,7 +99,6 @@ echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
 cd ~
 git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
 cd teamProject_night_first
-git checkout claude/ai-code-learning-service-s0rp6l   # main 에 병합했다면 이 줄은 생략
 echo "ADMIN_TOKEN=$(openssl rand -hex 24)" > .env
 nano .env
 ```
@@ -174,7 +175,7 @@ https://<IP-대시>.sslip.io/concepts   → 문제 목록 JSON (DB 연결까지 
 
 | 증상 | 원인 / 해결 |
 |---|---|
-| `/health` 는 되는데 `/concepts` 가 오래 걸리다 오류 | EC2 에 `default` 보안 그룹이 붙어 있는지 (2-1), `.env` 의 엔드포인트·DB 이름(`jojobase`) 확인. `sudo docker compose logs --tail 50 api` |
+| `/health` 는 되는데 `/concepts` 가 오류 | EC2 에 `default` 보안 그룹이 붙어 있는지 (2-1, 없으면 인스턴스를 두 그룹으로 다시 생성), `.env` 의 `DATABASE_URL` 에 꺾쇠 `< >` 가 남아 있지 않은지, 엔드포인트·DB 이름(`jojobase`) 확인. `sudo docker compose logs --tail 50 api` |
 | `password authentication failed` | `.env` 의 사용자 이름(`jojo`) 또는 암호가 다름 |
 | `https://...sslip.io` 가 안 열림 | 보안 그룹에 80·443(IPv4 0.0.0.0/0) 이 있는지, `SITE_ADDRESS` 가 지금 공인 IP 와 맞는지. `sudo docker compose logs caddy` |
 | 화면에 "아직 서버(API)가 연결되지 않았어요" | GitHub `API_URL` 없이 배포됨 → 7단계 2·3번 |
