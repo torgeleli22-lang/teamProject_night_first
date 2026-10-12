@@ -10,12 +10,12 @@
 ## 구성
 
 ```
-GitHub Pages (정적 화면: HTML/JS)  ──fetch──→  AWS Lambda 함수 URL (API: 채점·기록·추천·AI)  ──→  Aurora PostgreSQL
-        src/app, src/components                    src/api  +  src/lib                         (Data API)
+GitHub Pages (정적 화면: HTML/JS)  ──HTTPS──→  EC2 API 서버 (채점·기록·추천·AI)  ──→  RDS PostgreSQL
+        src/app, src/components                    src/api  +  src/lib
 ```
 
 - **화면**은 Next.js 정적 내보내기(`output: "export"`)로 만든 파일이라 서버가 없습니다. GitHub Pages 에 올립니다.
-- **API** 는 같은 저장소의 `src/api/` 를 Lambda 하나로 묶은 것입니다. 정답·해설·채점 기준은 API 밖으로 나가지 않습니다.
+- **API** 는 같은 저장소의 `src/api/` 입니다. EC2 에서 Docker 로 실행합니다 (Lambda 로도 실행 가능). 정답·해설·채점 기준은 API 밖으로 나가지 않습니다.
 - **로그인 없는 세션**: API 가 발급한 세션 id 를 브라우저 `sessionStorage` 에 둡니다. 창(탭)을 닫으면 사라지고, 서버 기록도 일정 시간 뒤 지워집니다.
 
 ## 빠른 시작 (로컬)
@@ -33,9 +33,10 @@ Node.js 22.13 이상이 필요합니다. 로컬 DB 는 내장 `node:sqlite` 파�
 
 | 스크립트 | 설명 |
 | --- | --- |
-| `npm run api` | 로컬 API 서버 (Lambda 와 같은 코드) |
+| `npm run api` | 로컬 API 서버 (EC2 에서 도는 것과 같은 코드) |
 | `npm run dev` / `build` | 화면 개발 서버 / 정적 빌드 (`out/`) |
-| `npm run build:lambda` | Lambda 배포 파일 `dist/lambda.zip` |
+| `npm run build:server` | EC2(Docker)용 API 묶음 `dist/server/index.js` |
+| `npm run build:lambda` | Lambda 배포 파일 `dist/lambda.zip` (Lambda 를 쓸 때) |
 | `npm test` | 단위 테스트 (채점, 검증기, 생성 기준, 랭킹, 화면·서버 경계, Data API 드라이버) |
 | `npm run verify` | 시드 콘텐츠 전체를 실제로 실행해 검증 |
 | `npm run smoke` | API 전체 흐름 점검 (`DB_DRIVER=postgres` 로 PostgreSQL 도) |
@@ -131,9 +132,9 @@ AI 가 만든 콘텐츠는 그대로 쓰지 않습니다. 코드를 **격리된 
 
 ```
 src/app, src/components          # 화면 (정적). API 는 src/lib/api.ts 의 apiGet/apiPost/useApi 로만 부른다
-src/api/                         # API (Lambda)
+src/api/                         # API (EC2 Docker / Lambda 공통)
   lambda.ts                      # Lambda 진입점 (함수 URL), 백그라운드 작업은 자기 자신을 비동기 호출
-  dev-server.ts                  # 로컬 API 서버
+  server.ts                      # API 서버 (로컬 npm run api, EC2 Docker)
   router.ts, routes.ts           # 경로 표, 세션 헤더, CORS
   views.ts                       # 화면별 데이터 (화면당 요청 1번)
   background.ts                  # 응답 뒤에 할 일 (AI 생성, 학습자 분석)
@@ -147,13 +148,13 @@ src/lib/
   ai/                            # (API 전용) 모델 분리, 주관식 평가, 학습자 분석, 콘텐츠 생성
 ```
 
-## 배포 (GitHub Pages + AWS Lambda + Aurora)
+## 배포 (GitHub Pages + EC2 + RDS PostgreSQL)
 
 순서는 [`docs/DEPLOY_AWS.md`](docs/DEPLOY_AWS.md) 를 따라 하세요. 요약:
 
-1. Aurora 에서 Data API 켜기 + DB 암호를 Secrets Manager 에 저장
-2. Lambda 함수 만들기 → `dist/lambda.zip`(또는 GitHub Actions 의 `lambda-zip`) 업로드 → 함수 URL 만들기
-3. 저장소 변수 `API_URL` 에 함수 URL 저장, Pages 소스를 GitHub Actions 로 → main 에 push 하면 화면 자동 배포
+1. RDS PostgreSQL (퍼블릭 액세스 없음, 보안 그룹 `default`)
+2. EC2 에 `default` 보안 그룹을 함께 붙이고 `.env` 작성 → `sudo docker build -t codereading-api . && sudo docker compose up -d` (Caddy 가 `https://<IP>.sslip.io` 인증서 자동 발급)
+3. 저장소 변수 `API_URL` 에 API 주소 저장, Pages 소스를 GitHub Actions 로 → main 에 push 하면 화면 자동 배포
 
 ## 다음 단계
 

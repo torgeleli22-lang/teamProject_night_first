@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "api": "tsx watch src/api/dev-server.ts",
+    "api": "tsx watch src/api/server.ts",
+    "build:server": "node scripts/build-server.mjs",
     "build": "next build",
     "build:lambda": "node scripts/build-lambda.mjs",
     "typecheck": "tsc --noEmit",

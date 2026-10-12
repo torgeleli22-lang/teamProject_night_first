@@ -46,6 +46,7 @@ jobs:
           DB_DRIVER: postgres
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobase
       - run: npm run build
+      - run: npm run build:server
       - run: npm run build:lambda
       - uses: actions/upload-artifact@v4
         with:

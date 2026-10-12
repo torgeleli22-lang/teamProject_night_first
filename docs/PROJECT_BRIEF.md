@@ -13,7 +13,7 @@
 4. **콘텐츠는 검증을 통과해야 공개된다.** 문제를 추가·수정하면 `npm run verify` 로 실제 실행 검증을 통과시킨다.
 5. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다.
 6. **사용자 화면 문구는 한국어 존댓말("~해요" 체)**, 초보자 눈높이, 친근하지만 유치하지 않게. 틀렸을 때도 실패감을 주지 않는다.
-7. 구조는 **GitHub Pages(정적 화면) + AWS Lambda(API) + RDS PostgreSQL** 로 확정됐다 (§10, §11 — 학교 계정에서 Aurora 가 막혀 있어 Lambda 를 VPC 에 넣고 직접 연결). 화면 코드(`src/app`, `src/components`)는 서버 코드(`src/lib/server`, `src/lib/ai`, `src/api`)를 `import type` 으로만 가져온다 (`tests/boundaries.test.ts`). Bedrock·S3 등은 사람이 요청하기 전까지 넣지 않는다.
+7. 구조는 **GitHub Pages(정적 화면) + EC2(API, Docker) + RDS PostgreSQL** 로 확정됐다 (§10, §11 — 학교 계정에서 Aurora·Lambda 역할/VPC 권한이 막혀 있음). API 코드(`src/api`)는 같은 라우터로 EC2(`server.ts`)와 Lambda(`lambda.ts`)를 모두 지원한다. 화면 코드(`src/app`, `src/components`)는 서버 코드(`src/lib/server`, `src/lib/ai`, `src/api`)를 `import type` 으로만 가져온다 (`tests/boundaries.test.ts`). Bedrock·S3 등은 사람이 요청하기 전까지 넣지 않는다.
 8. **비밀 값(DB 암호, API 키, ADMIN_TOKEN, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** 서버의 `.env` 에만 둔다.
 9. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager, 향상된 모니터링처럼 추가 권한이 필요한 기능에 의존하지 않는다.
 
@@ -182,19 +182,19 @@ AI 생성은 검증 실패 시 실패 이유를 알려주고 1회 재생성 → 
 ```
 브라우저 ──→ GitHub Pages: 정적 화면 (Next.js output: "export", basePath /teamProject_night_first)
    │
-   └─ fetch (x-session-id 헤더) ─→ AWS Lambda 함수 URL (src/api/lambda.ts)
+   └─ fetch (x-session-id 헤더, HTTPS) ─→ EC2: Caddy(HTTPS) → API 서버 (src/api/server.ts, Docker)  ※ Lambda(src/api/lambda.ts)로도 실행 가능
                                     ├─ router.ts: CORS, 세션, 경로 표 (routes.ts)
                                     ├─ views.ts : 화면별 데이터 (화면당 요청 1번)
                                     ├─ 도메인 로직 (src/lib): 채점, 통계, 추천, 생성 기준, 검증
-                                    ├─ background.ts: AI 생성·학습자 분석은 자기 자신을 비동기(Event) 호출해서 응답 뒤에 실행
-                                    ├─ DB (src/lib/server/db): RDS PostgreSQL ← pg 직접 연결 (Lambda 를 Default VPC·default 보안 그룹에)
+                                    ├─ background.ts: AI 생성·학습자 분석은 응답 뒤에 실행 (EC2: 같은 프로세스, Lambda: 자기 자신 비동기 호출)
+                                    ├─ DB (src/lib/server/db): RDS PostgreSQL ← pg 직접 연결 (EC2·RDS 모두 default 보안 그룹)
                                     └─ Claude API ← AI_MODE=live 일 때만
 ```
 
 | 항목 | 기술 |
 | --- | --- |
 | 화면 | Next.js 15 정적 내보내기, React 19, TypeScript 5, Tailwind CSS 3 |
-| API | Node.js 22 Lambda (esbuild 로 한 파일: `npm run build:lambda` → `dist/lambda.zip`, 핸들러 `index.handler`) |
+| API | Node.js 22. EC2: Docker(`Dockerfile`, `docker-compose.yml`, `Caddyfile`, `npm run build:server`). Lambda: `npm run build:lambda` → `dist/lambda.zip` |
 | DB 드라이버 (`DB_DRIVER`) | `sqlite`(로컬·테스트, node:sqlite) · `postgres`(pg, 직접 연결 — 운영) · `data-api`(Aurora Data API, Aurora 허용 계정용) |
 | 검증 | Zod 4 (API 입력, AI 구조화 출력) |
 | AI | Anthropic SDK (`client.beta.messages.parse` + 구조화 출력) |
@@ -227,7 +227,7 @@ AI 생성은 검증 실패 시 실패 이유를 알려주고 1회 재생성 → 
 ```
 src/
   app/, components/        화면 (정적). API 는 src/lib/api.ts 의 apiGet·apiPost·useApi 로만
-  api/                     API (Lambda): lambda.ts, dev-server.ts, router.ts, routes.ts, views.ts, background.ts, core.ts
+  api/                     API (Lambda): lambda.ts, server.ts, router.ts, routes.ts, views.ts, background.ts, core.ts
   lib/
     types.ts, curriculum.ts, grading.ts, schemas.ts   공용 (화면·API)
     learner/stats.ts       통계·이해도·XP·연속 학습·배지·랭킹 %  ← 순수 함수
@@ -266,7 +266,8 @@ npm run api                    # API http://localhost:8787
 npm run dev                    # 화면 http://localhost:3000 (데모: /demo, 관리자: /admin)
 npm run typecheck && npm test && npm run verify && npm run build   # 작업 완료 전 필수
 npm run smoke                  # API 흐름 점검 (API 를 바꿨다면)
-npm run build:lambda           # dist/lambda.zip
+npm run build:server           # dist/server/index.js (EC2 Docker 가 사용)
+npm run build:lambda           # dist/lambda.zip (Lambda 를 쓸 때)
 ```
 
 ---
@@ -277,12 +278,11 @@ npm run build:lambda           # dist/lambda.zip
 | 자원 | 값 |
 | --- | --- |
 | 계정 | 학교 계정 (권한 제한). 리전 서울 ap-northeast-2 |
-| 막힌 권한 | Aurora 클러스터 생성(`Shingu-AdditionalRule-AuroraCluster`), 보안 그룹 인바운드 규칙 추가(`ec2:AuthorizeSecurityGroupIngress`) |
+| 막힌 권한 | Aurora 클러스터 생성(`Shingu-AdditionalRule-AuroraCluster`), RDS 화면의 보안 그룹 규칙 추가(`ec2:AuthorizeSecurityGroupIngress`), IAM 역할 생성(`SafePowerUser`), 기존 Lambda 역할의 VPC 권한 없음 |
 | RDS | `database-jojo`, PostgreSQL 18, db.t4g.micro, 퍼블릭 액세스 없음, 보안 그룹 `default`, DB `jojobase`, 마스터 `jojo` |
-| Lambda | `codereading-api` (Node.js 22.x, `index.handler`), **Default VPC + 보안 그룹 default** (RDS 와 같은 그룹이라 규칙 추가 없이 통신), `DB_DRIVER=postgres`, `BACKGROUND_MODE=inline`, 함수 URL 인증 NONE·CORS 끔 |
+| API 서버 | EC2 `codereading-api` (Amazon Linux 2023, Docker: api + caddy). 보안 그룹: 80·443 공개 그룹 + **default**(RDS 접속용). 주소 `https://<공인IP-대시>.sslip.io` (Caddy 자동 HTTPS). 설정은 서버의 `.env` |
 | 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URL`) |
-| Bedrock | us-east-1 에서 Claude Haiku 4.5, Amazon Nova Micro/Lite 등 사용 가능. 단, VPC 안의 Lambda 는 인터넷이 없어 실제 AI 연결에는 별도 경로(NAT 등)가 필요 — 미정 |
-| EC2 | 사용하지 않음 (종료) |
+| Bedrock | us-east-1 에서 Claude Haiku 4.5, Amazon Nova Micro/Lite 등 사용 가능. EC2 는 인터넷이 되므로 권한·코드만 추가하면 연결 가능 — 미정 |
 
 배포 순서와 문제 해결: `docs/DEPLOY_AWS.md`. 코드는 Aurora Data API(`DB_DRIVER=data-api`)도 지원하므로, Aurora 가 허용되는 계정에서는 VPC 없이 배포할 수 있다.
 
@@ -290,7 +290,7 @@ npm run build:lambda           # dist/lambda.zip
 | 단계 | 내용 | 비고 |
 | --- | --- | --- |
 | 실제 AI | `AI_MODE=live` + API 키, 또는 Bedrock(`AI_PROVIDER` 스위치, 모델 ID `anthropic.` 접두어) | Lambda 가 VPC 밖이라 인터넷 사용 가능 |
-| Lambda 자동 배포 | Actions → Lambda (OIDC 역할) | 학교 계정 임시 자격 증명으로는 어려움 |
+| API 자동 배포 | Actions → EC2 (SSH) | 지금은 서버에서 git pull + docker build |
 | S3 | AI 생성 원본·검증 보고서 보관 | 선택 |
 | 로그인 | `users` 테이블, 로그인 사용자만 기록 영구 저장 | 방식 미정 (소셜 로그인 추천) |
 
@@ -319,7 +319,7 @@ npm run build:lambda           # dist/lambda.zip
 - 콘텐츠: 시드 64개 코드 / 90문제 (입문~초급 위주)
 
 **다음 순서**
-1. AWS 에 올리기: RDS(완료) → Lambda(VPC) → GitHub Pages (`docs/DEPLOY_AWS.md`)
+1. AWS 에 올리기: RDS(완료) → EC2(API) → GitHub Pages (`docs/DEPLOY_AWS.md`)
 2. 실제 AI 연결 → `AI_MODE=live`, `/admin` 에서 출시 전 콘텐츠 채우기 (중급·심화)
 3. 로그인 → 로그인 사용자 기록 영구 저장
 

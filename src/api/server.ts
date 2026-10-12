@@ -2,10 +2,11 @@ import fs from "node:fs";
 import http from "node:http";
 
 /**
- * 로컬 개발용 API 서버 (Lambda 와 같은 코드를 Node HTTP 서버로 실행).
- *   npm run api   → http://localhost:8787
- * 화면(npm run dev)은 NEXT_PUBLIC_API_URL 로 이 주소를 부른다.
- * 설정은 .env 파일에서 읽는다 (.env.example 참고).
+ * API 서버 (Lambda 와 같은 라우터를 Node HTTP 서버로 실행).
+ * - 로컬:  npm run api   → http://localhost:8787  (화면은 NEXT_PUBLIC_API_URL 로 이 주소를 부른다)
+ * - EC2 :  Docker 로 실행 (Dockerfile, docker-compose.yml) — 앞단의 Caddy 가 HTTPS 를 붙인다
+ * 설정은 환경 변수, 없으면 .env 파일에서 읽는다 (.env.example 참고).
+ * 항상 켜져 있는 서버라 응답 뒤 작업(AI 생성·학습자 분석)은 같은 프로세스에서 뒤로 실행한다.
  */
 if (fs.existsSync(".env")) process.loadEnvFile(".env");
 const PORT = Number(process.env.API_PORT ?? 8787);
@@ -32,5 +33,9 @@ const PORT = Number(process.env.API_PORT ?? 8787);
     })
     .listen(PORT, () => {
       console.log(`코드리딩 API: http://localhost:${PORT}  (DB: ${process.env.DB_DRIVER ?? "sqlite"}, AI: ${process.env.AI_MODE ?? "auto"})`);
+    })
+    .on("error", (e) => {
+      console.error("API 서버를 시작하지 못했어요:", e.message);
+      process.exit(1);
     });
 })();
