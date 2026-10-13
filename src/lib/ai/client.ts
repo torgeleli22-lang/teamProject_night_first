@@ -4,7 +4,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { toJSONSchema } from "zod/v4";
 import type * as z from "zod/v4";
 import { POLICY } from "../content/policy";
-import { logUsage, monthToDateCostUsd } from "../server/ops-repo";
+import { logUsage, monthToDateCostUsd, worstCaseCostUsd } from "../server/ops-repo";
 
 /**
  * 작업 난이도에 따라 모델을 나눈다 (AI 비용 관리 원칙 7).
@@ -80,6 +80,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class AIUnavailableError extends Error {}
 
+/** Lambda 중계(infra/bedrock-relay)가 허용하는 최대 출력 토큰 */
+const RELAY_MAX_TOKENS = 16000;
+
+/** 이 서버에서 응답을 기다리는 중인 AI 호출들의 최대 비용 합 (동시에 여러 호출이 예산을 넘지 않도록) */
+let inFlightUsd = 0;
+
+/**
+ * 월 예산 확인: 이번 달 쓴 금액 + 진행 중인 호출 + 이번 호출의 최대 비용이 예산을 넘으면 호출하지 않는다.
+ * 그래서 이번 달 추정 비용은 예산(AI_MONTHLY_BUDGET_USD)을 넘지 않는다.
+ */
+export function exceedsBudget(spentUsd: number, inFlight: number, worstUsd: number, budgetUsd: number): boolean {
+  return spentUsd + inFlight + worstUsd > budgetUsd;
+}
+
 /** 이전 대화 한 턴 (멀티 턴 대화) */
 export interface HistoryTurn {
   role: "user" | "assistant";
@@ -135,9 +149,25 @@ export async function askStructured<T extends z.ZodType>(opts: {
   }
 
   if (aiMode() !== "live") throw new AIUnavailableError("AI is not configured");
-  // API 주소가 공개되어 있으므로, 이번 달 예산을 넘으면 모든 AI 호출을 멈추고 규칙 기반 대체 경로를 쓴다
-  if ((await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) throw new AIUnavailableError("monthly AI budget reached");
-  if (AI_PROVIDER === "relay") return askViaRelay(opts);
+  // API 주소가 공개되어 있으므로, 이번 달 예산을 넘길 수 있는 호출은 하지 않고 규칙 기반 대체 경로를 쓴다
+  const maxOutput = AI_PROVIDER === "relay" ? Math.min(opts.maxTokens ?? 16000, RELAY_MAX_TOKENS) : (opts.maxTokens ?? 16000);
+  const inputChars = opts.system.length + opts.prompt.length + (opts.history ?? []).reduce((n, t) => n + t.text.length, 0);
+  const worst = worstCaseCostUsd(model, inputChars, maxOutput);
+  if (exceedsBudget(await monthToDateCostUsd(), inFlightUsd, worst, POLICY.monthlyBudgetUsd)) throw new AIUnavailableError("monthly AI budget reached");
+  inFlightUsd += worst;
+  try {
+    return await callModel(opts, model, { inputChars, maxOutput });
+  } finally {
+    inFlightUsd -= worst;
+  }
+}
+
+async function callModel<T extends z.ZodType>(
+  opts: Parameters<typeof askStructured<T>>[0],
+  model: string,
+  limits: { inputChars: number; maxOutput: number },
+): Promise<z.infer<T>> {
+  if (AI_PROVIDER === "relay") return askViaRelay(opts, limits);
   const anthropic = getClient();
   if (!anthropic) throw new AIUnavailableError("AI is not configured");
   // Bedrock 에는 서버 측 fallback 이 없다
@@ -242,27 +272,33 @@ type RelayResponse = {
 };
 
 /** Bedrock 중계 Lambda 호출 (infra/bedrock-relay/lambda_function.py). 응답은 같은 Zod 스키마로 검증한다. */
-async function askViaRelay<T extends z.ZodType>(opts: {
-  task: string;
-  tier: Tier;
-  system: string;
-  prompt: string;
-  schema: T;
-  maxTokens?: number;
-  history?: HistoryTurn[];
-  signal?: AbortSignal;
-}): Promise<z.infer<T>> {
+async function askViaRelay<T extends z.ZodType>(
+  opts: {
+    task: string;
+    tier: Tier;
+    system: string;
+    prompt: string;
+    schema: T;
+    maxTokens?: number;
+    history?: HistoryTurn[];
+    signal?: AbortSignal;
+  },
+  limits: { inputChars: number; maxOutput: number },
+): Promise<z.infer<T>> {
   const { $schema: _ignored, ...schema } = toJSONSchema(opts.schema) as Record<string, unknown>;
   let model = MODELS[opts.tier];
   let ok = false;
   let usage = { input: 0, output: 0, cacheRead: 0 };
+  // 요청은 보냈는데 응답을 못 받으면(시간 초과·연결 끊김·중지) Bedrock 이 이미 답을 만들었을 수 있다 → 최대 사용량으로 기록
+  let unanswered = true;
   try {
     const res = await fetch(process.env.AI_RELAY_URL!, {
       method: "POST",
       headers: { "content-type": "application/json", "x-relay-token": process.env.AI_RELAY_TOKEN ?? "" },
-      body: JSON.stringify({ system: opts.system, messages: buildMessages(opts.history ?? [], opts.prompt), schema, maxTokens: opts.maxTokens ?? 16000 }),
+      body: JSON.stringify({ system: opts.system, messages: buildMessages(opts.history ?? [], opts.prompt), schema, maxTokens: limits.maxOutput }),
       signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
     });
+    unanswered = false;
     const data = (await res.json().catch(() => ({}))) as RelayResponse;
     if (!res.ok) throw new AIUnavailableError(`relay ${res.status}: ${data.error ?? "error"}`);
     if (data.model) model = data.model;
@@ -277,6 +313,7 @@ async function askViaRelay<T extends z.ZodType>(opts: {
     ok = true;
     return parsed.data as z.infer<T>;
   } finally {
+    if (unanswered) usage = { input: limits.inputChars, output: limits.maxOutput, cacheRead: 0 };
     try {
       await logUsage(opts.task, model, usage, ok);
     } catch {

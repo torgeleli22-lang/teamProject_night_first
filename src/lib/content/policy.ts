@@ -24,7 +24,8 @@ export const POLICY = {
   personalPerLearnerPerDay: 1,
   /** 전체 생성 상한 (비용 안전장치) */
   dailyLimit: Number(process.env.AI_GENERATION_DAILY_LIMIT ?? 30),
-  monthlyBudgetUsd: Number(process.env.AI_MONTHLY_BUDGET_USD ?? 30),
+  /** 한 달 AI 예산 (USD). 이번 달 추정 비용이 이 금액을 넘지 않도록 넘길 수 있는 호출은 하지 않는다 */
+  monthlyBudgetUsd: Number(process.env.AI_MONTHLY_BUDGET_USD ?? 10),
 } as const;
 
 /**

@@ -147,7 +147,7 @@
 | 맞춤 복습 | 학습자 분석에서 혼동 발견 + 그 칸에 복습할 문제 부족 (학습자당 하루 1회) |
 
 - 칸당 최대 40문제. DOM·이벤트·fetch 는 서버에서 실행 검증이 안 되어 사람이 작성.
-- 안전장치: 같은 칸 중복 생성 방지, 하루 상한 30회, 월 예산 $30.
+- 안전장치: 같은 칸 중복 생성 방지, 하루 상한 30회, 월 예산 $10 (호출 전에 그 호출의 최대 비용까지 더해 확인하므로 넘지 않음).
 - "전체 개념" 세션·복습·다시 풀기는 생성 판단을 하지 않는다.
 
 ## 8. 콘텐츠 품질 검증 (`src/lib/content/validate.ts`)
@@ -254,7 +254,7 @@ docs/                      이 문서, AI 생성 기준, DEPLOY_AWS.md(배포 �
 | `GET /admin/overview`, `POST /admin/generate`, `GET·POST /admin/fill` | 관리자 (`x-admin-token`, 미설정 시 로컬만) |
 
 ### 10.6 환경 변수 (`.env.example`)
-- API: `AI_MODE`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_FAST/SMART`, `AI_GENERATION_DAILY_LIMIT`, `AI_MONTHLY_BUDGET_USD`(넘으면 모든 AI 호출 중단), `DB_DRIVER`, `DATABASE_PATH`, `DATABASE_URL`, `DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`, `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `SESSION_TTL_HOURS`, `BACKGROUND_MODE`(inline 이면 비동기 호출 없이 요청 안에서)
+- API: `AI_MODE`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL_FAST/SMART`, `AI_GENERATION_DAILY_LIMIT`, `AI_MONTHLY_BUDGET_USD`(기본 10, 넘길 수 있는 호출은 하지 않음), `DB_DRIVER`, `DATABASE_PATH`, `DATABASE_URL`, `DB_CLUSTER_ARN`, `DB_SECRET_ARN`, `DB_NAME`, `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `SESSION_TTL_HOURS`, `BACKGROUND_MODE`(inline 이면 비동기 호출 없이 요청 안에서)
 - 화면(빌드 시): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_BASE_PATH`
 
 ### 10.7 명령
