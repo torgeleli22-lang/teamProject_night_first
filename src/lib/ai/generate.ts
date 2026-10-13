@@ -4,7 +4,7 @@ import { computeFactors } from "../content/analyzer";
 import { validateItem, type ValidationReport } from "../content/validate";
 import { CONCEPTS, getConcept, levelInfo } from "../curriculum";
 import { saveGeneratedItem } from "../server/content-repo";
-import { POLICY, isGeneratable, type Trigger } from "../content/policy";
+import { POLICY, generatableLevels, isGeneratable, type Trigger } from "../content/policy";
 import { autoGenerationEnabled, createJob, finishJob, jobCancelled, jobsSince, monthToDateCostUsd, runningJob, stopRequestedSince } from "../server/ops-repo";
 import type { ConceptId, Level, Question, Skill } from "../types";
 import { AIUnavailableError, aiEnabled, aiMode, askStructured } from "./client";
@@ -25,39 +25,55 @@ const conceptIds = CONCEPTS.map((c) => c.id) as [string, ...string[]];
 
 const nullableStr = z.string().nullable();
 
+const GeneratedQuestionSchema = z.object({
+  type: z.enum(QUESTION_TYPES),
+  skill: z.enum(SKILLS),
+  prompt: z.string(),
+  choices: z.array(z.object({ text: z.string(), misconception: nullableStr })).nullable().describe("multiple_choice, fill_blank 에서만. 4개"),
+  answerIndex: z.number().int().nullable().describe("multiple_choice, fill_blank 정답 인덱스 (0부터)"),
+  blankedCode: nullableStr.describe("fill_blank: 원본 코드의 한 줄(또는 몇 줄)에서 핵심 부분을 ____ 로 바꾼 것"),
+  pieces: z.array(z.string()).nullable().describe("shuffle: 올바른 순서의 코드 조각 3~6개. 순서가 하나로만 정해져야 함"),
+  output: nullableStr.describe("predict_output: 정답 출력"),
+  buggyCode: nullableStr.describe("find_bug: 원본 코드에서 한 줄만 바꿔 오류를 넣은 전체 코드"),
+  bugLine: z.number().int().nullable().describe("find_bug: 바뀐 줄 번호 (1부터)"),
+  fixedLine: nullableStr.describe("find_bug: 그 줄의 올바른 코드 (원본 코드의 해당 줄과 같음)"),
+  rubric: z
+    .array(z.object({ label: z.string(), keywords: z.array(z.string()) }))
+    .nullable()
+    .describe("short_answer: 설명에 담겨야 할 요소 2~4개와, 그 요소를 언급했다고 볼 짧은 표현들(한국어 동의어 포함 4개 이상)"),
+  misconceptions: z
+    .array(z.object({ label: z.string(), keywords: z.array(z.string()), correction: z.string() }))
+    .nullable()
+    .describe("short_answer: 흔한 오개념과, 함께 나타나면 오개념으로 볼 표현들, 바로잡는 설명"),
+  modelAnswer: nullableStr.describe("short_answer: 모범 답안 (rubric 의 표현을 실제로 포함)"),
+  focusLines: z.array(z.number().int()).nullable().describe("코드의 특정 부분 역할을 묻는 문제라면 그 줄 번호"),
+  hints: z.array(z.string()).describe("4단계 힌트: 1 개념을 떠올리는 질문, 2 핵심 부분 짚기, 3 관련 문법 설명, 4 정답에 가까운 방향 (정답 자체는 말하지 않음)"),
+  explanation: z.string().describe("정답 해설. 실행 과정을 한 줄에 한 단계씩 (모든 문제에 반드시)"),
+  keyPoint: z.string().describe("핵심 개념 한 줄 (모든 문제에 반드시)"),
+});
+
+/** 쓸 수 있는 문제가 이보다 적으면 세트 전체를 실패로 본다 */
+const MIN_SALVAGED_QUESTIONS = 4;
+
+/**
+ * AI 가 일부 문제에서 해설·핵심 같은 칸을 빠뜨리면, 그 문제만 버리고 나머지로 계속한다.
+ * (빠진 유형은 아래 검증에서 잡혀 한 번 더 생성하게 된다)
+ */
+function salvageGenerated(value: unknown): unknown {
+  if (!value || typeof value !== "object" || !Array.isArray((value as { questions?: unknown }).questions)) return value;
+  const all = (value as { questions: unknown[] }).questions;
+  const kept = all.filter((q) => GeneratedQuestionSchema.safeParse(q).success);
+  if (kept.length < MIN_SALVAGED_QUESTIONS) return value;
+  if (kept.length < all.length) console.warn(`[generate] 칸이 빠진 문제 ${all.length - kept.length}개를 버리고 ${kept.length}개로 계속`);
+  return { ...value, questions: kept };
+}
+
 const GeneratedSchema = z.object({
   title: z.string().describe("코드의 짧은 제목. 예: '성인 사용자 골라내기'"),
   code: z.string().describe("학습용 JavaScript 코드 (5~15줄, console.log 로 결과 출력)"),
   concepts: z.array(z.enum(conceptIds)).describe("코드에 쓰인 개념"),
   expectedOutput: z.string().describe("코드를 실행했을 때 콘솔 출력 (브라우저 콘솔 표기, 여러 줄은 줄바꿈)"),
-  questions: z.array(
-    z.object({
-      type: z.enum(QUESTION_TYPES),
-      skill: z.enum(SKILLS),
-      prompt: z.string(),
-      choices: z.array(z.object({ text: z.string(), misconception: nullableStr })).nullable().describe("multiple_choice, fill_blank 에서만. 4개"),
-      answerIndex: z.number().int().nullable().describe("multiple_choice, fill_blank 정답 인덱스 (0부터)"),
-      blankedCode: nullableStr.describe("fill_blank: 원본 코드의 한 줄(또는 몇 줄)에서 핵심 부분을 ____ 로 바꾼 것"),
-      pieces: z.array(z.string()).nullable().describe("shuffle: 올바른 순서의 코드 조각 3~6개. 순서가 하나로만 정해져야 함"),
-      output: nullableStr.describe("predict_output: 정답 출력"),
-      buggyCode: nullableStr.describe("find_bug: 원본 코드에서 한 줄만 바꿔 오류를 넣은 전체 코드"),
-      bugLine: z.number().int().nullable().describe("find_bug: 바뀐 줄 번호 (1부터)"),
-      fixedLine: nullableStr.describe("find_bug: 그 줄의 올바른 코드 (원본 코드의 해당 줄과 같음)"),
-      rubric: z
-        .array(z.object({ label: z.string(), keywords: z.array(z.string()) }))
-        .nullable()
-        .describe("short_answer: 설명에 담겨야 할 요소 2~4개와, 그 요소를 언급했다고 볼 짧은 표현들(한국어 동의어 포함 4개 이상)"),
-      misconceptions: z
-        .array(z.object({ label: z.string(), keywords: z.array(z.string()), correction: z.string() }))
-        .nullable()
-        .describe("short_answer: 흔한 오개념과, 함께 나타나면 오개념으로 볼 표현들, 바로잡는 설명"),
-      modelAnswer: nullableStr.describe("short_answer: 모범 답안 (rubric 의 표현을 실제로 포함)"),
-      focusLines: z.array(z.number().int()).nullable().describe("코드의 특정 부분 역할을 묻는 문제라면 그 줄 번호"),
-      hints: z.array(z.string()).describe("4단계 힌트: 1 개념을 떠올리는 질문, 2 핵심 부분 짚기, 3 관련 문법 설명, 4 정답에 가까운 방향 (정답 자체는 말하지 않음)"),
-      explanation: z.string().describe("정답 해설. 실행 과정을 한 줄에 한 단계씩"),
-      keyPoint: z.string().describe("핵심 개념 한 줄"),
-    }),
-  ),
+  questions: z.array(GeneratedQuestionSchema),
 });
 
 type Generated = z.infer<typeof GeneratedSchema>;
@@ -79,6 +95,8 @@ const GENERATOR_SYSTEM = `당신은 프로그래밍 입문자를 위한 'JavaScr
 - 오류 찾기는 원본에서 정확히 한 줄만 바꾸고, 바꾼 코드는 다른 결과를 내거나 에러가 나야 합니다.
 - 셔플 조각은 변수 의존 관계 때문에 올바른 순서가 하나로 정해져야 합니다.
 - 해설은 실제 코드 동작과 정확히 일치해야 합니다.
+- 모든 문제에 prompt, hints(4개), explanation, keyPoint 를 빠짐없이 채웁니다. 그 유형에 해당하지 않는 칸은 null 로 씁니다.
+- expectedOutput 과 출력 예측 정답은 코드를 한 줄씩 직접 따라가며 계산해서 적습니다 (서버가 실제로 실행해 비교합니다).
 - 모든 문장은 한국어 존댓말("~해요" 체), 초보자가 이해할 수 있게 짧게.
 - 출력 표기는 브라우저 콘솔 형식: 배열 [1, 2, 3], 문자열 배열 ['a', 'b'], 객체 {name: 'Kim', age: 25}.`;
 
@@ -183,6 +201,9 @@ export interface GenerateResult {
   error?: string;
 }
 
+/** DOM·이벤트·fetch 처럼 서버에서 실행해 정답을 확인할 수 없는 개념 */
+export const NOT_VERIFIABLE = "이 개념(DOM·이벤트·fetch 등)은 서버에서 코드를 실행해 정답을 확인할 수 없어서 AI로 만들 수 없어요. 사람이 직접 작성해 주세요.";
+
 /** 이 서버에서 진행 중인 생성 작업 (관리자가 중지하면 기다리던 AI 응답을 끊는다) */
 const running = new Map<number, AbortController>();
 
@@ -212,6 +233,7 @@ export async function generateCodeSet(opts: {
   const skip = (error: string): GenerateResult => ({ jobId: 0, status: "skipped", error });
   if (!aiEnabled()) return skip("AI 가 설정되어 있지 않습니다.");
   if (!getConcept(opts.concept)) return skip("알 수 없는 개념");
+  if (generatableLevels(opts.concept).length === 0) return skip(NOT_VERIFIABLE);
   if (opts.trigger !== "manual" && !isGeneratable(opts.concept, opts.level)) return skip("AI 생성 대상이 아닌 칸입니다.");
   if (AUTO_TRIGGERS.includes(opts.trigger) && !(await autoGenerationEnabled())) return skip("자동 생성이 꺼져 있습니다.");
   if (await runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
@@ -235,34 +257,47 @@ export async function generateCodeSet(opts: {
   try {
     for (let round = 0; round < 2; round++) {
       if (await cancelled()) return stopped();
-      const g = await askStructured({
-        signal: controller.signal,
-        task: "content_generation",
-        tier: "smart",
-        effort: "high",
-        maxTokens: 32000,
-        system: GENERATOR_SYSTEM,
-        schema: GeneratedSchema,
-        mockDelayMs: 2500,
-        mock: () => {
-          const pool = MOCK_GENERATIONS[opts.concept];
-          if (!pool) throw new AIUnavailableError(`목업 예시가 없는 개념입니다 (목업 지원: ${Object.keys(MOCK_GENERATIONS).join(", ")})`);
-          return pool[Math.min(round, pool.length - 1)] as Generated;
-        },
-        prompt: [
-          `중심 개념: ${concept.name} — ${concept.keyIdea}`,
-          `난이도: Level ${opts.level} ${info.name} (${info.description}). 이 난이도의 주된 사고: ${info.skillLabel}.`,
-          `문제마다 skill 은 ${SKILL_FOR_LEVEL[opts.level].join(", ")} 중에서 고르세요.`,
-          `다음 문제 유형을 각각 최소 1개씩, 총 6~8문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
-          opts.focus?.length ? `이 학습자에게서 발견된 혼동: ${opts.focus.join("; ")}. 이 혼동을 바로잡을 수 있도록 보기·오류·주관식을 설계하세요.` : "",
-          opts.instructions
-            ? `관리자가 원하는 내용입니다. 위의 개념·난이도·문제 유형·코드 규칙을 지키는 범위에서 최대한 반영하세요 (규칙과 부딪히면 규칙이 우선):\n<admin_request>\n${opts.instructions}\n</admin_request>`
-            : "",
-          feedback,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-      });
+      let g: Generated;
+      try {
+        g = await askStructured({
+          signal: controller.signal,
+          task: "content_generation",
+          tier: "smart",
+          effort: "high",
+          maxTokens: 32000,
+          system: GENERATOR_SYSTEM,
+          schema: GeneratedSchema,
+          salvage: salvageGenerated,
+          mockDelayMs: 2500,
+          mock: () => {
+            const pool = MOCK_GENERATIONS[opts.concept];
+            if (!pool) throw new AIUnavailableError(`목업 예시가 없는 개념입니다 (목업 지원: ${Object.keys(MOCK_GENERATIONS).join(", ")})`);
+            return pool[Math.min(round, pool.length - 1)] as Generated;
+          },
+          prompt: [
+            `중심 개념: ${concept.name} — ${concept.keyIdea}`,
+            `난이도: Level ${opts.level} ${info.name} (${info.description}). 이 난이도의 주된 사고: ${info.skillLabel}.`,
+            `문제마다 skill 은 ${SKILL_FOR_LEVEL[opts.level].join(", ")} 중에서 고르세요.`,
+            `다음 문제 유형을 각각 최소 1개씩, 총 6~8문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
+            opts.focus?.length ? `이 학습자에게서 발견된 혼동: ${opts.focus.join("; ")}. 이 혼동을 바로잡을 수 있도록 보기·오류·주관식을 설계하세요.` : "",
+            opts.instructions
+              ? `관리자가 원하는 내용입니다. 위의 개념·난이도·문제 유형·코드 규칙을 지키는 범위에서 최대한 반영하세요 (규칙과 부딪히면 규칙이 우선):\n<admin_request>\n${opts.instructions}\n</admin_request>`
+              : "",
+            feedback,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        });
+      } catch (err) {
+        // 첫 번째 응답이 형식에 맞지 않거나 잘렸으면, 이유를 알려 주고 한 번 더 만든다
+        const message = err instanceof Error ? err.message : String(err);
+        if (round === 0 && /could not parse response|response was truncated/.test(message)) {
+          firstFailure = `- 응답 형식 오류: ${message}`;
+          feedback = `이전 응답이 형식에 맞지 않았습니다 (${message}). 모든 문제에 prompt·hints·explanation·keyPoint 를 빠짐없이 채우고, 문제는 6개로 간결하게 만드세요.`;
+          continue;
+        }
+        throw err;
+      }
 
       const itemId = `ai-${opts.concept}-${crypto.randomUUID().slice(0, 8)}`;
       const { questions, problems } = toQuestions(g, itemId);

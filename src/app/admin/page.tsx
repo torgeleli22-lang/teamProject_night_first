@@ -427,8 +427,24 @@ export default function AdminPage() {
               ))}
               <span className="ml-auto self-center text-xs text-ink-400">{instructions.length}/1000</span>
             </div>
+            {(data.generatable[concept]?.length ?? 0) === 0 ? (
+              <p className="mt-3 rounded-xl bg-coral-50 px-3 py-2 text-sm text-coral-700">
+                {conceptName(concept)}은(는) 서버에서 코드를 실행해 정답을 확인할 수 없어서 AI로 만들 수 없어요. 사람이 직접 작성해 주세요.
+              </p>
+            ) : (
+              !data.generatable[concept].includes(level) && (
+                <p className="mt-3 rounded-xl bg-sun-50 px-3 py-2 text-sm text-sun-600">
+                  {conceptName(concept)}의 기본 생성 난이도는 Lv.{data.generatable[concept].join(", Lv.")}이에요. 이 난이도로도 만들 수 있지만, 검증에서 반려될 가능성이 높아요.
+                </p>
+              )
+            )}
             <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink-100 pt-4">
-              <button type="button" onClick={generate} disabled={!!busy || data.mode === "off"} className="btn-primary px-5 py-2.5 text-sm">
+              <button
+                type="button"
+                onClick={generate}
+                disabled={!!busy || data.mode === "off" || (data.generatable[concept]?.length ?? 0) === 0}
+                className="btn-primary px-5 py-2.5 text-sm"
+              >
                 {busy === "generate" ? (
                   <>
                     <Spinner /> 만드는 중 (검증까지 1~2분)

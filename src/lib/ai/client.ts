@@ -132,6 +132,11 @@ export async function askStructured<T extends z.ZodType>(opts: {
   history?: HistoryTurn[];
   /** 관리자가 생성을 중지하면 기다리던 응답을 버린다 */
   signal?: AbortSignal;
+  /**
+   * 응답이 스키마와 맞지 않을 때 쓸 수 있는 부분만 남기는 함수 (예: 칸이 빠진 문제만 버리기).
+   * 돌려준 값도 같은 스키마로 다시 검증한다. 형식이 강제되지 않는 Lambda 중계(Converse 도구 호출)에서만 쓰인다
+   */
+  salvage?: (value: unknown) => unknown;
   /** 목업 모드에서 돌려줄 응답 (없으면 목업 모드에서도 실패 처리 → 대체 경로) */
   mock?: () => z.infer<T> | Promise<z.infer<T>>;
   mockDelayMs?: number;
@@ -282,6 +287,7 @@ async function askViaRelay<T extends z.ZodType>(
     maxTokens?: number;
     history?: HistoryTurn[];
     signal?: AbortSignal;
+    salvage?: (value: unknown) => unknown;
   },
   limits: { inputChars: number; maxOutput: number },
 ): Promise<z.infer<T>> {
@@ -305,7 +311,12 @@ async function askViaRelay<T extends z.ZodType>(
     usage = { input: data.usage?.input ?? 0, output: data.usage?.output ?? 0, cacheRead: data.usage?.cacheRead ?? 0 };
     if (data.stopReason === "max_tokens") throw new AIUnavailableError("response was truncated");
     if (data.output == null) throw new AIUnavailableError("could not parse response: 응답에 결과(JSON)가 없음");
-    const parsed = opts.schema.safeParse(repairForSchema(data.output, schema as JsonSchema));
+    const repaired = repairForSchema(data.output, schema as JsonSchema);
+    let parsed = opts.schema.safeParse(repaired);
+    if (!parsed.success && opts.salvage) {
+      const kept = opts.schema.safeParse(opts.salvage(repaired));
+      if (kept.success) parsed = kept;
+    }
     if (!parsed.success) {
       console.error("[ai] 응답 형식 불일치:", opts.task, describeIssues(parsed.error));
       throw new AIUnavailableError(`could not parse response: ${describeIssues(parsed.error)}`);

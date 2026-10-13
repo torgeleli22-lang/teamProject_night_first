@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 import { analysisDue } from "../lib/ai/analysis";
 import { aiEnabled, aiMode, MODELS } from "../lib/ai/client";
-import { abortJobs, generateCodeSet } from "../lib/ai/generate";
+import { NOT_VERIFIABLE, abortJobs, generateCodeSet } from "../lib/ai/generate";
 import { manualReason } from "./background";
 import { ADMIN_CODE_MAX, ADMIN_CODE_MIN, adminCodeIsSet, setAdminCode } from "../lib/server/admin-auth";
 import { askAboutQuestion, evaluateShortAnswer as aiEvaluate } from "../lib/ai/tutor";
@@ -234,6 +234,7 @@ const AdminGenerateBody = z.object({
 const adminGenerate: Handler = async (ctx) => {
   await requireAdmin(ctx.req);
   const { count, ...body } = parse(AdminGenerateBody, ctx.req.body);
+  if (generatableLevels(body.concept).length === 0) throw new HttpError(400, NOT_VERIFIABLE);
   if (count === 1) return generateCodeSet({ ...body, trigger: "manual", reason: manualReason(body.instructions) });
   if (!aiEnabled()) throw new HttpError(400, "AI 가 꺼져 있어요 (AI_MODE=mock 또는 API 키 필요).");
   await ctx.background({ kind: "batch", concept: body.concept, level: body.level, count, instructions: body.instructions });
