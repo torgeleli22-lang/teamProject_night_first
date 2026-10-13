@@ -10,7 +10,8 @@ import { CONCEPTS, getConcept } from "../lib/curriculum";
 import { evaluateShortAnswer } from "../lib/grading";
 import { misconceptionCounts } from "../lib/learner/stats";
 import { AnswerSchema, LevelSchema, QuestionTypeSchema } from "../lib/schemas";
-import { coverage, getQuestion, listGeneratedItems, loadContent } from "../lib/server/content-repo";
+import { coverage, getGeneratedItem, getQuestion, listGeneratedItems, loadContent } from "../lib/server/content-repo";
+import type { Level } from "../lib/types";
 import { dbDriver } from "../lib/server/db";
 import { loadPersona, PERSONAS } from "../lib/server/demo";
 import { gradeAttempt } from "../lib/server/grade";
@@ -257,6 +258,37 @@ const adminFill: Handler = async (ctx) => {
   return { started: cells.length, cells };
 };
 
+/** 반려된 AI 콘텐츠를 실패 이유와 실제 실행 결과를 알려 주고 고쳐서 다시 만든다 (새 항목으로 저장, 검증·검수를 다시 거침) */
+const adminRepair: Handler = async (ctx) => {
+  await requireAdmin(ctx.req);
+  const body = parse(z.object({ itemId: z.string().max(120), instructions: z.string().trim().max(1000).optional() }), ctx.req.body);
+  const found = await getGeneratedItem(body.itemId);
+  if (!found) throw notFound("AI 생성 콘텐츠");
+  if (found.row.status !== "rejected") throw new HttpError(400, "반려된 콘텐츠만 고쳐서 다시 만들 수 있어요.");
+  // DOM 처럼 실행 검증을 못 하는 개념은 빼고, 남은 개념 중 첫 번째로 만든다
+  const concept = found.row.concepts.find((c) => generatableLevels(c).length > 0);
+  if (!concept) throw new HttpError(400, NOT_VERIFIABLE);
+  const checks = found.row.validation?.checks ?? [];
+  const failures = checks
+    .filter((c) => !c.pass)
+    .map((c) => `- ${c.name}${c.detail ? ` (${c.detail})` : ""}`)
+    .join("\n");
+  return generateCodeSet({
+    concept,
+    level: found.row.level as Level,
+    trigger: "manual",
+    reason: manualReason(body.instructions, `(반려된 '${found.row.title}' 고치기)`),
+    instructions: body.instructions || undefined,
+    repairFrom: {
+      title: found.row.title,
+      code: found.row.code,
+      actualOutput: found.row.validation?.actualOutput ?? found.output,
+      questions: found.questions,
+      failures: failures || "- (실패 항목 기록 없음)",
+    },
+  });
+};
+
 /** 자동 생성 켜기/끄기 (문제가 부족할 때 AI 가 알아서 만드는 것). 관리자 수동 생성·출시 전 채우기는 그대로 쓸 수 있다 */
 const adminAuto: Handler = async (ctx) => {
   await requireAdmin(ctx.req);
@@ -316,4 +348,5 @@ export const ROUTES: Record<string, Handler> = {
   "POST /admin/auto": adminAuto,
   "POST /admin/stop": adminStop,
   "POST /admin/code": adminCode,
+  "POST /admin/repair": adminRepair,
 };

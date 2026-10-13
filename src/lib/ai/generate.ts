@@ -227,6 +227,8 @@ export async function generateCodeSet(opts: {
   focus?: string[];
   /** 관리자가 적은 요청 ("어떤 내용으로 문제를 만들까요?"). 없으면 기본 기준대로 만든다 */
   instructions?: string;
+  /** 반려된 콘텐츠를 고쳐서 다시 만들 때: 이전 결과물과 실패 이유 */
+  repairFrom?: { title: string; code: string; actualOutput: string | null; questions: unknown[]; failures: string };
   /** 여러 칸을 차례로 만드는 작업(출시 전 채우기)의 시작 시각 — 그 뒤에 '전부 중지'가 눌렸으면 멈춘다 */
   stopSince?: number;
 }): Promise<GenerateResult> {
@@ -280,6 +282,20 @@ export async function generateCodeSet(opts: {
             `문제마다 skill 은 ${SKILL_FOR_LEVEL[opts.level].join(", ")} 중에서 고르세요.`,
             `다음 문제 유형을 각각 최소 1개씩, 총 6~8문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
             opts.focus?.length ? `이 학습자에게서 발견된 혼동: ${opts.focus.join("; ")}. 이 혼동을 바로잡을 수 있도록 보기·오류·주관식을 설계하세요.` : "",
+            opts.repairFrom
+              ? [
+                  `아래는 이전에 만든 코드 세트인데 자동 검증에서 반려됐습니다. 코드의 주제와 흐름은 최대한 살리되, 실패한 항목을 모두 고친 완성본 전체(코드·expectedOutput·문제 전부)를 다시 제출하세요.`,
+                  `<previous_title>${opts.repairFrom.title}</previous_title>`,
+                  `<previous_code>\n${opts.repairFrom.code}\n</previous_code>`,
+                  opts.repairFrom.actualOutput !== null
+                    ? `이 코드를 서버에서 실제로 실행한 출력입니다. 코드를 바꾸지 않는다면 expectedOutput 과 출력 예측 정답은 이 값과 같아야 합니다:\n<actual_output>\n${opts.repairFrom.actualOutput}\n</actual_output>`
+                    : "",
+                  `<failed_checks>\n${opts.repairFrom.failures}\n</failed_checks>`,
+                  `<previous_questions>\n${JSON.stringify(opts.repairFrom.questions)}\n</previous_questions>`,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
+              : "",
             opts.instructions
               ? `관리자가 원하는 내용입니다. 위의 개념·난이도·문제 유형·코드 규칙을 지키는 범위에서 최대한 반영하세요 (규칙과 부딪히면 규칙이 우선):\n<admin_request>\n${opts.instructions}\n</admin_request>`
               : "",
