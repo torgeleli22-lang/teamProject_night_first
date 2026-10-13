@@ -204,7 +204,27 @@ Docker 는 부팅할 때 자동으로 켜지고(`systemctl enable docker`), 컨�
 5. GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables** → `API_URL` 을 `https://<새 IP-대시>.sslip.io` 로 수정 → **Actions → Deploy web (GitHub Pages) → Run workflow**
 6. 화면에서 문제 하나 열어 보기
 
-**탄력적 IP 를 붙여 두면** 공인 IP 가 바뀌지 않아서 3·5단계가 필요 없습니다 (1·2·4·6 만). 탄력적 IP 는 인스턴스를 중지한 동안에도 시간당 요금이 조금 나갑니다.
+### 주소가 바뀌지 않게 하기 (둘 중 하나, 한 번만 설정)
+
+**A. 탄력적 IP (가장 간단)** — EC2 → 네트워크 및 보안 → **탄력적 IP → 탄력적 IP 주소 할당 → 할당** → 선택 → **작업 → 탄력적 IP 주소 연결** → 인스턴스 선택 → 연결.
+IP 가 고정되므로 `SITE_ADDRESS`·`API_URL` 을 **마지막으로 한 번만** 새 IP 로 바꾸면 끝입니다. 인스턴스를 켜 둔 동안 요금은 일반 공인 IP 와 같고, **꺼 둔 동안에도** 시간당 약 $0.005 (한 달 약 $3.6) 가 나갑니다.
+
+**B. DuckDNS 무료 주소 (탄력적 IP 가 막혀 있을 때)** — `codereading.duckdns.org` 같은 고정 이름을 만들고, EC2 가 켜질 때마다 그 이름을 새 IP 로 자동 연결합니다.
+1. https://www.duckdns.org 에 GitHub 계정으로 로그인 → 원하는 이름(예: `codereading`) 입력 → **add domain** → 화면 위쪽의 **token** 복사
+2. EC2 `.env` 에 추가하고 `SITE_ADDRESS` 를 바꾸기:
+   ```env
+   DUCKDNS_DOMAIN=codereading
+   DUCKDNS_TOKEN=<복사한 token>
+   SITE_ADDRESS=codereading.duckdns.org
+   ```
+3. 설치 (한 번만) 후 적용:
+   ```bash
+   bash scripts/ec2/install-dns.sh            # "✅ codereading.duckdns.org → <IP>" 가 나오면 성공
+   sudo docker compose up -d --force-recreate  # 새 주소로 HTTPS 인증서 발급
+   ```
+4. GitHub `API_URL` 을 `https://codereading.duckdns.org` 로 바꾸고 Pages 워크플로 다시 실행 (**마지막 한 번**)
+
+그 뒤로는 EC2 를 껐다 켜도 부팅 20초 뒤 주소가 새 IP 로 자동 연결됩니다 (1분쯤 걸릴 수 있음). 기록: `journalctl -u codereading-dns -n 10 --no-pager`
 
 ---
 
