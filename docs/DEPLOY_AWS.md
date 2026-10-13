@@ -116,7 +116,7 @@ SITE_ADDRESS=<IP-대시>.sslip.io
 
 - `<암호>` 에 `@ : / ? # %` 가 있으면 주소가 깨집니다.
 - `.env` 는 GitHub 에 올라가지 않습니다 (`.gitignore`). 이 서버에만 있습니다.
-- `ADMIN_TOKEN` 값은 관리자 화면(`/admin`) 비밀번호입니다. `cat .env` 로 보고 따로 메모하세요.
+- `ADMIN_TOKEN` 값은 관리자 화면(`/admin`)의 **복구 코드**입니다. `cat .env` 로 보고 따로 메모하세요. 처음에는 이 코드로 들어가서, 관리자 화면 아래쪽 **관리자 코드** 칸에서 함께 쓸 관리자 코드를 정하세요 (DB 에는 해시만 저장). 복구 코드는 관리자 코드를 잊었을 때를 위해 항상 쓸 수 있으니 서버 관리자만 알고 있어야 합니다.
 
 ---
 
@@ -333,7 +333,8 @@ sudo docker compose logs --tail 20 api     # "(DB: postgres, AI: live)"
 | 화면에 "아직 서버(API)가 연결되지 않았어요" | GitHub `API_URL` 없이 배포됨 → 7단계 2·3번 |
 | 화면에 "서버에 연결하지 못했어요" / CORS 오류 | `API_URL` 이 `https://` 로 시작하는지, `.env` 의 `ALLOWED_ORIGINS=https://torgeleli22-lang.github.io` (경로 없이) 확인 |
 | 빌드 중 `Killed` | 메모리 부족 → 3단계 스왑 확인 (`free -h`) |
-| `/admin` 이 401 | `.env` 의 `ADMIN_TOKEN` 값을 관리자 화면에 입력 |
+| `/admin` 이 401 | 관리자 화면에서 정한 관리자 코드, 또는 `.env` 의 `ADMIN_TOKEN`(복구 코드)을 입력 |
+| `/admin` 이 429 | 코드를 10번 틀려서 그 주소가 15분 동안 막힘 → 기다리거나 `sudo docker compose restart api` |
 
 ---
 

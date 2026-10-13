@@ -1,4 +1,5 @@
 import type * as z from "zod/v4";
+import { checkAdminCode, clearFailures, isLockedOut, recordFailure } from "../lib/server/admin-auth";
 import type { SessionInfo } from "../lib/server/session-repo";
 import type { BackgroundTask } from "./background";
 
@@ -50,12 +51,23 @@ export function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T
 /** 운영 환경 (Lambda 이거나 NODE_ENV=production) */
 export const isProduction = () => !!process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NODE_ENV === "production";
 
+/** 요청한 곳의 주소 (Caddy·Lambda 가 붙이는 x-forwarded-for 의 첫 번째 값) */
+export function clientAddress(req: ApiRequest): string {
+  return req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || "local";
+}
+
 /**
- * 관리자 API 보호: ADMIN_TOKEN 이 설정되어 있으면 x-admin-token 헤더가 일치해야 한다.
- * 설정되어 있지 않으면 로컬 개발에서만 허용한다.
+ * 관리자 API 보호: x-admin-token 헤더가 관리자 코드(관리자 화면에서 바꿈) 또는 복구 코드(.env 의 ADMIN_TOKEN)와 같아야 한다.
+ * 둘 다 없으면 로컬 개발에서만 허용한다. 틀린 코드를 여러 번 넣으면 그 주소는 15분 동안 막는다.
  */
-export function requireAdmin(req: ApiRequest) {
-  const token = process.env.ADMIN_TOKEN;
-  const ok = token ? req.headers["x-admin-token"] === token : !isProduction();
-  if (!ok) throw new HttpError(401, "관리자 권한이 필요해요.");
+export async function requireAdmin(req: ApiRequest) {
+  const who = clientAddress(req);
+  if (isLockedOut(who)) throw new HttpError(429, "관리자 코드를 여러 번 틀렸어요. 15분 뒤에 다시 시도해 주세요.");
+  const result = await checkAdminCode(req.headers["x-admin-token"]);
+  if (result === "ok" || (result === "open" && !isProduction())) {
+    if (result === "ok") clearFailures(who);
+    return;
+  }
+  if (result === "wrong") recordFailure(who);
+  throw new HttpError(401, "관리자 권한이 필요해요.");
 }

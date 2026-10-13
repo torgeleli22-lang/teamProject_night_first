@@ -130,6 +130,16 @@ const check = (cond: unknown, msg: string) => {
     check(ask.answer, "AI 튜터 질문(목업)");
   }
 
+  // 관리자 코드: 화면에서 정한 코드만 통과, 틀리면 401, 10번 틀리면 잠시 막힘
+  const status = async (path: string, token?: string) =>
+    (await handle({ method: "GET", path, query: new URLSearchParams(), headers: token ? { "x-admin-token": token } : {}, body: undefined }, background)).status;
+  await call("POST", "/admin/code", { code: "smoke-code-1234" });
+  check((await status("/admin/overview")) === 401, "관리자 코드 설정 후 코드 없이는 401");
+  check((await status("/admin/overview", "wrong-code")) === 401, "틀린 관리자 코드는 401");
+  check((await status("/admin/overview", "smoke-code-1234")) === 200, "새 관리자 코드로 접근");
+  for (let i = 0; i < 10; i++) await status("/admin/overview", "wrong-code");
+  check((await status("/admin/overview", "smoke-code-1234")) === 429, "10번 틀리면 잠시 막힘 (맞는 코드도)");
+
   await call("POST", "/me", { reset: true });
   const after = await call<{ empty: boolean }>("GET", "/dashboard");
   check(after.empty, "기록 초기화");

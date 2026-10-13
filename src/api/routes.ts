@@ -3,6 +3,7 @@ import { analysisDue } from "../lib/ai/analysis";
 import { aiEnabled, aiMode, MODELS } from "../lib/ai/client";
 import { abortJobs, generateCodeSet } from "../lib/ai/generate";
 import { manualReason } from "./background";
+import { ADMIN_CODE_MAX, ADMIN_CODE_MIN, adminCodeIsSet, setAdminCode } from "../lib/server/admin-auth";
 import { askAboutQuestion, evaluateShortAnswer as aiEvaluate } from "../lib/ai/tutor";
 import { decideOnSession, generatableLevels, launchFillPlan, POLICY, TRIGGER_LABEL } from "../lib/content/policy";
 import { CONCEPTS, getConcept } from "../lib/curriculum";
@@ -189,11 +190,12 @@ async function fillPlan() {
 }
 
 const adminOverview: Handler = async (ctx) => {
-  requireAdmin(ctx.req);
+  await requireAdmin(ctx.req);
   const [stock, usage] = await Promise.all([coverage(), usageSummary()]);
   return {
     mode: aiMode(),
     autoGeneration: await autoGenerationEnabled(),
+    adminCode: { custom: await adminCodeIsSet(), recovery: !!process.env.ADMIN_TOKEN },
     models: MODELS,
     db: dbDriver(),
     policy: POLICY,
@@ -230,7 +232,7 @@ const AdminGenerateBody = z.object({
  * 1개는 끝날 때까지 기다려 결과를 돌려주고, 여러 개는 뒤에서 차례로 만든다 (생성 작업 기록에서 진행 상황 확인)
  */
 const adminGenerate: Handler = async (ctx) => {
-  requireAdmin(ctx.req);
+  await requireAdmin(ctx.req);
   const { count, ...body } = parse(AdminGenerateBody, ctx.req.body);
   if (count === 1) return generateCodeSet({ ...body, trigger: "manual", reason: manualReason(body.instructions) });
   if (!aiEnabled()) throw new HttpError(400, "AI 가 꺼져 있어요 (AI_MODE=mock 또는 API 키 필요).");
@@ -240,13 +242,13 @@ const adminGenerate: Handler = async (ctx) => {
 
 /** 출시 전 채우기 계획 (생성하지 않고 계획만) */
 const adminFillPlan: Handler = async (ctx) => {
-  requireAdmin(ctx.req);
+  await requireAdmin(ctx.req);
   return { plan: await fillPlan() };
 };
 
 /** 출시 전 채우기 실행: 최소 재고에 못 미치는 칸마다 코드 세트를 하나씩 백그라운드로 생성 (limit 칸까지) */
 const adminFill: Handler = async (ctx) => {
-  requireAdmin(ctx.req);
+  await requireAdmin(ctx.req);
   if (!aiEnabled()) throw new HttpError(400, "AI 가 꺼져 있어요 (AI_MODE=mock 또는 API 키 필요).");
   const limit = Math.min(Number(ctx.req.query.get("limit") ?? 5), 30);
   const cells = (await fillPlan()).slice(0, limit);
@@ -256,7 +258,7 @@ const adminFill: Handler = async (ctx) => {
 
 /** 자동 생성 켜기/끄기 (문제가 부족할 때 AI 가 알아서 만드는 것). 관리자 수동 생성·출시 전 채우기는 그대로 쓸 수 있다 */
 const adminAuto: Handler = async (ctx) => {
-  requireAdmin(ctx.req);
+  await requireAdmin(ctx.req);
   const body = parse(z.object({ enabled: z.boolean() }), ctx.req.body);
   await setAutoGeneration(body.enabled);
   return { autoGeneration: body.enabled };
@@ -264,11 +266,28 @@ const adminAuto: Handler = async (ctx) => {
 
 /** 생성 중지: jobId 가 있으면 그 작업만, 없으면 진행 중인 생성을 모두 멈춘다 (이미 보낸 AI 요청 비용은 나갈 수 있음) */
 const adminStop: Handler = async (ctx) => {
-  requireAdmin(ctx.req);
+  await requireAdmin(ctx.req);
   const body = parse(z.object({ jobId: z.number().int().positive().optional() }), ctx.req.body ?? {});
   const ids = await cancelJobs(body.jobId);
   abortJobs(ids);
   return { stopped: ids.length };
+};
+
+/** 관리자 코드 바꾸기 (지금 코드로 들어온 관리자만). 복구 코드(.env 의 ADMIN_TOKEN)는 바뀌지 않는다 */
+const adminCode: Handler = async (ctx) => {
+  await requireAdmin(ctx.req);
+  const body = parse(
+    z.object({
+      code: z
+        .string()
+        .min(ADMIN_CODE_MIN, `관리자 코드는 ${ADMIN_CODE_MIN}자 이상이어야 해요.`)
+        .max(ADMIN_CODE_MAX, `관리자 코드는 ${ADMIN_CODE_MAX}자 이하여야 해요.`)
+        .refine((c) => c.trim() === c, "앞뒤에 공백을 넣을 수 없어요."),
+    }),
+    ctx.req.body,
+  );
+  await setAdminCode(body.code);
+  return { ok: true };
 };
 
 // ───────────────────────── 경로 표 ─────────────────────────
@@ -295,4 +314,5 @@ export const ROUTES: Record<string, Handler> = {
   "POST /admin/fill": adminFill,
   "POST /admin/auto": adminAuto,
   "POST /admin/stop": adminStop,
+  "POST /admin/code": adminCode,
 };

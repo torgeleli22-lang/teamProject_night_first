@@ -129,11 +129,11 @@ export async function stopRequestedSince(since: number): Promise<boolean> {
 
 // ───────────────────────── 운영 설정 (app_meta) ─────────────────────────
 
-async function getMeta(key: string): Promise<string | null> {
+export async function getMeta(key: string): Promise<string | null> {
   return (await (await getDb()).get<{ value: string }>("SELECT value FROM app_meta WHERE key = ?", [key]))?.value ?? null;
 }
 
-async function setMeta(key: string, value: string) {
+export async function setMeta(key: string, value: string) {
   await (await getDb()).run("INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, value]);
 }
 
