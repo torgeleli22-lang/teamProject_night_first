@@ -156,12 +156,36 @@ https://<IP-대시>.sslip.io/concepts   → 문제 목록 JSON (DB 연결까지 
 
 | 바뀐 것 | 할 일 |
 |---|---|
-| 화면 (src/app, src/components) | main 에 push → Pages 자동 배포 |
-| API·채점·콘텐츠 (src/api, src/lib) | EC2 에서 `git pull && sudo docker build -t codereading-api . && sudo docker compose up -d` |
+| 화면 (src/app, src/components) | main 에 병합 → Pages 자동 배포 |
+| API·채점·콘텐츠 (src/api, src/lib) | main 에 병합 → **자동 배포**를 켜 두었다면 5분 안에 EC2 가 알아서 다시 빌드 (아래). 안 켰다면 EC2 에서 `git pull && sudo docker build -t codereading-api . && sudo docker compose up -d --force-recreate` |
 | 설정 (AI 모드 등) | EC2 의 `.env` 수정 → `sudo docker compose up -d --force-recreate` |
 | AI 자동 생성 켜기/끄기, 생성 중지 | 관리자 화면(`/admin`) 위쪽 **AI 자동 생성** 칸의 버튼 (설정은 DB 에 저장되어 재시작해도 유지) |
 
 **비용 아끼기**: 안 쓸 때 EC2 와 RDS 를 **중지**하세요 (RDS 는 7일 뒤 자동 재시작).
+
+### 자동 배포 켜기 (EC2 에서 한 번만)
+
+EC2 가 5분마다 GitHub 의 main 을 확인하고, 바뀌었으면 코드를 받아 API 이미지를 다시 빌드해 띄웁니다. 추가로 여는 포트·키·권한이 없습니다 (EC2 가 GitHub 에서 받아 오는 방식).
+
+```bash
+cd ~/teamProject_night_first
+git checkout main && git pull                 # 자동 배포 스크립트를 처음 한 번 받기
+bash scripts/ec2/install-autodeploy.sh        # 설치 → 2분 뒤 첫 확인 (그 뒤 5분마다)
+```
+
+| 하고 싶은 것 | 명령 |
+|---|---|
+| 다음 확인 시각 보기 | `systemctl list-timers codereading-deploy.timer` |
+| 배포 기록 보기 | `journalctl -u codereading-deploy -n 30 --no-pager` |
+| 지금 바로 확인·배포 | `bash scripts/ec2/autodeploy.sh` |
+| 빌드 실패를 고친 뒤 다시 | `FORCE=1 bash scripts/ec2/autodeploy.sh` |
+| 자동 배포 끄기 | `sudo systemctl disable --now codereading-deploy.timer` |
+
+- 화면·문서만 바뀌면 API 는 다시 빌드하지 않습니다 (화면은 GitHub Pages 가 배포).
+- 빌드(콘텐츠 실행 검증 포함)가 실패하면 **지금 돌고 있는 API 를 그대로 둡니다.** 같은 커밋으로는 다시 시도하지 않고, 새 커밋이 올라오면 다시 시도합니다.
+- EC2 에서 코드 파일을 직접 고쳐 두면 덮어쓰지 않고 멈춥니다 (`git status` 로 확인 → `git checkout -- <파일>` 로 되돌리기). `.env` 는 git 이 관리하지 않아서 괜찮습니다.
+- 빌드하는 3~5분 동안은 CPU 를 많이 쓰고, 새 API 로 바꾸는 순간 몇 초 응답이 끊길 수 있습니다.
+- `.env` 를 고쳤을 때는 자동으로 반영되지 않습니다 → `sudo docker compose up -d --force-recreate`.
 
 ## EC2 를 껐다 켰을 때
 
@@ -180,7 +204,27 @@ Docker 는 부팅할 때 자동으로 켜지고(`systemctl enable docker`), 컨�
 5. GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables** → `API_URL` 을 `https://<새 IP-대시>.sslip.io` 로 수정 → **Actions → Deploy web (GitHub Pages) → Run workflow**
 6. 화면에서 문제 하나 열어 보기
 
-**탄력적 IP 를 붙여 두면** 공인 IP 가 바뀌지 않아서 3·5단계가 필요 없습니다 (1·2·4·6 만). 탄력적 IP 는 인스턴스를 중지한 동안에도 시간당 요금이 조금 나갑니다.
+### 주소가 바뀌지 않게 하기 (둘 중 하나, 한 번만 설정)
+
+**A. 탄력적 IP (가장 간단)** — EC2 → 네트워크 및 보안 → **탄력적 IP → 탄력적 IP 주소 할당 → 할당** → 선택 → **작업 → 탄력적 IP 주소 연결** → 인스턴스 선택 → 연결.
+IP 가 고정되므로 `SITE_ADDRESS`·`API_URL` 을 **마지막으로 한 번만** 새 IP 로 바꾸면 끝입니다. 인스턴스를 켜 둔 동안 요금은 일반 공인 IP 와 같고, **꺼 둔 동안에도** 시간당 약 $0.005 (한 달 약 $3.6) 가 나갑니다.
+
+**B. DuckDNS 무료 주소 (탄력적 IP 가 막혀 있을 때)** — `codereading.duckdns.org` 같은 고정 이름을 만들고, EC2 가 켜질 때마다 그 이름을 새 IP 로 자동 연결합니다.
+1. https://www.duckdns.org 에 GitHub 계정으로 로그인 → 원하는 이름(예: `codereading`) 입력 → **add domain** → 화면 위쪽의 **token** 복사
+2. EC2 `.env` 에 추가하고 `SITE_ADDRESS` 를 바꾸기:
+   ```env
+   DUCKDNS_DOMAIN=codereading
+   DUCKDNS_TOKEN=<복사한 token>
+   SITE_ADDRESS=codereading.duckdns.org
+   ```
+3. 설치 (한 번만) 후 적용:
+   ```bash
+   bash scripts/ec2/install-dns.sh            # "✅ codereading.duckdns.org → <IP>" 가 나오면 성공
+   sudo docker compose up -d --force-recreate  # 새 주소로 HTTPS 인증서 발급
+   ```
+4. GitHub `API_URL` 을 `https://codereading.duckdns.org` 로 바꾸고 Pages 워크플로 다시 실행 (**마지막 한 번**)
+
+그 뒤로는 EC2 를 껐다 켜도 부팅 20초 뒤 주소가 새 IP 로 자동 연결됩니다 (1분쯤 걸릴 수 있음). 기록: `journalctl -u codereading-dns -n 10 --no-pager`
 
 ---
 

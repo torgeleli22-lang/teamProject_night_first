@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import { analysisDue } from "../lib/ai/analysis";
 import { aiEnabled, aiMode, MODELS } from "../lib/ai/client";
 import { abortJobs, generateCodeSet } from "../lib/ai/generate";
+import { manualReason } from "./background";
 import { askAboutQuestion, evaluateShortAnswer as aiEvaluate } from "../lib/ai/tutor";
 import { decideOnSession, generatableLevels, launchFillPlan, POLICY, TRIGGER_LABEL } from "../lib/content/policy";
 import { CONCEPTS, getConcept } from "../lib/curriculum";
@@ -213,13 +214,28 @@ const AdminGenerateBody = z.object({
   concept: z.string().refine((c) => !!getConcept(c)),
   level: LevelSchema,
   focus: z.array(z.string().max(200)).max(5).optional(),
+  /** 만들 코드 세트 수 (세트마다 문제 6~8개) */
+  count: z.number().int().min(1).max(5).default(1),
+  /** "어떤 내용으로 문제를 만들까요?" — 비워 두면 기본 기준대로 */
+  instructions: z
+    .string()
+    .trim()
+    .max(1000)
+    .optional()
+    .transform((v) => v || undefined),
 });
 
-/** 관리자가 콘텐츠를 미리 생성한다: AI 생성 → 실행 검증 → AI 검수 → 문제 DB 저장 (끝날 때까지 기다림) */
+/**
+ * 관리자가 콘텐츠를 만든다: AI 생성 → 실행 검증 → AI 검수 → 문제 DB 저장.
+ * 1개는 끝날 때까지 기다려 결과를 돌려주고, 여러 개는 뒤에서 차례로 만든다 (생성 작업 기록에서 진행 상황 확인)
+ */
 const adminGenerate: Handler = async (ctx) => {
   requireAdmin(ctx.req);
-  const body = parse(AdminGenerateBody, ctx.req.body);
-  return generateCodeSet({ ...body, trigger: "manual", reason: "관리자 수동 생성" });
+  const { count, ...body } = parse(AdminGenerateBody, ctx.req.body);
+  if (count === 1) return generateCodeSet({ ...body, trigger: "manual", reason: manualReason(body.instructions) });
+  if (!aiEnabled()) throw new HttpError(400, "AI 가 꺼져 있어요 (AI_MODE=mock 또는 API 키 필요).");
+  await ctx.background({ kind: "batch", concept: body.concept, level: body.level, count, instructions: body.instructions });
+  return { jobId: 0, status: "started", started: count };
 };
 
 /** 출시 전 채우기 계획 (생성하지 않고 계획만) */

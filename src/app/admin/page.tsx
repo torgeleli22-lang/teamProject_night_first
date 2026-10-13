@@ -27,8 +27,18 @@ interface Overview {
   generated: GeneratedItemRow[];
 }
 
-/** 코드 세트 1개 생성의 대략적인 비용 (Opus 입력 ~3K, 출력 ~12K 토큰 + 재생성 가능성). 실제와 다를 수 있음 */
+/** 코드 세트 1개 생성의 대략적인 비용 (입력 ~3K, 출력 ~12K 토큰 + 검수·재생성 가능성). 실제와 다를 수 있음 */
 const COST_PER_SET_USD = 0.3;
+/** Haiku 4.5 (Bedrock) 는 훨씬 싸다 */
+const COST_PER_SET_HAIKU_USD = 0.05;
+
+/** '어떤 내용으로 문제를 만들까요?' 칸에 눌러서 넣는 예시 */
+const REQUEST_EXAMPLES = [
+  "실생활 데이터(쇼핑몰·성적표·날씨)로 만들어 주세요",
+  "초보자가 자주 헷갈리는 부분을 오류 찾기 문제로 넣어 주세요",
+  "실행 결과 예측 문제를 2개 이상 넣어 주세요",
+  "변수 이름을 한눈에 이해되게 지어 주세요",
+];
 
 const MODE_LABEL = { live: "✨ 실제 AI", mock: "🧪 목업", off: "📘 꺼짐" };
 const STATUS_STYLE: Record<string, string> = {
@@ -45,6 +55,8 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [concept, setConcept] = useState(CONCEPTS[0].id);
   const [level, setLevel] = useState(2);
+  const [count, setCount] = useState(1);
+  const [instructions, setInstructions] = useState("");
   const [busy, setBusy] = useState<"generate" | "fill" | "auto" | "stop" | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -86,19 +98,29 @@ export default function AdminPage() {
     // 생성은 끝날 때까지 기다리므로, 진행 중 표시(와 중지 버튼)가 바로 보이게 한 번 새로고침
     setTimeout(load, 800);
     try {
-      const res = await fetch(`${API_URL}/admin/generate`, { method: "POST", headers: headers(), body: JSON.stringify({ concept, level }) });
-      const r = (await res.json()) as GenerateResult;
-      setMessage({
-        ok: r.status === "published" || r.status === "cancelled",
-        text:
-          r.status === "published"
-            ? "✓ 검증을 통과해 공개되었어요."
-            : r.status === "rejected"
-              ? "✕ 검증에 실패해 반려되었어요. 아래 보고서를 확인하세요."
-              : r.status === "cancelled"
-                ? "생성을 중지했어요."
-                : `✕ ${r.error}`,
+      const res = await fetch(`${API_URL}/admin/generate`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ concept, level, count, instructions: instructions.trim() || undefined }),
       });
+      const r = (await res.json()) as GenerateResult | { status: "started"; started: number } | { error: string };
+      if (!res.ok || !("status" in r)) {
+        setMessage({ ok: false, text: `✕ ${"error" in r ? r.error : "만들지 못했어요."}` });
+      } else if (r.status === "started") {
+        setMessage({ ok: true, text: `코드 ${r.started}개 만들기를 시작했어요. 아래 생성 작업 기록에서 진행 상황을 볼 수 있어요.` });
+      } else {
+        setMessage({
+          ok: r.status === "published" || r.status === "cancelled",
+          text:
+            r.status === "published"
+              ? "✓ 검증을 통과해 공개되었어요."
+              : r.status === "rejected"
+                ? "✕ 검증에 실패해 반려되었어요. 아래 보고서를 확인하세요."
+                : r.status === "cancelled"
+                  ? "생성을 중지했어요."
+                  : `✕ ${r.error}`,
+        });
+      }
       await load();
     } finally {
       setBusy(null);
@@ -152,6 +174,7 @@ export default function AdminPage() {
   }
 
   const runningCount = data?.jobs.filter((j) => j.status === "running").length ?? 0;
+  const costPerSet = data && /haiku-4-5/.test(data.models.smart) ? COST_PER_SET_HAIKU_USD : COST_PER_SET_USD;
   const graded = (data?.grading.rule ?? 0) + (data?.grading.ai ?? 0);
   const fillSets = data?.fillPlan.reduce((s, c) => s + c.sets, 0) ?? 0;
 
@@ -262,8 +285,8 @@ export default function AdminPage() {
             <section className="card p-5">
               <SectionTitle>출시 전 채우기</SectionTitle>
               <p className="text-sm text-ink-700">
-                최소 재고에 못 미치는 칸 <b>{data.fillPlan.length}개</b> · 필요한 코드 세트 <b>{fillSets}개</b> · 추정 비용 약 <b>${(fillSets * COST_PER_SET_USD).toFixed(0)}</b>
-                <span className="text-ink-400"> (세트당 약 ${COST_PER_SET_USD}로 가정)</span>
+                최소 재고에 못 미치는 칸 <b>{data.fillPlan.length}개</b> · 필요한 코드 세트 <b>{fillSets}개</b> · 추정 비용 약 <b>${(fillSets * costPerSet).toFixed(2)}</b>
+                <span className="text-ink-400"> (세트당 약 ${costPerSet}로 가정)</span>
               </p>
               <div className="mt-3 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
                 {data.fillPlan.map((c) => (
@@ -286,7 +309,7 @@ export default function AdminPage() {
               <Legend className="bg-sun-50 text-sun-600">{`< ${data.policy.minStock} (부족)`}</Legend>
               <Legend className="bg-mint-50 text-mint-700">충분</Legend>
               <Legend className="bg-brand-50 text-brand-700">{`≥ ${data.policy.maxStock} (가득)`}</Legend>
-              <span>👥 = 최근 {data.policy.demandWindowDays}일 동안 칸을 소진한 학습자 수 · 칸을 누르면 아래 생성 폼에 선택돼요</span>
+              <span>👥 = 최근 {data.policy.demandWindowDays}일 동안 칸을 소진한 학습자 수</span>
             </div>
             <table className="w-full min-w-[620px] text-sm">
               <thead>
@@ -321,6 +344,7 @@ export default function AdminPage() {
                             onClick={() => {
                               setConcept(id);
                               setLevel(l.level);
+                              document.getElementById("create")?.scrollIntoView({ behavior: "smooth", block: "start" });
                             }}
                             className={`relative w-14 rounded-lg py-1 font-mono ${style} ${concept === id && level === l.level ? "ring-2 ring-brand-500" : ""}`}
                             title={allowed ? "생성 대상 칸" : "AI 생성 대상 아님 (사람 작성 또는 난이도 범위 밖)"}
@@ -335,37 +359,88 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
-            <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-ink-100 pt-4">
+            <p className="mt-3 text-xs text-ink-400">칸을 누르면 아래 'AI로 문제 만들기'의 분야·난이도가 그 칸으로 바뀌어요.</p>
+          </section>
+
+          <section id="create" className="card mt-6 p-5">
+            <SectionTitle>AI로 문제 만들기</SectionTitle>
+            <div className="grid gap-3 sm:grid-cols-3">
               <label className="text-sm">
-                <span className="mb-1 block font-semibold text-ink-500">개념</span>
-                <select value={concept} onChange={(e) => setConcept(e.target.value)} className="rounded-xl border border-ink-200 px-3 py-2">
-                  {CONCEPTS.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
+                <span className="mb-1 block font-semibold text-ink-500">분야 (개념)</span>
+                <select value={concept} onChange={(e) => setConcept(e.target.value)} className="w-full rounded-xl border border-ink-200 px-3 py-2">
+                  {UNITS.map((u) => (
+                    <optgroup key={u.id} label={`${u.emoji} ${u.title}`}>
+                      {u.conceptIds.map((id) => (
+                        <option key={id} value={id}>
+                          {conceptName(id)} (공개 문제 {data.coverage[`${id}:${level}`] ?? 0}개)
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </label>
               <label className="text-sm">
                 <span className="mb-1 block font-semibold text-ink-500">난이도</span>
-                <select value={level} onChange={(e) => setLevel(Number(e.target.value))} className="rounded-xl border border-ink-200 px-3 py-2">
+                <select value={level} onChange={(e) => setLevel(Number(e.target.value))} className="w-full rounded-xl border border-ink-200 px-3 py-2">
                   {LEVELS.map((l) => (
                     <option key={l.level} value={l.level}>
-                      {l.level} · {l.name}
+                      Lv.{l.level} {l.name}
                     </option>
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={generate} disabled={!!busy || data.mode === "off"} className="btn-soft px-5 py-2.5 text-sm">
+              <label className="text-sm">
+                <span className="mb-1 block font-semibold text-ink-500">개수</span>
+                <select value={count} onChange={(e) => setCount(Number(e.target.value))} className="w-full rounded-xl border border-ink-200 px-3 py-2">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      코드 {n}개 (문제 약 {n * 6}~{n * 8}개)
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <label className="mt-4 block text-sm">
+              <span className="mb-1 block font-semibold text-ink-500">
+                어떤 내용으로 문제를 만들까요? <span className="font-normal text-ink-400">(선택 — 비워 두면 기본 기준대로 만들어요)</span>
+              </span>
+              <textarea
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                maxLength={1000}
+                rows={4}
+                placeholder="예: 쇼핑몰 장바구니 데이터로 총 가격을 구하는 코드로 만들어 주세요. 초보자가 자주 헷갈리는 부분을 오류 찾기 문제로 꼭 넣어 주세요."
+                className="w-full rounded-xl border border-ink-200 px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {REQUEST_EXAMPLES.map((ex) => (
+                <button
+                  key={ex}
+                  type="button"
+                  onClick={() => setInstructions((v) => (v ? `${v}\n${ex}` : ex))}
+                  className="chip bg-ink-100 text-ink-700 hover:bg-brand-50 hover:text-brand-700"
+                >
+                  + {ex}
+                </button>
+              ))}
+              <span className="ml-auto self-center text-xs text-ink-400">{instructions.length}/1000</span>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-ink-100 pt-4">
+              <button type="button" onClick={generate} disabled={!!busy || data.mode === "off"} className="btn-primary px-5 py-2.5 text-sm">
                 {busy === "generate" ? (
                   <>
-                    <Spinner /> 생성·검증 중
+                    <Spinner /> 만드는 중 (검증까지 1~2분)
                   </>
                 ) : (
-                  "이 칸에 코드 세트 1개 수동 생성"
+                  `${conceptName(concept)} Lv.${level} 코드 ${count}개 만들기`
                 )}
               </button>
-              {data.mode === "mock" && <span className="text-xs text-ink-400">목업 생성 지원 개념: map, filter, for, if-else, reduce</span>}
+              <span className="text-xs text-ink-400">
+                추정 비용 약 ${(count * costPerSet).toFixed(2)} · 실행 검증과 AI 검수를 통과한 것만 공개돼요
+                {count > 1 && " · 여러 개는 뒤에서 차례로 만들고, 아래 생성 작업 기록에서 진행 상황을 볼 수 있어요"}
+              </span>
+              {data.mode === "mock" && <span className="text-xs text-ink-400">목업 모드는 요청 내용을 반영하지 않아요 (지원 개념: map, filter, for, if-else, reduce)</span>}
             </div>
           </section>
 

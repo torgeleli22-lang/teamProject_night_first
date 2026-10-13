@@ -107,6 +107,12 @@ const check = (cond: unknown, msg: string) => {
   if (process.env.AI_MODE === "mock") {
     const gen = await call<{ status: string }>("POST", "/admin/generate", { concept: "reduce", level: 4 });
     check(["published", "rejected"].includes(gen.status), `AI 생성(목업): ${gen.status}`);
+    // 관리자 맞춤 생성: 개수 2 + 요청 내용 → 뒤에서 차례로 생성, 기록에 요청 내용이 보임
+    const batch = await call<{ status: string; started: number }>("POST", "/admin/generate", { concept: "map", level: 3, count: 2, instructions: "쇼핑몰 장바구니 데이터로 만들어 주세요" });
+    check(batch.status === "started" && batch.started === 2, "맞춤 생성 2개 시작");
+    await Promise.all(tasks);
+    const batchJobs = (await call<{ jobs: { reason: string; status: string }[] }>("GET", "/admin/overview")).jobs.filter((j) => j.reason.includes("장바구니"));
+    check(batchJobs.length === 2 && batchJobs.some((j) => j.reason.includes("2/2")), `맞춤 생성 기록 2개 (${batchJobs.map((j) => j.status).join(", ")})`);
     // 수동 생성 도중 중지 → 결과를 버리고 cancelled
     const pending = call<{ status: string }>("POST", "/admin/generate", { concept: "filter", level: 2 });
     await new Promise((r) => setTimeout(r, 500));
