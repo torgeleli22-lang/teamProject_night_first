@@ -27,6 +27,8 @@ export interface Ctx {
   req: ApiRequest;
   /** 지금 요청한 사람의 세션 (필요할 때만 DB 에서 확인·생성) */
   session(): Promise<SessionInfo>;
+  /** AI 요청 한도를 넘음 → 이번 요청은 AI 없이 규칙으로만 처리 (주관식 제출) */
+  aiLimited?: boolean;
   /** 응답을 기다리게 하지 않고 뒤에서 할 일 (AI 생성, 학습자 분석) */
   background(task: BackgroundTask): Promise<void>;
 }

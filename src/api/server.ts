@@ -14,10 +14,21 @@ const PORT = Number(process.env.API_PORT ?? 8787);
 (async () => {
   // 환경 변수를 읽은 뒤에 불러와야 설정(예산·세션 시간 등)이 반영된다
   const { handle } = await import("./router");
+  const { LIMITS } = await import("./rate-limit");
   http
     .createServer(async (req, res) => {
+      // 아주 큰 요청으로 메모리를 채우지 못하게 크기를 제한한다
       const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(chunk as Buffer);
+      let size = 0;
+      for await (const chunk of req) {
+        size += (chunk as Buffer).length;
+        if (size > LIMITS.maxBodyBytes) {
+          res.writeHead(413, { "content-type": "application/json" }).end(JSON.stringify({ error: "요청이 너무 커요." }));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk as Buffer);
+      }
       const raw = Buffer.concat(chunks).toString("utf8");
       let body: unknown = undefined;
       try {

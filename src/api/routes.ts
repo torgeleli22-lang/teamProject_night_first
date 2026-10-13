@@ -98,7 +98,7 @@ const submitAttempt: Handler = async (ctx) => {
   const body = parse(AttemptBody, ctx.req.body);
   if (!body.answer && !body.giveUp) throw new HttpError(400, "답을 입력해 주세요.");
   const me = await ctx.session();
-  const result = await gradeAttempt(me, body.questionId, body.giveUp ? null : body.answer!, body.hintsUsed, body.timeMs);
+  const result = await gradeAttempt(me, body.questionId, body.giveUp ? null : body.answer!, body.hintsUsed, body.timeMs, !ctx.aiLimited);
   if (!result) throw notFound("문제");
   const analyzing = await analysisDue(me.id, await attemptCount(me.id));
   if (analyzing) await ctx.background({ kind: "analysis", sessionId: me.id, level: me.preferredLevel });
