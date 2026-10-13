@@ -13,6 +13,7 @@ import type { Job, UsageRow } from "@/lib/server/ops-repo";
 interface Overview {
   mode: "live" | "mock" | "off";
   autoGeneration: boolean;
+  adminCode: { custom: boolean; recovery: boolean };
   models: { fast: string; smart: string };
   policy: typeof PolicyType;
   triggerLabels: Record<Trigger, string>;
@@ -197,7 +198,7 @@ export default function AdminPage() {
             load();
           }}
         >
-          <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="ADMIN_TOKEN" aria-label="관리자 토큰" className="rounded-xl border border-ink-200 px-3 py-2 text-sm" />
+          <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="관리자 코드" aria-label="관리자 코드" className="rounded-xl border border-ink-200 px-3 py-2 text-sm" />
           <button className="btn-soft px-4 py-2 text-sm">확인</button>
         </form>
       </div>
@@ -516,6 +517,19 @@ export default function AdminPage() {
             </div>
           </section>
 
+          <AdminCodeCard
+            info={data.adminCode}
+            headers={headers}
+            onChanged={(code) => {
+              setToken(code);
+              try {
+                sessionStorage.setItem("admin-token", code);
+              } catch {
+                /* ignore */
+              }
+            }}
+          />
+
           <section className="card mt-6 p-5">
             <SectionTitle action={<span className="text-sm text-ink-400">누적 추정 ${data.cost.total.toFixed(3)}</span>}>AI 사용량</SectionTitle>
             {data.usage.length === 0 ? (
@@ -551,6 +565,97 @@ export default function AdminPage() {
         </>
       )}
     </div>
+  );
+}
+
+/** 관리자 코드 바꾸기. 원문은 서버 DB 에도 남지 않고(해시만 저장), 이 브라우저 탭에만 기억한다 */
+function AdminCodeCard({
+  info,
+  headers,
+  onChanged,
+}: {
+  info: { custom: boolean; recovery: boolean };
+  headers: () => Record<string, string>;
+  onChanged: (code: string) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const problem =
+    code.length === 0
+      ? null
+      : code.length < 8
+        ? "8자 이상으로 정해 주세요."
+        : code.trim() !== code
+          ? "앞뒤에 공백을 넣을 수 없어요."
+          : confirm && confirm !== code
+            ? "두 칸의 코드가 서로 달라요."
+            : null;
+
+  async function save() {
+    setSaving(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/code`, { method: "POST", headers: headers(), body: JSON.stringify({ code }) });
+      if (res.ok) {
+        onChanged(code);
+        setCode("");
+        setConfirm("");
+        setResult({ ok: true, text: "관리자 코드를 바꿨어요. 이제 예전 관리자 코드로는 들어올 수 없어요." });
+      } else {
+        setResult({ ok: false, text: (await res.json().catch(() => ({}))).error ?? "바꾸지 못했어요." });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="card mt-6 p-5">
+      <SectionTitle>관리자 코드</SectionTitle>
+      <p className="text-sm leading-relaxed text-ink-600">
+        {info.custom ? "관리자 화면에서 정한 관리자 코드를 쓰고 있어요." : "아직 관리자 코드를 정하지 않았어요. 지금은 서버의 복구 코드로만 들어올 수 있어요."} 함께 관리하는 사람에게는{" "}
+        <b>관리자 코드</b>를 알려 주세요.
+        {info.recovery && (
+          <>
+            {" "}
+            서버 <code className="rounded bg-ink-100 px-1">.env</code> 의 <code className="rounded bg-ink-100 px-1">ADMIN_TOKEN</code>(복구 코드)은 코드를 잊었을 때를 위해 항상 쓸 수 있으니, 서버
+            관리자만 알고 있어야 해요.
+          </>
+        )}
+      </p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <label className="text-sm">
+          <span className="mb-1 block font-semibold text-ink-500">새 관리자 코드 (8자 이상)</span>
+          <input
+            type="password"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            maxLength={64}
+            autoComplete="new-password"
+            className="w-full rounded-xl border border-ink-200 px-3 py-2"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block font-semibold text-ink-500">한 번 더 입력</span>
+          <input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            maxLength={64}
+            autoComplete="new-password"
+            className="w-full rounded-xl border border-ink-200 px-3 py-2"
+          />
+        </label>
+        <button type="button" onClick={save} disabled={saving || !code || !!problem || confirm !== code} className="btn-primary px-5 py-2.5 text-sm">
+          {saving ? <Spinner /> : null} 관리자 코드 바꾸기
+        </button>
+      </div>
+      {problem && <p className="mt-2 text-sm text-coral-600">{problem}</p>}
+      {result && <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${result.ok ? "bg-mint-50 text-mint-700" : "bg-coral-50 text-coral-700"}`}>{result.text}</p>}
+    </section>
   );
 }
 

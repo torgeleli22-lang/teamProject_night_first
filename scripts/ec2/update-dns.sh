@@ -6,15 +6,19 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 log() { echo "[dns] $*"; }
-env_value() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' \r' || true; }
+# "KEY=값", "KEY = 값", "export KEY=값" 모두 읽는다 (따옴표·공백·Windows 줄바꿈 제거)
+env_value() { grep -E "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' \r\t' || true; }
 
 DOMAIN="$(env_value DUCKDNS_DOMAIN)"
 TOKEN="$(env_value DUCKDNS_TOKEN)"
 DOMAIN="${DOMAIN%.duckdns.org}"
-if [ -z "$DOMAIN" ] || [ -z "$TOKEN" ]; then
-  log "❌ .env 에 DUCKDNS_DOMAIN 과 DUCKDNS_TOKEN 을 넣어 주세요."
+if [ ! -f .env ]; then
+  log "❌ $(pwd)/.env 파일이 없어요."
   exit 1
 fi
+[ -z "$DOMAIN" ] && log "❌ $(pwd)/.env 에 DUCKDNS_DOMAIN=<이름> 줄이 없거나 값이 비어 있어요."
+[ -z "$TOKEN" ] && log "❌ $(pwd)/.env 에 DUCKDNS_TOKEN=<토큰> 줄이 없거나 값이 비어 있어요."
+[ -z "$DOMAIN" ] || [ -z "$TOKEN" ] && exit 1
 
 # EC2 안에서만 열리는 메타데이터 주소에서 지금 공인 IP 를 읽는다 (IMDSv2)
 META_TOKEN="$(curl -sf -m 5 -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60")"

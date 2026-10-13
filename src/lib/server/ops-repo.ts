@@ -129,11 +129,11 @@ export async function stopRequestedSince(since: number): Promise<boolean> {
 
 // ───────────────────────── 운영 설정 (app_meta) ─────────────────────────
 
-async function getMeta(key: string): Promise<string | null> {
+export async function getMeta(key: string): Promise<string | null> {
   return (await (await getDb()).get<{ value: string }>("SELECT value FROM app_meta WHERE key = ?", [key]))?.value ?? null;
 }
 
-async function setMeta(key: string, value: string) {
+export async function setMeta(key: string, value: string) {
   await (await getDb()).run("INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, value]);
 }
 
@@ -210,6 +210,16 @@ export const PRICE: Record<string, { input: number; output: number; cacheRead: n
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01 },
   "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 },
 };
+
+/**
+ * AI 호출 한 번이 쓸 수 있는 최대 비용 (예산을 넘지 않게 미리 잡아 두는 금액).
+ * 입력은 글자 수를 토큰 수로 넉넉히 보고(한국어는 글자당 1토큰 안팎), 출력은 최대 길이를 다 쓴다고 본다.
+ * 가격표에 없는 모델은 가장 비싼 가격으로 계산한다.
+ */
+export function worstCaseCostUsd(model: string, inputChars: number, maxOutputTokens: number): number {
+  const p = PRICE[normalizeModel(model)] ?? Object.values(PRICE).reduce((a, b) => (b.output > a.output ? b : a));
+  return (inputChars * p.input + maxOutputTokens * p.output) / 1e6;
+}
 
 /** "mock:", "us.anthropic.", 날짜·버전 꼬리("-20251001-v1:0")를 떼어 가격표 이름으로 맞춘다 */
 export function normalizeModel(model: string): string {
