@@ -39,8 +39,32 @@ async function open(): Promise<Db> {
     db = (await import("./sqlite")).openSqlite(process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "app.db"));
   }
   await ensureSchema(db);
+  await resetForContentModel(db);
   await syncSeed(db);
   return db;
+}
+
+/**
+ * 학습 구조를 "개념 / 코드" 두 갈래로 바꾸면서 예전 문제·학습 기록·랭킹을 한 번 지운다 (관리자 결정: 전부 지우고 새로 시작).
+ * AI 사용량(월 예산)과 설정(관리자 코드, 자동 생성 스위치)은 남긴다.
+ * 콘텐츠 표는 새 열(track, language)이 생기도록 지우고 다시 만든다.
+ */
+export const CONTENT_MODEL = "2";
+
+async function resetForContentModel(db: Db) {
+  const row = await db.get<{ value: string }>("SELECT value FROM app_meta WHERE key = 'content_model'");
+  if (row?.value === CONTENT_MODEL) return;
+  await db.transaction(async (tx) => {
+    for (const table of ["attempts", "daily_activity", "concept_progress", "analyses", "sessions", "demand_signals", "generation_jobs"]) {
+      await tx.run(`DELETE FROM ${table}`);
+    }
+    await tx.run("DROP TABLE IF EXISTS questions");
+    await tx.run("DROP TABLE IF EXISTS code_items");
+    await tx.run("DELETE FROM app_meta WHERE key IN ('seed_hash', 'schema_hash')");
+  });
+  await ensureSchema(db);
+  await db.run("INSERT INTO app_meta (key, value) VALUES ('content_model', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [CONTENT_MODEL]);
+  console.log("[db] 새 학습 구조로 바꾸며 예전 문제·학습 기록을 지웠어요 (AI 사용량·설정은 유지)");
 }
 
 const hashOf = (value: unknown) => crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
@@ -74,7 +98,7 @@ export function getDb(): Promise<Db> {
 
 /**
  * 코드에 들어 있는 시드 콘텐츠를 DB 와 맞춘다 (AI 생성 콘텐츠는 건드리지 않음).
- * 시드가 바뀌었을 때만 실행해서, Lambda 가 새로 뜰 때마다 수백 건을 쓰지 않게 한다.
+ * 시드가 바뀌었을 때만 실행해서, Lambda 가 새로 뜰 때마다 수백 건을 쓰지 않게 한다. 코드에서 빠진 시드 문제는 지운다.
  */
 async function syncSeed(db: Db) {
   const { items, questions } = buildSeed(0);
@@ -83,13 +107,24 @@ async function syncSeed(db: Db) {
   if (current?.value === hash) return;
   const now = Date.now();
   await db.transaction(async (tx) => {
+    const seedIds = new Set(items.map((i) => i.id));
+    const questionIds = new Set(questions.map((q) => q.id));
+    for (const r of await tx.all<{ id: string }>("SELECT id FROM code_items WHERE source = 'seed'")) {
+      if (!seedIds.has(r.id)) {
+        await tx.run("DELETE FROM questions WHERE code_item_id = ?", [r.id]);
+        await tx.run("DELETE FROM code_items WHERE id = ?", [r.id]);
+      }
+    }
+    for (const r of await tx.all<{ id: string }>("SELECT q.id FROM questions q JOIN code_items c ON c.id = q.code_item_id WHERE c.source = 'seed'")) {
+      if (!questionIds.has(r.id)) await tx.run("DELETE FROM questions WHERE id = ?", [r.id]);
+    }
     for (const i of items) {
       await tx.run(
-        `INSERT INTO code_items (id, title, code, concepts, level, factors, output, runnable, source, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'seed', 'published', ?)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, code = excluded.code, concepts = excluded.concepts,
-           level = excluded.level, factors = excluded.factors, output = excluded.output, runnable = excluded.runnable`,
-        [i.id, i.title, i.code, JSON.stringify(i.concepts), i.level, JSON.stringify(i.factors), i.output, i.runnable, now],
+        `INSERT INTO code_items (id, track, language, title, code, concepts, level, factors, output, runnable, source, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'seed', 'published', ?)
+         ON CONFLICT(id) DO UPDATE SET track = excluded.track, language = excluded.language, title = excluded.title, code = excluded.code,
+           concepts = excluded.concepts, level = excluded.level, factors = excluded.factors, output = excluded.output, runnable = excluded.runnable`,
+        [i.id, i.track, i.language, i.title, i.code, JSON.stringify(i.concepts), i.level, JSON.stringify(i.factors), i.output, i.runnable, now],
       );
     }
     for (const q of questions) {

@@ -1,23 +1,20 @@
 /**
  * 목업 모드에서 "AI 가 생성한 것처럼" 돌려줄 코드 세트.
- * 실제 생성과 똑같이 실행 검증·검수 단계를 거친다 (검증기는 진짜).
- * reduce 세트는 첫 번째 시도에 일부러 틀린 실행 결과를 넣어, 검증 실패 → 재생성 흐름을 확인할 수 있게 했다.
+ * 실제 생성과 똑같이 단계 구성(훑어보기 1, 핵심 줄 1, 정리 2)으로, 실행 검증·검수 단계를 거친다 (검증기는 진짜).
+ * reduce 세트는 첫 번째 시도에 일부러 틀린 출력 예측 정답을 넣어, 자동 수정 흐름을 확인할 수 있게 했다.
  */
 
 type Skill = "recall" | "predict" | "analyze" | "infer" | "synthesize";
 
 interface MockQuestion {
-  type: "multiple_choice" | "short_answer" | "fill_blank" | "shuffle" | "predict_output" | "find_bug";
+  type: "multiple_choice" | "short_answer" | "fill_blank" | "predict_output";
+  stage: "overview" | "key" | "wrapup";
   skill: Skill;
   prompt: string;
   choices: { text: string; misconception: string | null }[] | null;
   answerIndex: number | null;
   blankedCode: string | null;
-  pieces: string[] | null;
   output: string | null;
-  buggyCode: string | null;
-  bugLine: number | null;
-  fixedLine: string | null;
   rubric: { label: string; keywords: string[] }[] | null;
   misconceptions: { label: string; keywords: string[]; correction: string }[] | null;
   modelAnswer: string | null;
@@ -39,23 +36,28 @@ const EMPTY = {
   choices: null,
   answerIndex: null,
   blankedCode: null,
-  pieces: null,
   output: null,
-  buggyCode: null,
-  bugLine: null,
-  fixedLine: null,
   rubric: null,
   misconceptions: null,
   modelAnswer: null,
   focusLines: null,
 };
-const q = (x: Partial<MockQuestion> & Pick<MockQuestion, "type" | "skill" | "prompt" | "hints" | "explanation" | "keyPoint">): MockQuestion => ({ ...EMPTY, ...x });
+const q = (x: Partial<MockQuestion> & Pick<MockQuestion, "type" | "stage" | "skill" | "prompt" | "hints" | "explanation" | "keyPoint">): MockQuestion => ({ ...EMPTY, ...x });
+
+/** 훑어보기(overview) 객관식: 코드 전체가 하는 일 */
+const overview = (correct: string, wrongs: [string, string?][], explanation: string, keyPoint: string): MockQuestion =>
+  q({
+    type: "multiple_choice",
+    stage: "overview",
+    skill: "analyze",
+    prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
+    choices: [opt(correct), ...wrongs.map(([t, m]) => opt(t, m ?? null))],
+    answerIndex: 0,
+    hints: ["변수를 만드는 줄, 값을 바꾸는 줄, 출력하는 줄로 나눠 보세요.", "마지막에 출력되는 값이 무엇인지 보면 목적이 보여요."],
+    explanation,
+    keyPoint,
+  });
 const opt = (text: string, misconception: string | null = null) => ({ text, misconception });
-const replaceLine = (code: string, line: number, text: string) =>
-  code
-    .split("\n")
-    .map((l, i) => (i === line - 1 ? text : l))
-    .join("\n");
 
 // ─────────────────────────── map vs filter (중급) ───────────────────────────
 
@@ -73,8 +75,19 @@ const MAP_FILTER: MockSet = {
   concepts: ["map", "filter", "arrow-functions"],
   expectedOutput: "4\n[800, 450]",
   questions: [
+    overview(
+      "가격마다 10% 할인한 가격과, 1000원 미만인 가격 목록을 만들어 할인 목록의 개수와 저렴한 가격을 출력한다",
+      [
+        ["가격을 할인해서 prices 배열에 다시 저장한다", "map 이 원본 배열을 바꾼다고 생각"],
+        ["1000원 미만인 가격을 할인한다", "map 과 filter 를 하나의 작업으로 생각"],
+        ["가격의 합계를 구한다", "map 과 reduce 를 혼동"],
+      ],
+      "3번째 줄은 map 으로 모든 가격을 0.9 배 한 새 배열, 4번째 줄은 filter 로 1000 미만만 고른 새 배열을 만들어요.\n6~7번째 줄에서 할인 목록의 개수와 저렴한 가격 목록을 출력해요.",
+      "map = 모두 바꾸기, filter = 골라내기",
+    ),
     q({
       type: "multiple_choice",
+      stage: "key",
       skill: "analyze",
       prompt: "강조된 3번째 줄에서 map 은 어떤 역할을 할까요?",
       focusLines: [3],
@@ -96,6 +109,7 @@ const MAP_FILTER: MockSet = {
     }),
     q({
       type: "predict_output",
+      stage: "wrapup",
       skill: "predict",
       prompt: "두 줄의 실행 결과를 입력해 보세요.",
       output: "4\n[800, 450]",
@@ -109,38 +123,8 @@ const MAP_FILTER: MockSet = {
       keyPoint: "map 은 길이 유지, filter 는 길이가 줄 수 있음",
     }),
     q({
-      type: "fill_blank",
-      skill: "recall",
-      prompt: "1000원 미만인 가격만 남기려면 빈칸에 어떤 메서드가 들어가야 할까요?",
-      blankedCode: "const cheap = prices.____(p => p < 1000);",
-      choices: [opt("filter"), opt("map", "map과 filter를 혼동"), opt("find", "find 가 조건에 맞는 요소를 모두 돌려준다고 생각"), opt("forEach")],
-      answerIndex: 0,
-      hints: ["하고 싶은 일은 '바꾸기'인가요, '고르기'인가요?", "결과는 여러 개가 담긴 배열이어야 해요.", "조건을 통과한 요소들을 새 배열로 돌려주는 메서드예요.", "map 을 쓰면 true/false 배열이 돼요."],
-      explanation: "조건에 맞는 요소만 고르는 건 filter 예요.\nmap 은 [false, true, false, true], find 는 800 하나만, forEach 는 undefined 를 돌려줘요.",
-      keyPoint: "고르기 = filter",
-    }),
-    q({
-      type: "shuffle",
-      skill: "analyze",
-      prompt: "저렴한 상품 목록이 출력되도록 순서를 맞춰 보세요.",
-      pieces: ["const prices = [1200, 800, 3000, 450];", "const cheap = prices.filter(p => p < 1000);", "console.log(cheap);"],
-      hints: ["어떤 줄이 어떤 변수를 쓰나요?", "cheap 을 만들려면 prices 가 있어야 해요.", "선언 전에는 쓸 수 없어요.", "데이터 → 가공 → 출력"],
-      explanation: "prices 를 먼저 만들고, filter 로 cheap 을 만든 뒤 출력해요.",
-      keyPoint: "데이터 → 가공 → 출력",
-    }),
-    q({
-      type: "find_bug",
-      skill: "infer",
-      prompt: "cheap 이 [false, true, false, true] 로 출력돼요. 어느 줄이 문제일까요?",
-      buggyCode: replaceLine(MAP_FILTER_CODE, 4, "const cheap = prices.map(p => p < 1000);"),
-      bugLine: 4,
-      fixedLine: "const cheap = prices.filter(p => p < 1000);",
-      hints: ["true/false 가 그대로 담겼다면, 콜백의 결과를 그대로 모은 거예요.", "그런 일을 하는 메서드는?", "map 은 변환, filter 는 고르기.", "4번째 줄의 메서드를 보세요."],
-      explanation: "4번째 줄이 map 이라서 비교 결과(true/false)가 그대로 담겨요.\nfilter 로 바꿔야 조건을 통과한 가격만 남아요.",
-      keyPoint: "map 은 변환, filter 는 고르기",
-    }),
-    q({
       type: "short_answer",
+      stage: "wrapup",
       skill: "infer",
       prompt: "discounted 와 cheap 의 길이가 다른 이유를 설명해 주세요.",
       rubric: [
@@ -180,8 +164,19 @@ const PASS_COUNT: MockSet = {
   concepts: ["for", "objects", "if-else"],
   expectedOutput: "2명 합격",
   questions: [
+    overview(
+      "학생 목록에서 70점 이상인 학생 수를 세어 출력한다",
+      [
+        ["학생들의 평균 점수를 구한다", "더하기(++)를 점수 합계로 생각"],
+        ["70점 미만인 학생을 목록에서 지운다", "조건문이 요소를 지운다고 생각"],
+        ["가장 점수가 높은 학생을 찾는다"],
+      ],
+      "passed 를 0 에서 시작해, 반복문이 학생마다 점수가 70 이상인지 확인하고 맞으면 1 씩 더해요.\n마지막에 합격한 학생 수를 출력해요.",
+      "세기 패턴: 0 에서 시작해 조건이 맞을 때마다 1 더하기",
+    ),
     q({
       type: "predict_output",
+      stage: "wrapup",
       skill: "predict",
       prompt: "실행 결과를 입력해 보세요.",
       output: "2명 합격",
@@ -190,17 +185,8 @@ const PASS_COUNT: MockSet = {
       keyPoint: "조건을 만족할 때만 카운트 증가",
     }),
     q({
-      type: "multiple_choice",
-      skill: "infer",
-      prompt: "준호의 점수가 70 으로 바뀌면 출력은 어떻게 될까요?",
-      choices: [opt("2명 합격", ">= 가 경계값을 포함하지 않는다고 생각"), opt("3명 합격"), opt("1명 합격"), opt("70명 합격")],
-      answerIndex: 1,
-      hints: ["바뀐 점수가 조건을 통과하나요?", "조건은 score >= 70 이에요.", ">= 는 같을 때도 참이에요.", "통과하는 학생 수를 다시 세어 보세요."],
-      explanation: "70 >= 70 은 참이라 준호도 합격해요.\n세 명 모두 통과해 \"3명 합격\" 이 돼요.",
-      keyPoint: ">= 는 경계값 포함",
-    }),
-    q({
       type: "fill_blank",
+      stage: "key",
       skill: "recall",
       prompt: "70점 이상만 합격으로 세려면 빈칸에 어떤 연산자가 들어가야 할까요?",
       blankedCode: "  if (students[i].score ____ 70) {",
@@ -211,27 +197,8 @@ const PASS_COUNT: MockSet = {
       keyPoint: ">= 는 크거나 같다, = 는 대입",
     }),
     q({
-      type: "shuffle",
-      skill: "analyze",
-      prompt: "70점 이상인 점수의 개수가 출력되도록 순서를 맞춰 보세요.",
-      pieces: ["let passed = 0;", "for (const s of [80, 65, 92]) {", "  if (s >= 70) passed++;", "}", "console.log(passed);"],
-      hints: ["카운트할 변수는 언제 만들어야 하나요?", "반복 안에서는 매번 할 일만.", "출력은 반복이 끝난 뒤에.", "준비 → 반복 → 끝 → 출력"],
-      explanation: "passed 를 먼저 0 으로 만들고, 반복하며 조건에 맞으면 늘린 뒤, 반복이 끝나면 출력해요.",
-      keyPoint: "반복 전 준비 → 반복 안에서 카운트 → 반복 후 출력",
-    }),
-    q({
-      type: "find_bug",
-      skill: "analyze",
-      prompt: "실행하면 TypeError 가 나요. 어느 줄이 문제일까요?",
-      buggyCode: replaceLine(PASS_CODE, 8, "for (let i = 0; i <= students.length; i++) {"),
-      bugLine: 8,
-      fixedLine: "for (let i = 0; i < students.length; i++) {",
-      hints: ["에러는 students[i] 가 없는 값일 때 나요.", "i 는 어디까지 커지나요?", "학생이 3명이면 인덱스는 0, 1, 2 예요.", "반복 조건의 비교 연산자를 보세요."],
-      explanation: "i <= students.length 라서 i 가 3 일 때도 반복해요.\nstudents[3] 은 undefined 라 .score 에서 TypeError 가 나요. i < students.length 로 고쳐요.",
-      keyPoint: "마지막 인덱스는 length - 1",
-    }),
-    q({
       type: "short_answer",
+      stage: "wrapup",
       skill: "analyze",
       prompt: "passed 가 2 가 되는 과정을 설명해 주세요.",
       rubric: [
@@ -269,8 +236,19 @@ function orderSet(output: string): MockSet {
     concepts: ["reduce", "filter", "map", "objects"],
     expectedOutput: output,
     questions: [
+      overview(
+        "주문 전체 금액을 합치고, 금액이 6000원을 넘는 주문의 상품 이름만 골라 출력한다",
+        [
+          ["주문마다 가격을 할인한다"],
+          ["가장 비싼 상품 하나를 찾는다", "filter 가 하나만 돌려준다고 생각"],
+          ["주문 개수를 센다", "reduce 가 개수를 센다고 생각"],
+        ],
+        "7번째 줄은 reduce 로 가격 × 수량을 모두 더한 합계, 8번째 줄은 filter 로 6000원 넘는 주문을 고른 뒤 map 으로 이름만 꺼내요.\n두 값을 출력해요.",
+        "reduce = 합치기, filter → map = 골라서 꺼내기",
+      ),
       q({
         type: "predict_output",
+        stage: "wrapup",
         skill: "predict",
         prompt: "두 줄의 실행 결과를 입력해 보세요. (배열은 ['a'] 형태로)",
         output,
@@ -280,6 +258,7 @@ function orderSet(output: string): MockSet {
       }),
       q({
         type: "multiple_choice",
+        stage: "key",
         skill: "analyze",
         prompt: "7번째 줄 reduce 의 마지막 인자 0 은 무엇일까요?",
         focusLines: [7],
@@ -295,38 +274,8 @@ function orderSet(output: string): MockSet {
         keyPoint: "reduce(콜백, 시작값)",
       }),
       q({
-        type: "fill_blank",
-        skill: "recall",
-        prompt: "전체 주문 금액을 하나의 숫자로 합치려면 빈칸에 어떤 메서드가 들어가야 할까요?",
-        blankedCode: "const total = orders.____((sum, o) => sum + o.price * o.qty, 0);",
-        choices: [opt("reduce"), opt("map", "map 과 reduce 를 혼동"), opt("filter"), opt("forEach")],
-        answerIndex: 0,
-        hints: ["결과는 배열인가요, 숫자 하나인가요?", "값을 누적해서 하나로 합치는 메서드예요.", "(누적값, 현재값) 을 받는 콜백을 쓰는 메서드예요.", "map 은 배열을 돌려줘요."],
-        explanation: "여러 값을 하나로 누적하는 건 reduce 예요.",
-        keyPoint: "누적해서 하나로 = reduce",
-      }),
-      q({
-        type: "shuffle",
-        skill: "analyze",
-        prompt: "합계가 출력되도록 순서를 맞춰 보세요.",
-        pieces: ['const orders = [{ item: "커피", price: 4500, qty: 2 }];', "const total = orders.reduce((sum, o) => sum + o.price * o.qty, 0);", "console.log(total);"],
-        hints: ["total 은 무엇을 사용하나요?", "orders 가 먼저 있어야 해요.", "선언 전에 쓸 수 없어요.", "데이터 → 계산 → 출력"],
-        explanation: "orders 를 만든 뒤 reduce 로 합계를 구하고 출력해요.",
-        keyPoint: "데이터 → 계산 → 출력",
-      }),
-      q({
-        type: "find_bug",
-        skill: "infer",
-        prompt: "total 이 숫자가 아니라 이상한 문자열로 출력돼요. 어느 줄이 문제일까요?",
-        buggyCode: replaceLine(ORDER_CODE, 7, "const total = orders.reduce((sum, o) => sum + o.price * o.qty);"),
-        bugLine: 7,
-        fixedLine: "const total = orders.reduce((sum, o) => sum + o.price * o.qty, 0);",
-        hints: ["처음 콜백이 실행될 때 sum 에는 무엇이 들어 있을까요?", "시작값이 없으면 첫 번째 요소가 sum 이 돼요.", "객체 + 숫자는 문자열 이어 붙이기가 돼요.", "reduce 의 마지막 인자를 확인하세요."],
-        explanation: "시작값 0 이 빠져서 sum 이 첫 번째 주문 객체로 시작해요.\n객체 + 숫자는 문자열이 되어 이상한 결과가 나와요. 0 을 넣어 고쳐요.",
-        keyPoint: "reduce 에는 시작값을 꼭 넣기",
-      }),
-      q({
         type: "short_answer",
+        stage: "wrapup",
         skill: "synthesize",
         prompt: "total 이 21000 이 되는 과정을 설명해 주세요.",
         rubric: [

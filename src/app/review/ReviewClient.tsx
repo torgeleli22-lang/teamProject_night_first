@@ -5,7 +5,8 @@ import { SessionNotice } from "@/components/SessionNotice";
 import { LoadState, ProgressBar, SectionTitle, masteryTone } from "@/components/ui";
 import type { ReviewView } from "@/api/views";
 import { useApi } from "@/lib/api";
-import { QUESTION_TYPE_LABEL, conceptName, levelInfo } from "@/lib/curriculum";
+import { QUESTION_TYPE_LABEL, STAGE_INFO, TRACK_LABEL, conceptName, levelInfo, trackOf } from "@/lib/curriculum";
+import type { Track } from "@/lib/types";
 
 export function timeAgo(ts: number): string {
   const diff = Math.floor((Date.now() - ts) / 1000);
@@ -25,7 +26,7 @@ export function ReviewClient() {
   return (
     <div className="mx-auto max-w-4xl px-4 pb-28 pt-8 sm:pb-16">
       <p className="text-[15px] font-semibold text-sun-600">🔁 복습</p>
-      <h1 className="mt-1 text-[26px] font-extrabold tracking-tight sm:text-3xl">{empty ? "아직 복습할 문제가 없어요" : "틀렸던 코드를 다시 읽어볼까요?"}</h1>
+      <h1 className="mt-1 text-[26px] font-extrabold tracking-tight sm:text-3xl">{empty ? "아직 복습할 문제가 없어요" : "틀렸던 문제를 다시 풀어볼까요?"}</h1>
       <p className="mt-1 text-ink-500">틀린 문제를 먼저, 그다음 아직 헷갈리는 개념의 문제를 다시 풀어요. 새로운 문제는 학습 탭에서 풀 수 있어요.</p>
       <SessionNotice />
 
@@ -50,10 +51,16 @@ export function ReviewClient() {
                 <p className="text-3xl font-extrabold text-sun-600">{weak.length}</p>
               </div>
             </div>
-            <div className="flex-1 text-sm text-ink-500">틀린 문제부터 최대 6개를 골라 한 세트로 복습해요. 맞히면 오답 노트에서 빠져요.</div>
-            <Link href={`/practice?mode=review&level=${level}`} className="btn-primary px-6 py-3">
-              복습 세트 시작 →
-            </Link>
+            <div className="flex-1 text-sm text-ink-500">틀린 문제부터 최대 8개를 골라 한 세트로 복습해요. 맞히면 오답 노트에서 빠져요.</div>
+            <div className="flex flex-wrap gap-2">
+              {(["theory", "code"] as Track[])
+                .filter((t) => wrong.some((w) => w.track === t) || weak.some((s) => trackOf(s.conceptId) === t))
+                .map((t) => (
+                  <Link key={t} href={`/practice?mode=review&track=${t}&level=${level}`} className="btn-primary px-5 py-3">
+                    {t === "theory" ? "🧠" : "💻"} {TRACK_LABEL[t]} 복습 →
+                  </Link>
+                ))}
+            </div>
           </section>
 
           {wrong.length > 0 && (
@@ -64,8 +71,9 @@ export function ReviewClient() {
                   <li key={w.questionId} className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="chip bg-ink-100 text-ink-500">{TRACK_LABEL[w.track]}</span>
                         <span className="chip bg-brand-50 text-brand-700">{conceptName(w.concept)}</span>
-                        <span className="chip bg-ink-100 text-ink-500">{QUESTION_TYPE_LABEL[w.type]}</span>
+                        <span className="chip bg-ink-100 text-ink-500">{w.stage ? STAGE_INFO[w.stage].label : QUESTION_TYPE_LABEL[w.type]}</span>
                         <span className="chip bg-ink-100 text-ink-500">
                           {levelInfo(w.level).emoji} {levelInfo(w.level).name}
                         </span>
@@ -100,7 +108,10 @@ export function ReviewClient() {
                     <div className="mt-2">
                       <ProgressBar value={s.mastery} tone={masteryTone(s.mastery)} size="sm" label={`${conceptName(s.conceptId)} 이해도`} />
                     </div>
-                    <Link href={`/practice?mode=learn&concept=${s.conceptId}&level=${level}`} className="mt-3 inline-block text-sm font-semibold text-brand-600 hover:underline">
+                    <Link
+                      href={`/practice?mode=learn&track=${trackOf(s.conceptId)}&concept=${s.conceptId}&level=${level}`}
+                      className="mt-3 inline-block text-sm font-semibold text-brand-600 hover:underline"
+                    >
                       이 개념 새 문제로 다지기 →
                     </Link>
                   </div>

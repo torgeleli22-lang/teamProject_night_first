@@ -5,7 +5,7 @@ import { xpForAttempt } from "../learner/stats";
 import type { Answer, ConceptCheck, GradedBy } from "../types";
 import { getQuestion } from "./content-repo";
 import { insertAttempt, type SessionInfo } from "./session-repo";
-import { unshuffle } from "./planner";
+import { displayChoiceIndex, unshuffleAnswer } from "./planner";
 
 /** AI Tutor 영역에 보여줄 내용 */
 export interface TutorNote {
@@ -31,9 +31,8 @@ export interface AttemptResult {
   keyPoint: string;
   output: string | null;
   tutor: TutorNote;
-  /** 화면 표시용 정답 정보 */
+  /** 화면 표시용 정답 보기 번호 (화면에 섞어 보인 순서 기준) */
   answerIndex?: number;
-  bugLine?: number;
 }
 
 export async function gradeAttempt(
@@ -49,8 +48,8 @@ export async function gradeAttempt(
   const found = await getQuestion(questionId);
   if (!found) return null;
   const { question: q, item } = found;
-  // 셔플 답은 화면에 섞어서 보여준 순서 기준이므로 원래 인덱스로 되돌린다
-  const answer: Answer | null = rawAnswer?.type === "shuffle" ? { type: "shuffle", order: unshuffle(q, rawAnswer.order) } : rawAnswer;
+  // 보기는 화면에 섞어서 보여 주므로, 고른 번호를 원래 보기 번호로 되돌린다
+  const answer: Answer | null = rawAnswer ? unshuffleAnswer(q, rawAnswer) : null;
 
   let correct: boolean;
   let partial = false;
@@ -87,7 +86,7 @@ export async function gradeAttempt(
       source: fb.gradedBy === "ai" ? "ai" : "rule",
     };
   } else {
-    // 객관식·빈칸·셔플·결과 예측·오류 찾기: 규칙 채점, 미리 저장된 오개념/해설 사용 (AI 호출 없음)
+    // 객관식·빈칸·결과 예측: 규칙 채점, 미리 저장된 오개념/해설 사용 (AI 호출 없음)
     correct = gradeObjective(q, answer);
     misconception = choiceMisconception(q, answer) ?? null;
     const concept = getConcept(item.concepts[0]);
@@ -97,7 +96,9 @@ export async function gradeAttempt(
         ? "왜 그런지 한 단계씩 확인해 볼까요?"
         : misconception
           ? `이 답을 고른 걸 보니 '${misconception}' 이렇게 생각했을 수 있어요. 아래 흐름을 따라가 보세요.`
-          : "코드를 한 줄씩 다시 따라가 보면 어디서 생각이 달라졌는지 보일 거예요.",
+          : item.track === "theory"
+            ? "해설을 읽으며 비슷한 개념끼리 무엇이 다른지 정리해 봐요."
+            : "코드를 한 줄씩 다시 따라가 보면 어디서 생각이 달라졌는지 보일 거예요.",
       checks: [],
       misconception,
       correction: !correct && misconception && concept ? concept.keyIdea : null,
@@ -135,7 +136,6 @@ export async function gradeAttempt(
     keyPoint: q.keyPoint,
     output: item.output,
     tutor,
-    ...(q.type === "multiple_choice" || q.type === "fill_blank" ? { answerIndex: q.answerIndex } : {}),
-    ...(q.type === "find_bug" ? { bugLine: q.bugLine } : {}),
+    ...(q.type === "multiple_choice" || q.type === "fill_blank" ? { answerIndex: displayChoiceIndex(q, q.answerIndex) } : {}),
   };
 }

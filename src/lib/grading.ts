@@ -22,7 +22,8 @@ export function sameOutput(a: string, b: string): boolean {
 }
 
 /**
- * 객관식·빈칸·셔플·결과 예측·오류 찾기는 정답이 정해져 있으므로 규칙으로 채점한다 (AI 호출 없음).
+ * 객관식·빈칸·결과 예측은 정답이 정해져 있으므로 규칙으로 채점한다 (AI 호출 없음).
+ * 보기 번호는 원래 순서 기준이다 (화면에 섞어 보인 번호는 서버가 먼저 되돌린다: planner.unshuffleAnswer).
  * 주관식은 evaluateShortAnswer 를 쓴다.
  */
 export function gradeObjective(q: Question, answer: Answer): boolean {
@@ -34,13 +35,6 @@ export function gradeObjective(q: Question, answer: Answer): boolean {
     case "predict_output": {
       const text = (answer as { text: string }).text;
       return [q.output, ...(q.accepted ?? [])].some((ok) => sameOutput(text, ok));
-    }
-    case "find_bug":
-      return (answer as { line: number }).line === q.bugLine;
-    case "shuffle": {
-      const order = (answer as { order: number[] }).order;
-      // 같은 텍스트의 조각(예: "}")이 여러 개일 수 있으므로 텍스트 순서로 비교
-      return order.length === q.pieces.length && order.every((pieceIndex, i) => q.pieces[pieceIndex] === q.pieces[i]);
     }
     case "short_answer":
       return false;
@@ -108,10 +102,6 @@ export function describeAnswer(q: Question, answer: Answer): string {
     case "predict_output":
     case "short_answer":
       return answer.text.trim() || "(빈 답변)";
-    case "find_bug":
-      return `${answer.line}번째 줄`;
-    case "shuffle":
-      return q.type === "shuffle" ? answer.order.map((i) => q.pieces[i]).join("\n") : "";
   }
 }
 
@@ -123,10 +113,6 @@ export function describeCorrect(q: Question): string {
       return q.choices[q.answerIndex].text;
     case "predict_output":
       return q.output;
-    case "find_bug":
-      return `${q.bugLine}번째 줄 → ${q.fixedLine.trim()}`;
-    case "shuffle":
-      return q.pieces.join("\n");
     case "short_answer":
       return q.modelAnswer;
   }

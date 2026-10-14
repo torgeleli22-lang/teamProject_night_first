@@ -1,5 +1,5 @@
-import { CONCEPTS, UNITS } from "../curriculum";
-import type { Attempt, ConceptId, Level, QuestionType } from "../types";
+import { CONCEPTS, trackOf, unitsOf } from "../curriculum";
+import type { Attempt, ConceptId, Level, QuestionType, Track } from "../types";
 
 /**
  * 학습 통계는 모두 일반 로직으로 계산한다 (AI 호출 없음).
@@ -116,13 +116,22 @@ export function misconceptionCounts(attempts: Attempt[]): { text: string; count:
   return [...counts].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count);
 }
 
-export function overallProgress(stats: Map<ConceptId, ConceptStat>): number {
-  return Math.round([...stats.values()].reduce((s, c) => s + c.mastery, 0) / CONCEPTS.length);
+/** 전체 진행률 (track 을 주면 그 갈래의 개념만) */
+export function overallProgress(stats: Map<ConceptId, ConceptStat>, track?: Track): number {
+  const list = [...stats.values()].filter((s) => !track || trackOf(s.conceptId) === track);
+  return list.length ? Math.round(list.reduce((s, c) => s + c.mastery, 0) / list.length) : 0;
 }
 
-/** 현재 공부 중인 단원: 아직 모든 개념을 익히지 못한 첫 단원 */
-export function currentUnitId(stats: Map<ConceptId, ConceptStat>): number {
-  return UNITS.find((u) => u.conceptIds.some((c) => (stats.get(c)?.mastery ?? 0) < MASTERED))?.id ?? UNITS[UNITS.length - 1].id;
+/** 현재 공부 중인 단원: 그 갈래에서 아직 모든 개념을 익히지 못한 첫 단원 */
+export function currentUnitId(stats: Map<ConceptId, ConceptStat>, track: Track = "code"): number {
+  const units = unitsOf(track);
+  return units.find((u) => u.conceptIds.some((c) => (stats.get(c)?.mastery ?? 0) < MASTERED))?.id ?? units[units.length - 1].id;
+}
+
+/** 마지막으로 공부한 갈래 (학습 탭을 열 때 그 갈래를 먼저 보여 준다) */
+export function lastTrack(attempts: Attempt[]): Track {
+  const last = attempts.at(-1)?.concepts[0];
+  return last ? trackOf(last) : "code";
 }
 
 // ───────────────────────── 난이도 추천 (규칙 기반) ─────────────────────────
@@ -215,7 +224,9 @@ export function badges(attempts: Attempt[]): Badge[] {
     { id: "nohint", emoji: "🧠", title: "스스로 해결", description: "힌트 없이 5문제 맞히기", earned: attempts.filter((a) => a.correct && a.hintsUsed === 0).length >= 5 },
     { id: "explain", emoji: "🗣️", title: "설명왕", description: "주관식 문제 통과", earned: attempts.some((a) => a.questionType === "short_answer" && a.correct) },
     { id: "level3", emoji: "🌳", title: "초급 돌파", description: "초급(Lv.3) 문제 5개 맞히기", earned: attempts.filter((a) => a.level >= 3 && a.correct).length >= 5 },
-    { id: "arrays", emoji: "🛠️", title: "배열 장인", description: "map·filter·forEach 익히기", earned: mastered(["map", "filter", "for-each"]) },
+    { id: "arrays", emoji: "🛠️", title: "배열 장인", description: "map·filter 익히기", earned: mastered(["map", "filter"]) },
+    { id: "network", emoji: "🌐", title: "네트워크 입문", description: "OSI 7계층·TCP/UDP 익히기", earned: mastered(["net-osi", "net-tcp-udp"]) },
+    { id: "security", emoji: "🔐", title: "보안 기본기", description: "보안 분야 주제 2개 익히기", earned: ["sec-crypto", "sec-web", "sec-auth", "sec-threats"].filter((c) => (stats.get(c)?.mastery ?? 0) >= MASTERED).length >= 2 },
   ];
 }
 

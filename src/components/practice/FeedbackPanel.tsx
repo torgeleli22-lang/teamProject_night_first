@@ -33,6 +33,8 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
   // 제출 전에 대화했다면 이어서 볼 수 있게 열어 둔다
   const [chatOpen, setChatOpen] = useState(chat.turns.length > 0);
   const { correct, partial } = result;
+  /** 개념 문제의 답은 문장이라 고정폭 글꼴 대신 본문 글꼴로 */
+  const answerFont = question.track === "theory" ? "font-sans text-[14px]" : "font-mono text-[13px]";
   const tone = gaveUp ? "neutral" : correct ? "good" : partial ? "partial" : "bad";
   const headerStyle = { good: "bg-mint-50 text-mint-700", partial: "bg-sun-50 text-sun-600", bad: "bg-coral-50 text-coral-600", neutral: "bg-ink-100 text-ink-700" }[tone];
   const emoji = { good: "🎉", partial: "👍", bad: "🧐", neutral: "📘" }[tone];
@@ -135,18 +137,18 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
             {!gaveUp && (
               <div>
                 <p className="mb-1.5 text-xs font-bold text-coral-600">내 답</p>
-                <pre className="whitespace-pre-wrap rounded-xl bg-coral-50 px-3 py-2.5 font-mono text-[13px] text-ink-700">{result.myAnswer}</pre>
+                <pre className={`whitespace-pre-wrap rounded-xl bg-coral-50 px-3 py-2.5 text-ink-700 ${answerFont}`}>{result.myAnswer}</pre>
               </div>
             )}
             <div className={gaveUp ? "sm:col-span-2" : ""}>
               <p className="mb-1.5 text-xs font-bold text-mint-700">{question.type === "short_answer" ? "모범 설명" : "정답"}</p>
-              <pre className="whitespace-pre-wrap rounded-xl bg-mint-50 px-3 py-2.5 font-mono text-[13px] text-ink-700">{result.correctAnswer}</pre>
+              <pre className={`whitespace-pre-wrap rounded-xl bg-mint-50 px-3 py-2.5 text-ink-700 ${answerFont}`}>{result.correctAnswer}</pre>
             </div>
           </div>
         )}
 
         <div>
-          <p className="mb-2 font-bold text-ink-900">한 단계씩 따라가기</p>
+          <p className="mb-2 font-bold text-ink-900">{question.track === "theory" ? "해설" : "한 단계씩 따라가기"}</p>
           <ol className="space-y-1.5">
             {result.steps.map((step, i) => (
               <li key={i} className="flex gap-3 text-[15px] leading-relaxed text-ink-700">
@@ -157,7 +159,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
           </ol>
         </div>
 
-        {result.output && question.type !== "predict_output" && question.type !== "find_bug" && (
+        {result.output && question.type !== "predict_output" && (
           <div>
             <p className="mb-2 text-sm font-bold text-ink-500">원본 코드의 실제 실행 결과</p>
             <CodeSnippet code={result.output} />

@@ -123,21 +123,26 @@ function ruleFeedback(q: ShortAnswerQuestion, rule: RuleEvaluation): ShortAnswer
 
 function mockChat(q: Question, item: CodeItem, question: string, solved: boolean, answer?: Answer): string {
   const concept = getConcept(item.concepts[0]);
-  if (q.type === "shuffle" && answer?.type === "shuffle" && /틀|왜|순서|어디/.test(question)) {
-    const wrongAt = answer.order.findIndex((p, i) => q.pieces[p] !== q.pieces[i]);
-    if (wrongAt >= 0) {
-      return `놓아 주신 순서를 보면 ${wrongAt + 1}번째 자리의 \`${q.pieces[answer.order[wrongAt]].trim()}\` 가 조금 일러요. 이 줄이 쓰는 값이 그 위에서 먼저 만들어졌는지 확인해 보세요.`;
+  if ((q.type === "multiple_choice" || q.type === "fill_blank") && answer?.type === q.type && answer.index !== q.answerIndex && /틀|왜|다른|차이/.test(question)) {
+    const picked = q.choices[answer.index];
+    if (picked) {
+      return `고르신 '${picked.text}' 는 ${picked.misconception ? `'${picked.misconception}' 처럼 생각했을 때 고르기 쉬운 보기예요.` : "자주 헷갈리는 보기예요."} 문제에서 묻는 핵심이 무엇인지 다시 읽고, 이 보기가 그 조건을 정말 만족하는지 따져 보세요.`;
     }
-    if (answer.order.length < q.pieces.length) return `지금까지 놓은 ${answer.order.length}줄은 순서가 맞아요. 남은 조각 중에서 바로 다음에 실행되어야 할 줄을 골라 보세요.`;
   }
-  const firstLine = item.code.split("\n").find((l) => l.trim()) ?? "";
   if (/어디|모르겠|시작/.test(question)) {
+    if (item.track === "theory") {
+      return `좋은 질문이에요. 먼저 문제에서 묻는 핵심 단어를 찾아보세요. ${concept ? `이 주제의 핵심은 '${concept.keyIdea}' 예요.` : ""} 보기마다 이 핵심과 맞는지 하나씩 지워 가면 돼요. 어느 보기에서 헷갈렸나요?`;
+    }
+    const firstLine = item.code.split("\n").find((l) => l.trim()) ?? "";
     return `좋은 질문이에요. 먼저 첫 줄 \`${firstLine.trim()}\` 에서 어떤 값이 만들어지는지부터 적어 보세요. 그다음 줄마다 '이 줄이 끝나면 값이 어떻게 바뀌었지?'를 하나씩 따라가면 돼요. 어느 줄에서 막혔나요?`;
   }
   if (/예시|다른/.test(question) && concept) {
-    return `${concept.name}을(를) 다른 예시로 볼게요.\n\n${concept.example}\n\n핵심은 '${concept.keyIdea}' 예요. 지금 문제 코드와 어떤 점이 같은지 찾아볼까요?`;
+    return `${concept.name}을(를) 다른 예시로 볼게요.\n\n${concept.example}\n\n핵심은 '${concept.keyIdea}' 예요. 지금 문제와 어떤 점이 같은지 찾아볼까요?`;
   }
   if (solved) return `이 문제의 핵심은 '${q.keyPoint}' 예요. ${concept?.summary ?? ""}`;
+  if (item.track === "theory") {
+    return `정답을 바로 알려드리기보다 힌트를 드릴게요. ${concept ? `'${concept.name}'의 핵심은 ${concept.keyIdea} 예요.` : ""} 이 기준으로 보기를 하나씩 비교해 보세요.`;
+  }
   return `정답을 바로 알려드리기보다 힌트를 드릴게요. ${concept ? `이 코드는 '${concept.name}'이 핵심이에요 — ${concept.keyIdea}.` : ""} 이 생각을 바탕으로 코드를 한 줄씩 다시 읽어 보세요.`;
 }
 
@@ -147,27 +152,16 @@ const AskSchema = z.object({
 
 /**
  * 학습자의 현재 답을 튜터가 읽을 수 있는 글로 (AI 없이 규칙으로).
- * 순서 맞추기는 원래 조각 번호로 되돌린 순서를 받아, 학습자가 놓은 그대로 한 줄씩 적는다.
+ * 보기는 원래 번호로 되돌린 답을 받아 보기 글로 적는다.
  */
 export function describeLearnerAnswer(q: Question, answer: Answer | undefined, solved: boolean): string {
   if (!answer || answer.type !== q.type) return "";
-  const lines: string[] = [];
-  if (q.type === "shuffle" && answer.type === "shuffle") {
-    const placed = answer.order.filter((i) => i >= 0 && i < q.pieces.length);
-    lines.push(`학습자가 놓은 코드 순서 (${placed.length}/${q.pieces.length}개 놓음${placed.length < q.pieces.length ? ", 아직 다 놓지 않음" : ""}):`);
-    placed.forEach((pieceIndex, i) => {
-      const right = q.pieces[pieceIndex] === q.pieces[i];
-      lines.push(`${i + 1}. ${q.pieces[pieceIndex]}${right ? "" : "   ← 이 자리에 올 조각이 아님"}`);
-    });
-  } else {
-    lines.push(`학습자의 답: ${describeAnswer(q, answer)}`);
-  }
-  const complete = !(answer.type === "shuffle" && q.type === "shuffle" && answer.order.length < q.pieces.length);
-  if (q.type !== "short_answer" && complete) lines.push(`이 답은 ${gradeObjective(q, answer) ? "정답" : "오답"}입니다.`);
+  const lines = [`학습자의 답: ${describeAnswer(q, answer)}`];
+  if (q.type !== "short_answer") lines.push(`이 답은 ${gradeObjective(q, answer) ? "정답" : "오답"}입니다.`);
   lines.push(
     solved
-      ? "학습자의 질문이 '왜 틀렸는지' 같은 내용이면 위 답을 직접 짚어서(어느 줄·어느 보기가 왜 다른지) 설명하세요."
-      : "위 답은 참고용입니다. 정답을 통째로 알려주지 말고, 학습자의 답에서 다시 볼 곳(예: 몇 번째 줄 근처)을 짚어 스스로 고치게 하세요.",
+      ? "학습자의 질문이 '왜 틀렸는지' 같은 내용이면 위 답을 직접 짚어서(어느 보기·어느 줄이 왜 다른지) 설명하세요."
+      : "위 답은 참고용입니다. 정답을 통째로 알려주지 말고, 학습자의 답에서 다시 생각해 볼 곳을 짚어 스스로 고치게 하세요.",
   );
   return `<learner_submission>\n${lines.join("\n")}\n</learner_submission>`;
 }

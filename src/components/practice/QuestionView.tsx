@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { CodeBlock } from "@/components/CodeBlock";
 import { DifficultyDots } from "@/components/ui";
 import { apiPost, notifyChanged } from "@/lib/api";
-import { levelInfo, QUESTION_TYPE_LABEL as TYPE_LABEL, SKILL_LABEL } from "@/lib/curriculum";
+import { certSubject, conceptName, levelInfo, QUESTION_TYPE_LABEL as TYPE_LABEL, SKILL_LABEL, STAGE_INFO } from "@/lib/curriculum";
 import type { AttemptResult } from "@/lib/server/grade";
 import type { PublicQuestion } from "@/lib/server/planner";
 import type { Answer } from "@/lib/types";
-import { ChoiceInput, ShuffleInput, TextAnswer } from "./AnswerInputs";
+import { ChoiceInput, TextAnswer } from "./AnswerInputs";
 import { ConceptSheet } from "./ConceptSheet";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { HintList } from "./HintPanel";
@@ -19,7 +19,7 @@ export type QuestionOutcome = AttemptResult & { analyzing: boolean };
 
 interface Props {
   question: PublicQuestion;
-  /** 같은 코드에서 나온 몇 번째 문제인지 (1부터). 2 이상이면 "같은 코드, 다른 질문" 표시 */
+  /** 같은 코드에서 나온 몇 번째 문제인지 (1부터). 코드 학습에서 2 이상이면 "같은 코드, 다음 단계" 표시 */
   sameCodeIndex: number;
   isLast: boolean;
   onResult: (r: QuestionOutcome) => void;
@@ -31,8 +31,6 @@ interface Props {
 export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onNext, onSimilar, similarLoading }: Props) {
   const [choice, setChoice] = useState<number | null>(null);
   const [text, setText] = useState("");
-  const [bugLine, setBugLine] = useState<number | null>(null);
-  const [order, setOrder] = useState<number[]>([]);
 
   const [hints, setHints] = useState<string[]>([]);
   const [hintLoading, setHintLoading] = useState(false);
@@ -56,23 +54,15 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
         return text.trim() ? { type: q.type, text } : null;
       case "short_answer":
         return text.trim().length >= 4 ? { type: q.type, text } : null;
-      case "find_bug":
-        return bugLine === null ? null : { type: q.type, line: bugLine };
-      case "shuffle":
-        return order.length === (q.pieces?.length ?? 0) ? { type: q.type, order } : null;
     }
   }
 
   const answer = currentAnswer();
   const done = result !== null;
-  /** 튜터에게 함께 보내는 지금까지의 답 (제출 전이라도, 순서 맞추기는 일부만 놓았어도) */
-  const chatAnswer: Answer | null =
-    answer ??
-    (q.type === "shuffle" && order.length
-      ? { type: "shuffle", order }
-      : (q.type === "predict_output" || q.type === "short_answer") && text.trim()
-        ? { type: q.type, text }
-        : null);
+  /** 튜터에게 함께 보내는 지금까지의 답 (제출 전이라도, 주관식은 짧게 쓴 것도) */
+  const chatAnswer: Answer | null = answer ?? ((q.type === "predict_output" || q.type === "short_answer") && text.trim() ? { type: q.type, text } : null);
+  /** 이 문제의 힌트 수 (문제마다 1~4개) */
+  const hintCount = q.hintCount;
 
   async function send(giveUp: boolean) {
     if (submitting || done || (!giveUp && !answer)) return;
@@ -101,7 +91,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
 
   async function nextHint() {
     const level = hints.length + 1;
-    if (level > 4 || hintLoading) return;
+    if (level > hintCount || hintLoading) return;
     setHintLoading(true);
     try {
       const { hint } = await apiPost<{ hint: string }>("/hint", { questionId: q.id, level });
@@ -132,25 +122,35 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
     <div className="space-y-5">
       <div className="animate-fade-up">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold">
-          <span className="chip bg-brand-50 text-brand-700">{TYPE_LABEL[q.type]}</span>
+          {q.stage ? (
+            <span className="chip bg-brand-50 text-brand-700">
+              {STAGE_INFO[q.stage].emoji} {STAGE_INFO[q.stage].order}단계 · {STAGE_INFO[q.stage].label}
+            </span>
+          ) : q.track === "theory" ? (
+            <span className="chip bg-brand-50 text-brand-700">🧠 {conceptName(q.concepts[0])}</span>
+          ) : (
+            <span className="chip bg-brand-50 text-brand-700">{TYPE_LABEL[q.type]}</span>
+          )}
           <span className="chip bg-ink-100 text-ink-500">
             {level.emoji} {level.name} · {SKILL_LABEL[q.skill]}
           </span>
           <DifficultyDots level={q.level} />
-          {sameCodeIndex > 1 && <span className="chip bg-sun-50 text-sun-600">🔁 같은 코드, 다른 질문</span>}
+          {q.track === "code" && sameCodeIndex > 1 && <span className="chip bg-sun-50 text-sun-600">🔁 같은 코드, 다음 단계</span>}
+          {q.certs?.map((id) => {
+            const c = certSubject(id);
+            return c ? (
+              <span key={id} className="chip bg-mint-50 text-mint-700" title={`${c.cert} · ${c.name}`}>
+                🎓 {c.cert}
+              </span>
+            ) : null;
+          })}
         </div>
+        {q.stage && <p className="mb-1 text-sm text-ink-400">{STAGE_INFO[q.stage].hint}</p>}
         <h1 className="whitespace-pre-line text-[19px] font-bold leading-snug text-ink-900 sm:text-xl">{q.prompt}</h1>
       </div>
 
       {q.code && (
-        <CodeBlock
-          code={q.code}
-          onSelectLine={q.type === "find_bug" && !done ? setBugLine : undefined}
-          selectedLine={q.type === "find_bug" ? bugLine : null}
-          highlightLine={done && result?.bugLine ? result.bugLine : null}
-          highlightTone={result?.correct ? "good" : "bad"}
-          focusLines={q.focusLines}
-        />
+        <CodeBlock code={q.code} focusLines={q.focusLines} />
       )}
 
       <div>
@@ -166,21 +166,6 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
         {(q.type === "predict_output" || q.type === "short_answer") && (
           <TextAnswer value={text} onChange={setText} locked={done} mode={q.type} onSubmit={() => send(false)} />
         )}
-        {q.type === "find_bug" && (
-          <p className="rounded-2xl bg-ink-100 px-4 py-3 text-[15px] text-ink-700">
-            {bugLine ? (
-              <>
-                선택한 줄: <b className="text-brand-700">{bugLine}번째 줄</b>
-                {done && !result?.correct && result?.bugLine && <> · 정답은 {result.bugLine}번째 줄이에요</>}
-              </>
-            ) : (
-              "👆 코드에서 문제가 있는 줄을 눌러 선택하세요"
-            )}
-          </p>
-        )}
-        {q.type === "shuffle" && q.pieces && (
-          <ShuffleInput pieces={q.pieces} value={order} onChange={setOrder} locked={done} correct={done ? result!.correct : null} />
-        )}
       </div>
 
       {!done && <HintList hints={hints} loading={hintLoading} />}
@@ -188,9 +173,12 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
 
       {!done && (
         <div className="sticky bottom-3 z-10 flex flex-wrap items-center gap-2 rounded-3xl border border-ink-200/70 bg-white/90 p-2.5 shadow-card backdrop-blur">
-          {hints.length < 4 ? (
+          {hints.length < hintCount ? (
             <button type="button" onClick={nextHint} disabled={hintLoading} className="btn-ghost px-4 py-2.5 text-sm">
-              💡 힌트 {hints.length > 0 && <span className="text-ink-400">{hints.length}/4</span>}
+              💡 힌트{" "}
+              <span className="text-ink-400">
+                {hints.length}/{hintCount}
+              </span>
             </button>
           ) : (
             <button type="button" onClick={() => send(true)} disabled={submitting} className="btn-ghost px-4 py-2.5 text-sm">

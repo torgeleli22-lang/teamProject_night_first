@@ -6,15 +6,15 @@ import type { ConceptId, Level } from "../types";
  * 팀에서 숫자만 바꾸면 되도록 기준값을 이곳 한 곳에 모은다.
  *
  * 핵심 원칙
- *  - 생성은 "칸(개념 × 난이도)" 단위. 한 번에 코드 1개 + 6가지 유형 문제 세트를 만든다.
+ *  - 생성은 "칸(개념 × 난이도)" 단위. 한 번에 코드 1개 + 그 코드를 단계별로 읽는 문제를 만든다 (코드 갈래).
  *  - 난이도/유형을 '바꿨다'는 이유만으로는 생성하지 않는다. 기준은 '재고'와 '수요'.
  *  - 생성된 문제는 모든 학습자가 공유한다 → 생성 비용이 사용자 수에 비례하지 않는다.
  */
 export const POLICY = {
   /** 칸마다 최소한 있어야 하는 공개 문제 수 (≈ 코드 세트 2개). 출시 전 채우기 목표이자 운영 중 하한선 */
-  minStock: 12,
+  minStock: 8,
   /** 칸마다 최대 문제 수 (≈ 코드 세트 7개). 넘으면 더 만들지 않고 틀린 문제·오래된 문제를 다시 낸다 */
-  maxStock: 40,
+  maxStock: 28,
   /** 한 학습자가 그 칸에서 아직 안 푼 문제가 이 수보다 적으면 '소진' */
   learnerLow: 4,
   /** 최근 demandWindowDays 안에 이 수 이상의 서로 다른 학습자가 소진하면 생성 (한 사람 때문에 만들지 않음) */
@@ -31,7 +31,7 @@ export const POLICY = {
 /**
  * 개념별로 AI 생성을 허용하는 난이도.
  * - 단원 성격에 맞지 않는 칸(예: 변수 심화)은 만들지 않는다.
- * - DOM·이벤트·fetch 는 서버에서 실행 검증을 할 수 없어 사람이 작성한 문제만 쓴다 (빈 배열).
+ * - 개념 갈래(분야 11~14)는 실행으로 정답을 확인할 수 없어, 관리자 승인 흐름이 생길 때까지 AI 로 만들지 않는다 (빈 배열).
  */
 const LEVELS_BY_UNIT: Record<number, Level[]> = {
   1: [1, 2, 3], // 변수·let/const·데이터 타입·연산자
@@ -39,10 +39,9 @@ const LEVELS_BY_UNIT: Record<number, Level[]> = {
   3: [2, 3, 4], // 배열·객체·문자열
   4: [2, 3, 4], // 함수·화살표 함수·스코프
   5: [3, 4, 5], // map·filter·forEach·find·reduce
-  6: [], // DOM·이벤트 (사람 작성)
   7: [4, 5], // Promise·async/await
 };
-const HUMAN_ONLY = new Set<ConceptId>(["fetch"]);
+const HUMAN_ONLY = new Set<ConceptId>();
 
 export function generatableLevels(concept: ConceptId): Level[] {
   const c = getConcept(concept);
@@ -105,7 +104,7 @@ export function decidePersonal(input: {
 
 /** 출시 전 채우기: 생성 대상 칸 중 최소 재고에 못 미치는 칸과 필요한 세트 수 */
 export function launchFillPlan(stockOf: (concept: ConceptId, level: Level) => number, concepts: ConceptId[]) {
-  const QUESTIONS_PER_SET = 6;
+  const QUESTIONS_PER_SET = 4;
   return concepts.flatMap((concept) =>
     generatableLevels(concept)
       .map((level) => ({ concept, level, stock: stockOf(concept, level) }))

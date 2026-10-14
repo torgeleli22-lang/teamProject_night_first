@@ -20,9 +20,9 @@ export function LearnClient() {
       <div className="animate-fade-up">
         <p className="text-[15px] font-semibold text-brand-600">📘 학습 · 새로운 문제</p>
         <h1 className="mt-1 text-[26px] font-extrabold tracking-tight sm:text-3xl">
-          {data.attemptCount === 0 ? "오늘은 10분만 공부해볼까요?" : goalMet ? "오늘 목표 달성! 한 세트 더 해볼까요?" : "오늘도 새로운 코드 하나 읽어볼까요?"}
+          {data.attemptCount === 0 ? "오늘은 10분만 공부해볼까요?" : goalMet ? "오늘 목표 달성! 한 세트 더 해볼까요?" : "오늘은 무엇을 공부해볼까요?"}
         </h1>
-        <p className="mt-1 text-ink-500">아직 풀지 않은 문제만 나와요. 틀린 문제는 복습 탭에서 다시 풀 수 있어요.</p>
+        <p className="mt-1 text-ink-500">개념은 자격증 문제처럼, 코드는 한 단계씩 읽으며 배워요. 아직 풀지 않은 문제만 나오고, 틀린 문제는 복습 탭에서 다시 풀 수 있어요.</p>
       </div>
       <SessionNotice />
 
@@ -31,10 +31,10 @@ export function LearnClient() {
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-lg font-extrabold">새 학습 시작하기</h2>
             <span className="text-sm text-ink-400">
-              {data.unit.emoji} {data.unit.title} 단원 진행 중
+              코드: {data.unit.emoji} {data.unit.title} 단원 진행 중
             </span>
           </div>
-          <StartPanel initialLevel={data.level} suggestedLevel={data.suggestedLevel} recommendedConcept={data.recommendedConcept} />
+          <StartPanel initialLevel={data.level} initialTrack={data.lastTrack} suggestedLevel={data.suggestedLevel} recommendedConcept={data.recommendedConcept} />
           {data.suggestion.direction !== "stay" && <p className="mt-3 text-sm text-ink-500">🎯 {data.suggestion.message}</p>}
         </section>
 
@@ -78,7 +78,7 @@ export function LearnClient() {
       </div>
 
       <p className="mt-8 text-sm text-ink-400">
-        다음 추천 개념: <b className="text-ink-700">{getConcept(data.recommendedConcept)?.name}</b> · 전체 개념과 문제는{" "}
+        코드 학습 추천 개념: <b className="text-ink-700">{getConcept(data.recommendedConcept)?.name}</b> · 전체 주제와 문제는{" "}
         <Link href="/concepts" className="font-semibold text-brand-600 hover:underline">
           탐색
         </Link>

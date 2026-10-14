@@ -120,7 +120,7 @@ export async function validateItem(item: ItemDraft): Promise<ValidationReport> {
     const tag = `[${q.id}]`;
     check(`${tag} id 중복 없음`, !ids.has(q.id));
     ids.add(q.id);
-    check(`${tag} 힌트 4단계·해설·핵심 개념`, q.hints.length === 4 && q.hints.every((h) => h.trim()) && !!q.explanation.trim() && !!q.keyPoint.trim());
+    check(`${tag} 힌트 1~4개·해설·핵심 개념`, q.hints.length >= 1 && q.hints.length <= 4 && q.hints.every((h) => h.trim()) && !!q.explanation.trim() && !!q.keyPoint.trim());
 
     switch (q.type) {
       case "multiple_choice": {
@@ -159,30 +159,6 @@ export async function validateItem(item: ItemDraft): Promise<ValidationReport> {
       case "predict_output":
         if (expected) check(`${tag} 정답 = 실제 실행 결과`, sameOutput(q.output, expected), `정답: ${JSON.stringify(q.output)}`);
         break;
-      case "find_bug": {
-        const lines = q.buggyCode.split("\n");
-        check(`${tag} 오류 줄 번호 유효`, q.bugLine >= 1 && q.bugLine <= lines.length);
-        check(`${tag} 수정한 줄이 원래 줄과 다름`, lines[q.bugLine - 1] !== q.fixedLine);
-        if (item.runnable && expected) {
-          const fixed = [...lines];
-          fixed[q.bugLine - 1] = q.fixedLine;
-          const [buggyRun, fixedRun] = await Promise.all([runJs(q.buggyCode), runJs(fixed.join("\n"))]);
-          check(`${tag} 수정하면 기대 결과가 나옴`, sameOutput(fixedRun.output, expected), `수정 후: ${JSON.stringify(fixedRun.output)}`);
-          check(`${tag} 오류 코드는 다른 결과를 냄`, buggyRun.timedOut || !sameOutput(buggyRun.output, expected));
-        }
-        break;
-      }
-      case "shuffle": {
-        check(`${tag} 조각 3개 이상`, q.pieces.length >= 3);
-        if (item.runnable) {
-          const run = await runJs(q.pieces.join("\n"));
-          check(`${tag} 올바른 순서가 오류 없이 실행됨`, !run.threw && !run.timedOut, run.output);
-          if (squashCode(q.pieces.join("")) === squashCode(item.code) && expected) {
-            check(`${tag} 올바른 순서의 결과 = 원본 결과`, sameOutput(run.output, expected));
-          }
-        }
-        break;
-      }
       case "short_answer": {
         check(`${tag} 채점 기준 2개 이상`, q.rubric.length >= 2 && q.rubric.every((r) => r.keywords.length > 0));
         const self = evaluateShortAnswer({ ...q, codeItemId: "" }, q.modelAnswer);

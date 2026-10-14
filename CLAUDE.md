@@ -4,8 +4,8 @@
 AI 문제 생성 기준은 `docs/ai-generation-policy.md` 에 있습니다.
 
 ## 반드시 지킬 것
-- 이 서비스는 "코드를 대신 작성해주는 AI"가 아니라 "코드를 읽고 이해하도록 가르치는 AI"다.
-- 객관식·빈칸·셔플·실행 결과 예측·오류 찾기 채점, 통계, 추천, 힌트·해설 표시에 AI 를 쓰지 않는다. AI 호출은 `src/lib/ai/client.ts` 의 `askStructured()` 로만, 새 AI 작업에는 mock 응답도 함께 만든다.
+- 이 서비스는 "코드를 대신 작성해주는 AI"가 아니라 "코드를 읽고 이해하도록 가르치는 AI"다. 학습은 두 갈래: 개념(4분야 객관식·자격증 태그, 코드에서는 `theory`)과 코드(코드 하나를 읽기 단계별로).
+- 객관식·빈칸·실행 결과 예측 채점(보기 섞기 포함), 통계, 추천, 힌트·해설 표시에 AI 를 쓰지 않는다. AI 호출은 `src/lib/ai/client.ts` 의 `askStructured()` 로만, 새 AI 작업에는 mock 응답도 함께 만든다.
 - 정답·해설·채점 기준을 클라이언트로 보내지 않는다 (`PublicQuestion` 만 보냄). 채점은 서버에서.
 - 구조: 화면은 정적 페이지(GitHub Pages), 서버는 API(`src/api` — EC2 에서 Docker 로 실행, Lambda 진입점도 유지). `src/lib/server/**`, `src/lib/ai/**`, `src/api/**` 는 API 전용이고, 화면(`src/app`, `src/components`)은 이것들을 `import type` 으로만 가져온다. 화면에서 API 는 `src/lib/api.ts` 로만 부른다.
 - 문제 콘텐츠를 추가·수정하면 실행 검증(`npm run verify`)을 통과시킨다.

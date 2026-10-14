@@ -37,8 +37,8 @@ const COST_PER_SET_HAIKU_USD = 0.05;
 /** '어떤 내용으로 문제를 만들까요?' 칸에 눌러서 넣는 예시 */
 const REQUEST_EXAMPLES = [
   "실생활 데이터(쇼핑몰·성적표·날씨)로 만들어 주세요",
-  "초보자가 자주 헷갈리는 부분을 오류 찾기 문제로 넣어 주세요",
-  "실행 결과 예측 문제를 2개 이상 넣어 주세요",
+  "초보자가 자주 헷갈리는 부분을 핵심 줄 문제로 물어봐 주세요",
+  "출력이 두세 줄인 짧은 코드로 만들어 주세요",
   "변수 이름을 한눈에 이해되게 지어 주세요",
 ];
 
@@ -293,7 +293,7 @@ export default function AdminPage() {
                   <b>④ 맞춤 복습</b> — 10문제마다 하는 학습자 분석에서 혼동이 발견되고 그 칸에 복습할 문제가 부족하면, 그 혼동을 겨냥한 세트를 생성 (학습자당 하루 {data.policy.personalPerLearnerPerDay}회). 만든 문제는 다른 학습자도 함께 쓴다.
                 </li>
                 <li>
-                  <b>상한</b> — 칸마다 최대 {data.policy.maxStock}개. 난이도·유형을 바꿨다는 이유만으로는 만들지 않는다. DOM·이벤트·fetch 는 실행 검증이 안 돼서 사람이 작성.
+                  <b>상한</b> — 칸마다 최대 {data.policy.maxStock}개. 난이도를 바꿨다는 이유만으로는 만들지 않는다. AI 생성은 코드 학습만 (개념 학습은 실행으로 정답을 확인할 수 없어 관리자 승인 기능과 함께 다음 단계에서).
                 </li>
               </ol>
             </section>
@@ -339,7 +339,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {UNITS.flatMap((u) => u.conceptIds).map((id) => (
+                {UNITS.filter((u) => u.track === "code").flatMap((u) => u.conceptIds).map((id) => (
                   <tr key={id} className="border-t border-ink-100">
                     <td className="py-1.5 font-semibold">{conceptName(id)}</td>
                     {LEVELS.map((l) => {
@@ -384,7 +384,7 @@ export default function AdminPage() {
               <label className="text-sm">
                 <span className="mb-1 block font-semibold text-ink-500">분야 (개념)</span>
                 <select value={concept} onChange={(e) => setConcept(e.target.value)} className="w-full rounded-xl border border-ink-200 px-3 py-2">
-                  {UNITS.map((u) => (
+                  {UNITS.filter((u) => u.track === "code").map((u) => (
                     <optgroup key={u.id} label={`${u.emoji} ${u.title}`}>
                       {u.conceptIds.map((id) => (
                         <option key={id} value={id}>
@@ -425,7 +425,7 @@ export default function AdminPage() {
                 onChange={(e) => setInstructions(e.target.value)}
                 maxLength={1000}
                 rows={4}
-                placeholder="예: 쇼핑몰 장바구니 데이터로 총 가격을 구하는 코드로 만들어 주세요. 초보자가 자주 헷갈리는 부분을 오류 찾기 문제로 꼭 넣어 주세요."
+                placeholder="예: 쇼핑몰 장바구니 데이터로 총 가격을 구하는 코드로 만들어 주세요. 초보자가 자주 헷갈리는 줄을 핵심 줄 문제로 물어봐 주세요."
                 className="w-full rounded-xl border border-ink-200 px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10"
               />
             </label>
@@ -444,7 +444,7 @@ export default function AdminPage() {
             </div>
             {(data.generatable[concept]?.length ?? 0) === 0 ? (
               <p className="mt-3 rounded-xl bg-coral-50 px-3 py-2 text-sm text-coral-700">
-                {conceptName(concept)}은(는) 서버에서 코드를 실행해 정답을 확인할 수 없어서 AI로 만들 수 없어요. 사람이 직접 작성해 주세요.
+                {conceptName(concept)}은(는) 아직 AI로 만들 수 없어요. 개념 학습 문제는 실행으로 정답을 확인할 수 없어서, 관리자 승인 기능과 함께 다음 단계에서 열려요.
               </p>
             ) : (
               !data.generatable[concept].includes(level) && (
@@ -675,7 +675,12 @@ function DataMoveCard({ headers, onImported }: { headers: () => Record<string, s
       const res = await fetch(`${API_URL}/admin/import`, { method: "POST", headers: headers(), body: JSON.stringify({ ...(data as object), includeUsage }) });
       const r = await res.json().catch(() => ({}));
       if (!res.ok) return setResult({ ok: false, text: r.error ?? "가져오지 못했어요." });
-      setResult({ ok: true, text: `가져왔어요: AI 콘텐츠 ${r.items}개, 설정 ${r.settings}개${includeUsage ? `, 이번 달 사용량 ${r.usage}줄` : ""}` });
+      setResult({
+        ok: true,
+        text: `가져왔어요: AI 콘텐츠 ${r.items}개, 설정 ${r.settings}개${includeUsage ? `, 이번 달 사용량 ${r.usage}줄` : ""}${
+          r.skippedItems ? ` · 예전 문제 형식의 콘텐츠 ${r.skippedItems}개는 새 학습 구조에 맞지 않아 건너뛰었어요` : ""
+        }`,
+      });
       await onImported();
     } finally {
       setWorking(null);

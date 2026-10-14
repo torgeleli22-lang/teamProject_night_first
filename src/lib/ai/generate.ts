@@ -20,7 +20,9 @@ import { MOCK_GENERATIONS } from "./mock-content";
  * 검증에 실패하면 실패 이유를 알려주고 한 번 다시 생성한다.
  */
 
-const QUESTION_TYPES = ["multiple_choice", "short_answer", "fill_blank", "shuffle", "predict_output", "find_bug"] as const;
+const QUESTION_TYPES = ["multiple_choice", "short_answer", "fill_blank", "predict_output"] as const;
+/** 코드 학습의 읽기 단계 (흐름 따라가기(trace)는 실행 기록으로 만드는 별도 형식이라 AI 가 만들지 않는다) */
+const STAGES = ["overview", "key", "wrapup"] as const;
 const SKILLS = ["recall", "predict", "analyze", "infer", "synthesize"] as const;
 const conceptIds = CONCEPTS.map((c) => c.id) as [string, ...string[]];
 
@@ -28,16 +30,13 @@ const nullableStr = z.string().nullable();
 
 const GeneratedQuestionSchema = z.object({
   type: z.enum(QUESTION_TYPES),
+  stage: z.enum(STAGES).describe("읽기 단계: overview 훑어보기, key 핵심 줄, wrapup 정리"),
   skill: z.enum(SKILLS),
   prompt: z.string(),
   choices: z.array(z.object({ text: z.string(), misconception: nullableStr })).nullable().describe("multiple_choice, fill_blank 에서만. 4개"),
   answerIndex: z.number().int().nullable().describe("multiple_choice, fill_blank 정답 인덱스 (0부터)"),
   blankedCode: nullableStr.describe("fill_blank: 원본 코드의 한 줄(또는 몇 줄)에서 핵심 부분을 ____ 로 바꾼 것"),
-  pieces: z.array(z.string()).nullable().describe("shuffle: 올바른 순서의 코드 조각 3~6개. 순서가 하나로만 정해져야 함"),
   output: nullableStr.describe("predict_output: 정답 출력"),
-  buggyCode: nullableStr.describe("find_bug: 원본 코드에서 한 줄만 바꿔 오류를 넣은 전체 코드"),
-  bugLine: z.number().int().nullable().describe("find_bug: 바뀐 줄 번호 (1부터)"),
-  fixedLine: nullableStr.describe("find_bug: 그 줄의 올바른 코드 (원본 코드의 해당 줄과 같음)"),
   rubric: z
     .array(z.object({ label: z.string(), keywords: z.array(z.string()) }))
     .nullable()
@@ -48,13 +47,13 @@ const GeneratedQuestionSchema = z.object({
     .describe("short_answer: 흔한 오개념과, 함께 나타나면 오개념으로 볼 표현들, 바로잡는 설명"),
   modelAnswer: nullableStr.describe("short_answer: 모범 답안 (rubric 의 표현을 실제로 포함)"),
   focusLines: z.array(z.number().int()).nullable().describe("코드의 특정 부분 역할을 묻는 문제라면 그 줄 번호"),
-  hints: z.array(z.string()).describe("4단계 힌트: 1 개념을 떠올리는 질문, 2 핵심 부분 짚기, 3 관련 문법 설명, 4 정답에 가까운 방향 (정답 자체는 말하지 않음)"),
+  hints: z.array(z.string()).describe("힌트 2~4개: 생각할 질문 → 핵심 부분 짚기 → 관련 문법 → 정답에 가까운 방향 (정답 자체는 말하지 않음)"),
   explanation: z.string().describe("정답 해설. 실행 과정을 한 줄에 한 단계씩 (모든 문제에 반드시)"),
   keyPoint: z.string().describe("핵심 개념 한 줄 (모든 문제에 반드시)"),
 });
 
 /** 쓸 수 있는 문제가 이보다 적으면 세트 전체를 실패로 본다 */
-const MIN_SALVAGED_QUESTIONS = 4;
+const MIN_SALVAGED_QUESTIONS = 3;
 
 /**
  * AI 가 일부 문제에서 해설·핵심 같은 칸을 빠뜨리면, 그 문제만 버리고 나머지로 계속한다.
@@ -104,19 +103,22 @@ ${CODE_RULES}`;
 const GENERATOR_SYSTEM = `당신은 프로그래밍 입문자를 위한 'JavaScript 코드 읽기' 학습 콘텐츠를 만드는 교육 콘텐츠 설계자입니다.
 학습자는 코드를 작성하지 않고, 주어진 코드를 읽고 이해하는 연습을 합니다.
 
-이미 만들어져 서버에서 실행까지 끝난 코드 하나와 그 실제 실행 결과가 주어집니다. 그 코드를 여러 관점에서 읽게 하는 문제들을 만듭니다.
+이미 만들어져 서버에서 실행까지 끝난 코드 하나와 그 실제 실행 결과가 주어집니다. 학습자가 이 코드를 읽는 순서대로 단계별 문제를 만듭니다.
+
+단계 (stage) 와 문제 구성 — 정확히 4문제:
+1. overview (훑어보기) 객관식 1개: "이 코드는 전체적으로 무엇을 하나요?" 처럼 코드 전체의 목적을 묻습니다. 오답 보기는 흔한 잘못 읽기(고르기와 바꾸기 혼동 등).
+2. key (핵심 줄) 1개: 가장 중요한 한 줄(또는 몇 줄)의 역할을 묻는 객관식(focusLines 지정) 또는 그 줄의 핵심을 비운 빈칸(fill_blank).
+3. wrapup (정리) 2개: 실행 결과 예측(predict_output) 1개 + 실행 과정을 내 말로 설명하는 주관식(short_answer) 1개.
 실행 결과는 서버가 실제로 실행한 값이므로, 직접 계산하지 말고 그대로 믿고 쓰세요. 해설도 이 결과와 맞아야 합니다.
 
 문제 규칙:
 - 객관식은 정답이 정확히 하나. 오답 보기에는 그 보기를 고르는 학습자의 오개념을 misconception 에 적습니다.
 - 실행 결과를 묻는 객관식(skill=predict)은 실제 실행 결과와 똑같은 보기가 정답 하나뿐이어야 합니다.
 - 빈칸(fill_blank)의 blankedCode 는 원본 코드의 한 줄(또는 연속된 몇 줄)을 그대로 옮긴 뒤 한 곳만 ____ 로 바꿉니다. 정답 보기를 채우면 원본과 글자 그대로 같아야 하고, 다른 보기를 넣으면 실행 결과가 달라지거나 오류가 나야 합니다.
-- 오류 찾기(find_bug)의 buggyCode 는 원본 코드 전체를 줄 수까지 그대로 옮긴 뒤 정확히 한 줄만 바꿉니다. 바꾼 코드는 다른 결과를 내거나 에러가 나야 합니다. fixedLine 은 원본의 그 줄 그대로.
-- 셔플(shuffle) 조각은 원본 코드 전체를 위에서부터 3~6 덩어리로 나눈 것입니다 (모두 이어 붙이면 원본 코드와 같고 그대로 실행됨). 변수 의존 관계 때문에 올바른 순서가 하나로 정해져야 합니다.
 - 출력 예측(predict_output)의 정답은 주어진 실제 실행 결과 그대로.
 - 주관식(short_answer)의 rubric keywords 는 모범 답안(modelAnswer)에 실제로 들어 있는 짧은 표현을 포함해야 합니다. 오개념(misconceptions) 표현은 모범 답안에 들어 있으면 안 됩니다.
 - 해설은 실제 코드 동작과 정확히 일치해야 합니다.
-- 모든 문제에 prompt, hints(4개), explanation, keyPoint 를 빠짐없이 채웁니다. 그 유형에 해당하지 않는 칸은 null 로 씁니다.
+- 모든 문제에 stage, prompt, hints(2~4개), explanation, keyPoint 를 빠짐없이 채웁니다. 그 유형에 해당하지 않는 칸은 null 로 씁니다.
 - 모든 문장은 한국어 존댓말("~해요" 체), 초보자가 이해할 수 있게 짧게.
 - 출력 표기는 브라우저 콘솔 형식: 배열 [1, 2, 3], 문자열 배열 ['a', 'b'], 객체 {name: 'Kim', age: 25}.`;
 
@@ -133,10 +135,11 @@ function toQuestions(g: Generated, itemId: string): { questions: Question[]; pro
   const questions: Question[] = [];
   g.questions.forEach((raw, n) => {
     const id = `${itemId}-q${n + 1}`;
-    const hints = [...raw.hints, "", "", "", ""].slice(0, 4) as [string, string, string, string];
+    const hints = raw.hints.filter((h) => h.trim()).slice(0, 4);
     const base = {
       id,
       codeItemId: itemId,
+      stage: raw.stage,
       prompt: raw.prompt,
       skill: raw.skill,
       hints,
@@ -155,17 +158,9 @@ function toQuestions(g: Generated, itemId: string): { questions: Question[]; pro
         if (!choices || raw.answerIndex === null || !raw.blankedCode) return missing("choices/answerIndex/blankedCode");
         questions.push({ ...base, type: raw.type, choices, answerIndex: raw.answerIndex, blankedCode: raw.blankedCode });
         break;
-      case "shuffle":
-        if (!raw.pieces) return missing("pieces");
-        questions.push({ ...base, type: raw.type, pieces: raw.pieces });
-        break;
       case "predict_output":
         if (!raw.output) return missing("output");
         questions.push({ ...base, type: raw.type, output: raw.output });
-        break;
-      case "find_bug":
-        if (!raw.buggyCode || raw.bugLine === null || !raw.fixedLine) return missing("buggyCode/bugLine/fixedLine");
-        questions.push({ ...base, type: raw.type, buggyCode: raw.buggyCode, bugLine: raw.bugLine, fixedLine: raw.fixedLine });
         break;
       case "short_answer":
         if (!raw.rubric || !raw.modelAnswer) return missing("rubric/modelAnswer");
@@ -173,8 +168,10 @@ function toQuestions(g: Generated, itemId: string): { questions: Question[]; pro
         break;
     }
   });
-  const types = new Set(questions.map((q) => q.type));
-  for (const t of QUESTION_TYPES) if (!types.has(t)) problems.push(`문제 유형 ${t} 가 없음`);
+  const stages = new Set(questions.map((q) => q.stage));
+  for (const st of STAGES) if (!stages.has(st)) problems.push(`읽기 단계 ${st} 문제가 없음`);
+  const wrapTypes = new Set(questions.filter((q) => q.stage === "wrapup").map((q) => q.type));
+  for (const t of ["predict_output", "short_answer"] as const) if (!wrapTypes.has(t)) problems.push(`정리 단계에 ${t} 문제가 없음`);
   return { questions, problems };
 }
 
@@ -204,7 +201,7 @@ async function reviewContent(
       `목표 난이도: ${level} (${levelInfo(level).name} — ${levelInfo(level).description})`,
       `코드:\n\`\`\`js\n${code}\n\`\`\``,
       `실제 실행 결과 (서버가 실행해서 확인함 — 정답·출력은 이미 이 값과 맞는지 자동으로 검사했습니다):\n${actualOutput ?? "(실행 불가)"}`,
-      `문제들 (정답은 answerIndex·output·bugLine·pieces 순서 등에 있음):\n${JSON.stringify(
+      `문제들 (정답은 answerIndex·output 등에 있음):\n${JSON.stringify(
         questions.map(({ id: _id, codeItemId: _c, ...q }) => q),
         null,
         1,
@@ -231,7 +228,8 @@ export interface GenerateResult {
 }
 
 /** DOM·이벤트·fetch 처럼 서버에서 실행해 정답을 확인할 수 없는 개념 */
-export const NOT_VERIFIABLE = "이 개념(DOM·이벤트·fetch 등)은 서버에서 코드를 실행해 정답을 확인할 수 없어서 AI로 만들 수 없어요. 사람이 직접 작성해 주세요.";
+export const NOT_VERIFIABLE =
+  "이 주제는 아직 AI로 만들 수 없어요. 개념 학습(네트워크·개발·운영·보안) 문제는 실행으로 정답을 확인할 수 없어서, 관리자 승인 기능과 함께 다음 단계에서 열려요.";
 
 /** 이 서버에서 진행 중인 생성 작업 (관리자가 중지하면 기다리던 AI 응답을 끊는다) */
 const running = new Map<number, AbortController>();
@@ -380,7 +378,7 @@ export async function generateCodeSet(opts: {
               .join("\n")}\n\`\`\``,
             `서버에서 실제로 실행한 결과 (정확함):\n<actual_output>\n${actualOutput}\n</actual_output>`,
             `문제마다 skill 은 ${SKILL_FOR_LEVEL[opts.level].join(", ")} 중에서 고르세요.`,
-            `다음 문제 유형을 각각 최소 1개씩, 총 6~7문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
+            "단계 구성(훑어보기 1, 핵심 줄 1, 정리 2 = 4문제)을 지키세요.",
             focus,
             opts.repairFrom
               ? [
@@ -402,7 +400,7 @@ export async function generateCodeSet(opts: {
         const message = err instanceof Error ? err.message : String(err);
         if (round === 0 && /could not parse response|response was truncated/.test(message)) {
           notes.push({ name: "1차 문제 응답이 형식에 맞지 않아 다시 만듦", pass: true, detail: message });
-          feedback = `이전 응답이 형식에 맞지 않았습니다 (${message}). 모든 문제에 prompt·hints·explanation·keyPoint 를 빠짐없이 채우고, 문제는 6개로 간결하게 만드세요.`;
+          feedback = `이전 응답이 형식에 맞지 않았습니다 (${message}). 모든 문제에 stage·prompt·hints·explanation·keyPoint 를 빠짐없이 채우고, 4문제로 간결하게 만드세요.`;
           continue;
         }
         throw err;
@@ -441,6 +439,8 @@ export async function generateCodeSet(opts: {
         await saveGeneratedItem(
           {
             id: itemId,
+            track: "code",
+            language: "javascript",
             title: base.title,
             code: base.code,
             concepts: base.concepts.includes(opts.concept) ? base.concepts : [opts.concept, ...base.concepts],
