@@ -10,7 +10,16 @@ import { CONCEPTS, getConcept } from "../lib/curriculum";
 import { evaluateShortAnswer } from "../lib/grading";
 import { misconceptionCounts } from "../lib/learner/stats";
 import { AnswerSchema, LevelSchema, QuestionTypeSchema } from "../lib/schemas";
-import { coverage, getGeneratedItem, getQuestion, listGeneratedItems, loadContent } from "../lib/server/content-repo";
+import {
+  coverage,
+  exportGeneratedItems,
+  getGeneratedItem,
+  getQuestion,
+  importGeneratedItem,
+  listGeneratedItems,
+  loadContent,
+  type ExportedItem,
+} from "../lib/server/content-repo";
 import type { Level } from "../lib/types";
 import { dbDriver } from "../lib/server/db";
 import { loadPersona, PERSONAS } from "../lib/server/demo";
@@ -21,12 +30,15 @@ import {
   demandByCell,
   demandCount,
   estimateCost,
+  getMeta,
   gradingSplit,
+  importUsage,
   listJobs,
   monthToDateCostUsd,
   recordDemand,
   runningJob,
   setAutoGeneration,
+  setMeta,
   usageSummary,
 } from "../lib/server/ops-repo";
 import { ALL_CONCEPTS, planSession } from "../lib/server/planner";
@@ -289,6 +301,66 @@ const adminRepair: Handler = async (ctx) => {
   });
 };
 
+// ───────────────────────── 데이터 옮기기 (EC2·RDS → Lambda·DynamoDB 등) ─────────────────────────
+
+const EXPORT_FORMAT = "codereading-export/1";
+/** 옮길 설정: 관리자 코드(해시), 자동 생성 켜짐 여부 */
+const EXPORT_META_KEYS = ["admin_code_hash", "auto_generation"];
+
+/** 관리자 데이터 내보내기: AI 생성 콘텐츠, 설정, 이번 달 AI 사용량 (학습 기록은 로그인 없는 임시 기록이라 옮기지 않음) */
+const adminExport: Handler = async (ctx) => {
+  await requireAdmin(ctx.req);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const meta: Record<string, string> = {};
+  for (const key of EXPORT_META_KEYS) {
+    const v = await getMeta(key);
+    if (v !== null) meta[key] = v;
+  }
+  return {
+    format: EXPORT_FORMAT,
+    exportedAt: Date.now(),
+    from: dbDriver(),
+    items: await exportGeneratedItems(),
+    meta,
+    usageThisMonth: (await usageSummary(monthStart)).filter((u) => !u.model.startsWith("mock:")),
+  };
+};
+
+const ImportBody = z.object({
+  format: z.literal(EXPORT_FORMAT),
+  items: z
+    .array(
+      z.object({
+        row: z.object({ id: z.string().max(120), status: z.enum(["published", "rejected"]), createdAt: z.number() }).passthrough(),
+        item: z.object({ id: z.string().max(120), code: z.string(), concepts: z.array(z.string()), level: z.number() }).passthrough(),
+        questions: z.array(z.object({ id: z.string(), codeItemId: z.string(), type: z.string() }).passthrough()).max(40),
+      }),
+    )
+    .max(2000),
+  meta: z.record(z.string(), z.string()).default({}),
+  usageThisMonth: z
+    .array(z.object({ task: z.string(), model: z.string(), calls: z.number(), input: z.number(), output: z.number(), cacheRead: z.number(), failures: z.number() }))
+    .default([]),
+  /** 이번 달 사용량도 더할지 (같은 파일을 두 번 가져오면 두 번 더해지므로 기본은 끔) */
+  includeUsage: z.boolean().default(false),
+});
+
+/** 관리자 데이터 가져오기 (내보내기 파일 그대로). 같은 id 의 콘텐츠는 덮어쓴다 */
+const adminImport: Handler = async (ctx) => {
+  await requireAdmin(ctx.req);
+  const body = parse(ImportBody, ctx.req.body);
+  for (const e of body.items) await importGeneratedItem(e as unknown as ExportedItem);
+  let settings = 0;
+  for (const [key, value] of Object.entries(body.meta)) {
+    if (!EXPORT_META_KEYS.includes(key)) continue;
+    await setMeta(key, value);
+    settings++;
+  }
+  if (body.includeUsage) await importUsage(body.usageThisMonth);
+  return { items: body.items.length, settings, usage: body.includeUsage ? body.usageThisMonth.length : 0 };
+};
+
 /** 자동 생성 켜기/끄기 (문제가 부족할 때 AI 가 알아서 만드는 것). 관리자 수동 생성·출시 전 채우기는 그대로 쓸 수 있다 */
 const adminAuto: Handler = async (ctx) => {
   await requireAdmin(ctx.req);
@@ -349,4 +421,6 @@ export const ROUTES: Record<string, Handler> = {
   "POST /admin/stop": adminStop,
   "POST /admin/code": adminCode,
   "POST /admin/repair": adminRepair,
+  "GET /admin/export": adminExport,
+  "POST /admin/import": adminImport,
 };

@@ -11,13 +11,17 @@ export type { Db, Param } from "./types";
  * - sqlite (기본): DATABASE_PATH 또는 ./data/app.db — 로컬 개발·테스트·콘텐츠 검증
  * - postgres     : DATABASE_URL — PostgreSQL 직접 연결
  * - data-api     : DB_CLUSTER_ARN, DB_SECRET_ARN, DB_NAME — Aurora Data API (Lambda 권장)
+ * - dynamodb     : DYNAMODB_TABLE — DynamoDB (Lambda 실행 역할 권한, VPC 불필요). SQL 을 쓰지 않고 src/lib/server/dynamo 를 쓴다
  */
-export type DbDriver = "sqlite" | "postgres" | "data-api";
+export type DbDriver = "sqlite" | "postgres" | "data-api" | "dynamodb";
 
 export function dbDriver(): DbDriver {
   const d = process.env.DB_DRIVER;
-  return d === "postgres" || d === "data-api" ? d : "sqlite";
+  return d === "postgres" || d === "data-api" || d === "dynamodb" ? d : "sqlite";
 }
+
+/** DynamoDB 를 쓰는지 (저장소 함수들이 SQL 대신 src/lib/server/dynamo 로 보낸다) */
+export const useDynamo = () => dbDriver() === "dynamodb";
 
 let ready: Promise<Db> | null = null;
 
@@ -60,6 +64,7 @@ async function ensureSchema(db: Db) {
 
 /** 처음 부를 때 연결·스키마·시드 동기화를 한 번만 한다 */
 export function getDb(): Promise<Db> {
+  if (useDynamo()) throw new Error("DB_DRIVER=dynamodb 에서는 SQL DB 를 쓰지 않아요 (src/lib/server/dynamo).");
   ready ??= open().catch((e) => {
     ready = null;
     throw e;

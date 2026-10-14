@@ -15,11 +15,23 @@ import { logUsage, monthToDateCostUsd, worstCaseCostUsd } from "../server/ops-re
  * AI 제공처
  * - anthropic: Claude API (ANTHROPIC_API_KEY)
  * - bedrock  : AWS Bedrock (AWS_REGION, AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY 또는 EC2 IAM 역할)
+ * - converse : API 가 Lambda 에서 돌 때 Bedrock Converse API 를 직접 부른다 (실행 역할 권한, 키 불필요)
  * - relay    : Bedrock 중계 Lambda (infra/bedrock-relay). EC2 에 AWS 키 없이 Lambda 실행 역할로 Bedrock 을 부른다
  *              (AI_RELAY_URL = Lambda 함수 URL, AI_RELAY_TOKEN = Lambda 의 RELAY_TOKEN 과 같은 값)
  */
-export const AI_PROVIDER: "anthropic" | "bedrock" | "relay" =
-  process.env.AI_PROVIDER === "bedrock" ? "bedrock" : process.env.AI_PROVIDER === "relay" ? "relay" : "anthropic";
+export const AI_PROVIDER: "anthropic" | "bedrock" | "relay" | "converse" =
+  process.env.AI_PROVIDER === "bedrock"
+    ? "bedrock"
+    : process.env.AI_PROVIDER === "relay"
+      ? "relay"
+      : process.env.AI_PROVIDER === "converse"
+        ? "converse"
+        : "anthropic";
+
+/** Lambda(API) 에서 Bedrock 을 직접 부를 때 쓰는 모델 (중계 Lambda 와 같은 모델) */
+const CONVERSE_MODEL_ID = process.env.BEDROCK_MODEL_ID || "us.anthropic.claude-haiku-4-5-20251001-v1:0";
+/** 도구 호출로 구조화 응답을 받는 방식(중계·직접)인지 */
+const TOOL_PROVIDER = AI_PROVIDER === "relay" || AI_PROVIDER === "converse";
 
 /** Bedrock 은 계정에서 허용된 모델만 쓸 수 있어서 기본값을 따로 둔다 (학교 계정: Claude Haiku 4.5) */
 const DEFAULT_MODELS =
@@ -56,13 +68,14 @@ export function aiMode(): AIMode {
   if (mode === "mock" || mode === "off") return mode;
   if (mode === "live") return "live";
   if (AI_PROVIDER === "relay") return process.env.AI_RELAY_URL ? "live" : "off";
+  if (AI_PROVIDER === "converse") return "live";
   if (AI_PROVIDER === "bedrock") return process.env.AWS_ACCESS_KEY_ID ? "live" : "off";
   return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "live" : "off";
 }
 
 export function getClient(): AIClient | null {
   if (client !== undefined) return client;
-  if (aiMode() !== "live" || AI_PROVIDER === "relay") client = null;
+  if (aiMode() !== "live" || TOOL_PROVIDER) client = null;
   else if (AI_PROVIDER === "bedrock")
     // 자격 증명은 환경 변수(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) 또는 EC2 IAM 역할에서 자동으로 읽는다
     client = new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-1", timeout: 120_000, maxRetries: 1 });
@@ -155,7 +168,7 @@ export async function askStructured<T extends z.ZodType>(opts: {
 
   if (aiMode() !== "live") throw new AIUnavailableError("AI is not configured");
   // API 주소가 공개되어 있으므로, 이번 달 예산을 넘길 수 있는 호출은 하지 않고 규칙 기반 대체 경로를 쓴다
-  const maxOutput = AI_PROVIDER === "relay" ? Math.min(opts.maxTokens ?? 16000, RELAY_MAX_TOKENS) : (opts.maxTokens ?? 16000);
+  const maxOutput = TOOL_PROVIDER ? Math.min(opts.maxTokens ?? 16000, RELAY_MAX_TOKENS) : (opts.maxTokens ?? 16000);
   const inputChars = opts.system.length + opts.prompt.length + (opts.history ?? []).reduce((n, t) => n + t.text.length, 0);
   const worst = worstCaseCostUsd(model, inputChars, maxOutput);
   if (exceedsBudget(await monthToDateCostUsd(), inFlightUsd, worst, POLICY.monthlyBudgetUsd)) throw new AIUnavailableError("monthly AI budget reached");
@@ -172,7 +185,7 @@ async function callModel<T extends z.ZodType>(
   model: string,
   limits: { inputChars: number; maxOutput: number },
 ): Promise<z.infer<T>> {
-  if (AI_PROVIDER === "relay") return askViaRelay(opts, limits);
+  if (TOOL_PROVIDER) return askViaTool(opts, limits, AI_PROVIDER === "converse" ? converseTransport : relayTransport);
   const anthropic = getClient();
   if (!anthropic) throw new AIUnavailableError("AI is not configured");
   // Bedrock 에는 서버 측 fallback 이 없다
@@ -276,8 +289,89 @@ type RelayResponse = {
   error?: string;
 };
 
-/** Bedrock 중계 Lambda 호출 (infra/bedrock-relay/lambda_function.py). 응답은 같은 Zod 스키마로 검증한다. */
-async function askViaRelay<T extends z.ZodType>(
+/** 응답을 받기 전에 끊긴 요청 (Bedrock 이 이미 답을 만들었을 수 있다) */
+class NoReplyError extends Error {}
+
+type ToolRequest = { system: string; messages: HistoryTurn[]; schema: Record<string, unknown>; maxTokens: number; signal?: AbortSignal };
+type ToolTransport = (req: ToolRequest) => Promise<RelayResponse>;
+
+/** Bedrock 중계 Lambda (infra/bedrock-relay/lambda_function.py) 의 함수 URL 로 보낸다 */
+const relayTransport: ToolTransport = async (req) => {
+  let res: Response;
+  try {
+    res = await fetch(process.env.AI_RELAY_URL!, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-relay-token": process.env.AI_RELAY_TOKEN ?? "" },
+      body: JSON.stringify({ system: req.system, messages: req.messages, schema: req.schema, maxTokens: req.maxTokens }),
+      signal: req.signal ? AbortSignal.any([req.signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
+    });
+  } catch (e) {
+    throw new NoReplyError(e instanceof Error ? e.message : String(e));
+  }
+  const data = (await res.json().catch(() => ({}))) as RelayResponse;
+  if (!res.ok) throw new AIUnavailableError(`relay ${res.status}: ${data.error ?? "error"}`);
+  return data;
+};
+
+const TOOL_NAME = "answer";
+let bedrockRuntime: import("@aws-sdk/client-bedrock-runtime").BedrockRuntimeClient | null = null;
+
+/**
+ * Bedrock Converse API 를 직접 부른다 (API 가 Lambda 에서 돌 때, 실행 역할 권한 사용).
+ * 중계 Lambda 와 같은 방식: 도구 하나를 만들고 반드시 그 도구로 답하게 해서 입력값(JSON)을 결과로 쓴다.
+ */
+const converseTransport: ToolTransport = async (req) => {
+  const { BedrockRuntimeClient, ConverseCommand } = await import("@aws-sdk/client-bedrock-runtime");
+  if (!bedrockRuntime) {
+    const testEndpoint = process.env.BEDROCK_ENDPOINT; // 테스트용 가짜 Bedrock (HTTP/1.1)
+    bedrockRuntime = new BedrockRuntimeClient({
+      region: process.env.BEDROCK_REGION || "us-east-1",
+      maxAttempts: 2,
+      ...(testEndpoint
+        ? { endpoint: testEndpoint, requestHandler: new (await import("@smithy/node-http-handler")).NodeHttpHandler({ requestTimeout: 170_000 }) }
+        : { requestHandler: { connectionTimeout: 10_000, requestTimeout: 170_000 } }),
+    });
+  }
+  let out;
+  try {
+    out = await bedrockRuntime.send(
+      new ConverseCommand({
+        modelId: CONVERSE_MODEL_ID,
+        system: [{ text: req.system }],
+        messages: req.messages.map((m) => ({ role: m.role, content: [{ text: m.text }] })),
+        inferenceConfig: { maxTokens: req.maxTokens },
+        toolConfig: {
+          tools: [
+            {
+              toolSpec: {
+                name: TOOL_NAME,
+                description: "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다.",
+                inputSchema: { json: req.schema as never },
+              },
+            },
+          ],
+          toolChoice: { tool: { name: TOOL_NAME } },
+        },
+      }),
+      { abortSignal: req.signal },
+    );
+  } catch (e) {
+    const err = e as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
+    // AWS 가 응답한 오류(권한·모델·한도)는 답을 만들지 않은 것, 연결이 끊긴 것은 답을 만들었을 수 있는 것
+    if (err.$metadata?.httpStatusCode) throw new AIUnavailableError(`bedrock: ${err.name ?? "error"}`);
+    throw new NoReplyError(err.message ?? String(e));
+  }
+  const toolUse = out.output?.message?.content?.find((c) => "toolUse" in c && c.toolUse)?.toolUse;
+  return {
+    output: toolUse?.input,
+    stopReason: out.stopReason,
+    model: CONVERSE_MODEL_ID,
+    usage: { input: out.usage?.inputTokens ?? 0, output: out.usage?.outputTokens ?? 0, cacheRead: out.usage?.cacheReadInputTokens ?? 0 },
+  };
+};
+
+/** 도구 호출 방식(중계·직접)으로 구조화 응답을 받는다. 응답은 같은 Zod 스키마로 검증한다 */
+async function askViaTool<T extends z.ZodType>(
   opts: {
     task: string;
     tier: Tier;
@@ -290,23 +384,22 @@ async function askViaRelay<T extends z.ZodType>(
     salvage?: (value: unknown) => unknown;
   },
   limits: { inputChars: number; maxOutput: number },
+  transport: ToolTransport,
 ): Promise<z.infer<T>> {
   const { $schema: _ignored, ...schema } = toJSONSchema(opts.schema) as Record<string, unknown>;
   let model = MODELS[opts.tier];
   let ok = false;
   let usage = { input: 0, output: 0, cacheRead: 0 };
   // 요청은 보냈는데 응답을 못 받으면(시간 초과·연결 끊김·중지) Bedrock 이 이미 답을 만들었을 수 있다 → 최대 사용량으로 기록
-  let unanswered = true;
+  let unanswered = false;
   try {
-    const res = await fetch(process.env.AI_RELAY_URL!, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-relay-token": process.env.AI_RELAY_TOKEN ?? "" },
-      body: JSON.stringify({ system: opts.system, messages: buildMessages(opts.history ?? [], opts.prompt), schema, maxTokens: limits.maxOutput }),
-      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
-    });
-    unanswered = false;
-    const data = (await res.json().catch(() => ({}))) as RelayResponse;
-    if (!res.ok) throw new AIUnavailableError(`relay ${res.status}: ${data.error ?? "error"}`);
+    let data: RelayResponse;
+    try {
+      data = await transport({ system: opts.system, messages: buildMessages(opts.history ?? [], opts.prompt), schema, maxTokens: limits.maxOutput, signal: opts.signal });
+    } catch (e) {
+      if (e instanceof NoReplyError) unanswered = true;
+      throw e;
+    }
     if (data.model) model = data.model;
     usage = { input: data.usage?.input ?? 0, output: data.usage?.output ?? 0, cacheRead: data.usage?.cacheRead ?? 0 };
     if (data.stopReason === "max_tokens") throw new AIUnavailableError("response was truncated");

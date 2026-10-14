@@ -580,6 +580,8 @@ export default function AdminPage() {
             </div>
           </section>
 
+          <DataMoveCard headers={headers} onImported={load} />
+
           <AdminCodeCard
             info={data.adminCode}
             headers={headers}
@@ -629,6 +631,88 @@ export default function AdminPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * 데이터 옮기기: 서버를 바꿀 때(EC2·RDS → Lambda·DynamoDB 등) AI 생성 콘텐츠·설정·이번 달 사용량을 파일로 옮긴다.
+ * 학습 기록은 로그인 없는 임시 기록이라 옮기지 않는다.
+ */
+function DataMoveCard({ headers, onImported }: { headers: () => Record<string, string>; onImported: () => Promise<void> }) {
+  const [working, setWorking] = useState<"export" | "import" | null>(null);
+  const [includeUsage, setIncludeUsage] = useState(true);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function exportFile() {
+    setWorking("export");
+    setResult(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/export`, { headers: headers() });
+      const data = await res.json();
+      if (!res.ok) return setResult({ ok: false, text: data.error ?? "내보내지 못했어요." });
+      const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `codereading-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setResult({ ok: true, text: `내보냈어요: AI 콘텐츠 ${data.items.length}개, 설정 ${Object.keys(data.meta).length}개, 이번 달 사용량 ${data.usageThisMonth.length}줄` });
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function importFile(file: File) {
+    setWorking("import");
+    setResult(null);
+    try {
+      let data: unknown;
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        return setResult({ ok: false, text: "JSON 파일이 아니에요. 내보내기로 받은 파일을 골라 주세요." });
+      }
+      const res = await fetch(`${API_URL}/admin/import`, { method: "POST", headers: headers(), body: JSON.stringify({ ...(data as object), includeUsage }) });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) return setResult({ ok: false, text: r.error ?? "가져오지 못했어요." });
+      setResult({ ok: true, text: `가져왔어요: AI 콘텐츠 ${r.items}개, 설정 ${r.settings}개${includeUsage ? `, 이번 달 사용량 ${r.usage}줄` : ""}` });
+      await onImported();
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  return (
+    <section className="card mt-6 p-5">
+      <SectionTitle>데이터 옮기기</SectionTitle>
+      <p className="text-sm leading-relaxed text-ink-600">
+        서버를 바꿀 때 <b>AI가 만든 콘텐츠·관리자 코드·자동 생성 설정·이번 달 AI 사용량</b>을 파일로 옮겨요. 예전 서버의 관리자 화면에서 <b>내보내기</b> → 새
+        서버의 관리자 화면에서 <b>가져오기</b>. 학습 기록은 옮기지 않아요.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button type="button" onClick={exportFile} disabled={!!working} className="btn-soft px-4 py-2.5 text-sm">
+          {working === "export" ? <Spinner /> : "⬇"} 내보내기 (파일 받기)
+        </button>
+        <label className={`btn-ghost cursor-pointer px-4 py-2.5 text-sm ${working ? "pointer-events-none opacity-50" : ""}`}>
+          {working === "import" ? <Spinner /> : "⬆"} 가져오기 (파일 고르기)
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void importFile(f);
+            }}
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-ink-600">
+          <input type="checkbox" checked={includeUsage} onChange={(e) => setIncludeUsage(e.target.checked)} />
+          이번 달 AI 사용량도 더하기 (월 예산이 이어지도록, 같은 파일을 두 번 가져오지 마세요)
+        </label>
+      </div>
+      {result && <p className={`mt-3 rounded-xl px-3 py-2 text-sm ${result.ok ? "bg-mint-50 text-mint-700" : "bg-coral-50 text-coral-700"}`}>{result.text}</p>}
+    </section>
   );
 }
 

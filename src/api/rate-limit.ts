@@ -1,3 +1,5 @@
+import { useDynamo } from "../lib/server/db";
+import { bumpCounter } from "../lib/server/dynamo/client";
 /**
  * IP·세션별 요청 수 제한 (공개 API 로 AI 예산이나 서버를 소모시키는 것을 막는다).
  * 한 서버(EC2) 안의 메모리에 센다 — 서버를 다시 시작하면 처음부터 센다.
@@ -38,6 +40,16 @@ export function hit(key: string, limit: number, windowMs: number, now = Date.now
   if (b.count >= limit) return false;
   b.count++;
   return true;
+}
+
+/**
+ * 여러 서버(Lambda 인스턴스)가 함께 세는 판: DynamoDB 를 쓰면 테이블의 카운터로, 아니면 이 서버 메모리로 센다.
+ * (Lambda 는 동시에 여러 개가 떠서 메모리로 세면 한도가 인스턴스 수만큼 늘어난다)
+ */
+export async function hitShared(key: string, limit: number, windowMs: number): Promise<boolean> {
+  if (limit <= 0) return true;
+  if (!useDynamo()) return hit(key, limit, windowMs);
+  return (await bumpCounter(key, windowMs)) <= limit;
 }
 
 /** AI 를 부를 수 있는 공개 요청 */

@@ -1,7 +1,7 @@
 /**
  * Lambda 배포 파일 만들기:  npm run build:lambda  →  dist/lambda.zip
  * - src/api/lambda.ts 와 필요한 코드·라이브러리를 index.js 하나로 묶는다 (esbuild)
- * - @aws-sdk/* 는 Lambda Node.js 런타임에 들어 있으므로 넣지 않는다
+ * - AWS SDK(DynamoDB·Bedrock·Lambda)도 함께 묶는다: 런타임에 든 SDK 버전과 상관없이 테스트한 그대로 동작하도록
  * - zip 은 운영체제 도구 없이 Node 로 만든다 (Windows 에서도 동작)
  * Lambda 설정: 런타임 Node.js 22.x, 핸들러 index.handler
  */
@@ -23,7 +23,7 @@ await build({
   format: "cjs",
   minify: true,
   sourcemap: false,
-  external: ["@aws-sdk/*", "pg-native"],
+  external: ["pg-native", "pg-cloudflare"],
   define: { "process.env.NODE_ENV": '"production"' },
   logLevel: "warning",
 });

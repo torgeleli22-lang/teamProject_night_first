@@ -1,5 +1,5 @@
 import type * as z from "zod/v4";
-import { checkAdminCode, clearFailures, isLockedOut, recordFailure } from "../lib/server/admin-auth";
+import { checkAdminCode, failedAttempt, lockedOut, succeeded } from "../lib/server/admin-auth";
 import type { SessionInfo } from "../lib/server/session-repo";
 import type { BackgroundTask } from "./background";
 
@@ -64,12 +64,12 @@ export function clientAddress(req: ApiRequest): string {
  */
 export async function requireAdmin(req: ApiRequest) {
   const who = clientAddress(req);
-  if (isLockedOut(who)) throw new HttpError(429, "관리자 코드를 여러 번 틀렸어요. 15분 뒤에 다시 시도해 주세요.");
+  if (await lockedOut(who)) throw new HttpError(429, "관리자 코드를 여러 번 틀렸어요. 15분 뒤에 다시 시도해 주세요.");
   const result = await checkAdminCode(req.headers["x-admin-token"]);
   if (result === "ok" || (result === "open" && !isProduction())) {
-    if (result === "ok") clearFailures(who);
+    if (result === "ok") await succeeded(who);
     return;
   }
-  if (result === "wrong") recordFailure(who);
+  if (result === "wrong") await failedAttempt(who);
   throw new HttpError(401, "관리자 권한이 필요해요.");
 }
