@@ -52,7 +52,10 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function AdminPage() {
+  /** 확인을 눌러 적용한 관리자 코드 (서버에 보내는 값) */
   const [token, setToken] = useState("");
+  /** 입력 칸에 치는 중인 값 — 확인을 누르기 전에는 서버에 보내지 않는다 (치는 도중의 값이 틀린 코드로 세어져 잠기지 않도록) */
+  const [codeInput, setCodeInput] = useState("");
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [concept, setConcept] = useState(CONCEPTS[0].id);
@@ -64,7 +67,9 @@ export default function AdminPage() {
 
   useEffect(() => {
     try {
-      setToken(sessionStorage.getItem("admin-token") ?? "");
+      const saved = sessionStorage.getItem("admin-token") ?? "";
+      setToken(saved);
+      setCodeInput(saved);
     } catch {
       /* ignore */
     }
@@ -192,14 +197,23 @@ export default function AdminPage() {
           onSubmit={(e) => {
             e.preventDefault();
             try {
-              sessionStorage.setItem("admin-token", token);
+              sessionStorage.setItem("admin-token", codeInput);
             } catch {
               /* ignore */
             }
-            load();
+            // 코드가 바뀌면 그 값으로 다시 불러오고(아래 useEffect), 같으면 한 번 더 불러온다
+            if (codeInput === token) load();
+            else setToken(codeInput);
           }}
         >
-          <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="관리자 코드" aria-label="관리자 코드" className="rounded-xl border border-ink-200 px-3 py-2 text-sm" />
+          <input
+            type="password"
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value)}
+            placeholder="관리자 코드"
+            aria-label="관리자 코드"
+            className="rounded-xl border border-ink-200 px-3 py-2 text-sm"
+          />
           <button className="btn-soft px-4 py-2 text-sm">확인</button>
         </form>
       </div>
@@ -571,6 +585,7 @@ export default function AdminPage() {
             headers={headers}
             onChanged={(code) => {
               setToken(code);
+              setCodeInput(code);
               try {
                 sessionStorage.setItem("admin-token", code);
               } catch {
