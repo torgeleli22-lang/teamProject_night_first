@@ -1,10 +1,13 @@
 import type { Trigger } from "../content/policy";
 import type { Level } from "../types";
-import { getDb } from "./db";
+import { POLICY } from "../content/policy";
+import { getDb, useDynamo } from "./db";
+import * as D from "./dynamo/ops";
 
 // ───────────────────────── AI 사용량 (비용 관리) ─────────────────────────
 
 export async function logUsage(task: string, model: string, usage: { input: number; output: number; cacheRead: number }, ok: boolean) {
+  if (useDynamo()) return D.logUsage(task, model, usage, ok);
   await (await getDb()).run(
     "INSERT INTO ai_usage (task, model, input_tokens, output_tokens, cache_read_tokens, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     [task, model, usage.input, usage.output, usage.cacheRead, ok, Date.now()],
@@ -22,6 +25,7 @@ export interface UsageRow {
 }
 
 export async function usageSummary(sinceMs = 0): Promise<UsageRow[]> {
+  if (useDynamo()) return D.usageSummary(sinceMs);
   const rows = await (await getDb()).all<{ task: string; model: string; calls: number; input: number | null; output: number | null; cache_read: number | null; failures: number | null }>(
     `SELECT task, model, CAST(COUNT(*) AS INTEGER) AS calls, CAST(SUM(input_tokens) AS INTEGER) AS input, CAST(SUM(output_tokens) AS INTEGER) AS output,
             CAST(SUM(cache_read_tokens) AS INTEGER) AS cache_read, CAST(SUM(1 - ok) AS INTEGER) AS failures
@@ -33,6 +37,7 @@ export async function usageSummary(sinceMs = 0): Promise<UsageRow[]> {
 
 /** 채점 주체별 풀이 수 — 규칙 채점이 대부분을 처리하고 있는지 확인 */
 export async function gradingSplit(): Promise<{ rule: number; ai: number }> {
+  if (useDynamo()) return D.gradingSplit();
   const rows = await (await getDb()).all<{ graded_by: string; n: number }>("SELECT graded_by, CAST(COUNT(*) AS INTEGER) AS n FROM attempts GROUP BY graded_by");
   return { rule: rows.find((r) => r.graded_by === "rule")?.n ?? 0, ai: rows.find((r) => r.graded_by === "ai")?.n ?? 0 };
 }
@@ -85,6 +90,7 @@ const toJob = (r: JobRow): Job => ({
 });
 
 export async function createJob(job: { concept: string; level: Level; trigger: Trigger; reason: string; sessionId?: string; mock: boolean }): Promise<number> {
+  if (useDynamo()) return D.createJob(job);
   return (await getDb()).insert(
     "INSERT INTO generation_jobs (concept, level, status, trigger, reason, session_id, mock, created_at) VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
     [job.concept, job.level, job.trigger, job.reason, job.sessionId ?? null, job.mock, Date.now()],
@@ -93,6 +99,7 @@ export async function createJob(job: { concept: string; level: Level; trigger: T
 
 /** 진행 중인 작업만 끝낸다 (관리자가 이미 중지한 작업의 상태는 바꾸지 않음) */
 export async function finishJob(id: number, status: Job["status"], itemId: string | null, error: string | null) {
+  if (useDynamo()) return D.finishJob(id, status, itemId, error);
   await (await getDb()).run("UPDATE generation_jobs SET status = ?, item_id = ?, error = ?, finished_at = ? WHERE id = ? AND status = 'running'", [
     status,
     itemId,
@@ -103,6 +110,7 @@ export async function finishJob(id: number, status: Job["status"], itemId: strin
 }
 
 export async function jobCancelled(id: number): Promise<boolean> {
+  if (useDynamo()) return D.jobCancelled(id);
   const row = await (await getDb()).get<{ status: string }>("SELECT status FROM generation_jobs WHERE id = ?", [id]);
   return row?.status === "cancelled";
 }
@@ -112,6 +120,11 @@ export async function jobCancelled(id: number): Promise<boolean> {
  * 전부 중지할 때는 시각도 남겨서, 여러 칸을 차례로 만드는 '출시 전 채우기'가 다음 칸으로 넘어가지 않게 한다.
  */
 export async function cancelJobs(jobId?: number): Promise<number[]> {
+  if (useDynamo()) {
+    const ids = await D.cancelJobs(jobId);
+    if (!jobId) await setMeta("generation_stop_at", String(Date.now()));
+    return ids;
+  }
   const db = await getDb();
   const now = Date.now();
   const where = jobId ? "status = 'running' AND id = ?" : "status = 'running'";
@@ -130,10 +143,12 @@ export async function stopRequestedSince(since: number): Promise<boolean> {
 // ───────────────────────── 운영 설정 (app_meta) ─────────────────────────
 
 export async function getMeta(key: string): Promise<string | null> {
+  if (useDynamo()) return D.getMeta(key);
   return (await (await getDb()).get<{ value: string }>("SELECT value FROM app_meta WHERE key = ?", [key]))?.value ?? null;
 }
 
 export async function setMeta(key: string, value: string) {
+  if (useDynamo()) return D.setMeta(key, value);
   await (await getDb()).run("INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [key, value]);
 }
 
@@ -148,6 +163,7 @@ export async function setAutoGeneration(enabled: boolean) {
 
 /** 같은 개념·난이도로 진행 중인 작업 (중복 생성 방지). 10분 넘게 걸린 작업은 무시 */
 export async function runningJob(concept: string, level: Level): Promise<Job | null> {
+  if (useDynamo()) return D.runningJob(concept, level);
   const row = await (await getDb()).get<JobRow>(
     "SELECT * FROM generation_jobs WHERE concept = ? AND level = ? AND status = 'running' AND created_at > ? LIMIT 1",
     [concept, level, Date.now() - 10 * 60_000],
@@ -156,15 +172,18 @@ export async function runningJob(concept: string, level: Level): Promise<Job | n
 }
 
 export async function jobsSince(sinceMs: number): Promise<number> {
+  if (useDynamo()) return D.jobsSince(sinceMs);
   return (await (await getDb()).get<{ n: number }>("SELECT CAST(COUNT(*) AS INTEGER) AS n FROM generation_jobs WHERE created_at >= ?", [sinceMs]))?.n ?? 0;
 }
 
 export async function listJobs(limit = 20): Promise<Job[]> {
+  if (useDynamo()) return D.listJobs(limit);
   return (await (await getDb()).all<JobRow>("SELECT * FROM generation_jobs ORDER BY id DESC LIMIT ?", [limit])).map(toJob);
 }
 
 /** 이 학습자가 오늘 일으킨 맞춤 복습 생성 수 */
 export async function personalJobsSince(sessionId: string, sinceMs: number): Promise<number> {
+  if (useDynamo()) return D.personalJobsSince(sessionId, sinceMs);
   return (
     (await (await getDb()).get<{ n: number }>(
       "SELECT CAST(COUNT(*) AS INTEGER) AS n FROM generation_jobs WHERE session_id = ? AND trigger = 'personal_review' AND created_at >= ?",
@@ -176,6 +195,7 @@ export async function personalJobsSince(sessionId: string, sinceMs: number): Pro
 // ───────────────────────── 수요 신호 (칸을 소진한 학습자) ─────────────────────────
 
 export async function recordDemand(concept: string, level: Level, sessionId: string) {
+  if (useDynamo()) return D.recordDemand(concept, level, sessionId, POLICY.demandWindowDays);
   const db = await getDb();
   const exists = await db.get(
     "SELECT 1 AS one FROM demand_signals WHERE concept = ? AND level = ? AND session_id = ? AND created_at >= ? LIMIT 1",
@@ -186,6 +206,7 @@ export async function recordDemand(concept: string, level: Level, sessionId: str
 
 /** 최근 기간에 이 칸을 소진한 서로 다른 학습자 수 */
 export async function demandCount(concept: string, level: Level, sinceMs: number): Promise<number> {
+  if (useDynamo()) return D.demandCount(concept, level, sinceMs);
   return (
     (await (await getDb()).get<{ n: number }>(
       "SELECT CAST(COUNT(DISTINCT session_id) AS INTEGER) AS n FROM demand_signals WHERE concept = ? AND level = ? AND created_at >= ?",
@@ -195,6 +216,7 @@ export async function demandCount(concept: string, level: Level, sinceMs: number
 }
 
 export async function demandByCell(sinceMs: number): Promise<Record<string, number>> {
+  if (useDynamo()) return D.demandByCell(sinceMs);
   const rows = await (await getDb()).all<{ concept: string; level: number; n: number }>(
     "SELECT concept, level, CAST(COUNT(DISTINCT session_id) AS INTEGER) AS n FROM demand_signals WHERE created_at >= ? GROUP BY concept, level",
     [sinceMs],
@@ -237,4 +259,22 @@ export async function monthToDateCostUsd(includeMock = false): Promise<number> {
   const d = new Date();
   const start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
   return estimateCost((await usageSummary(start)).filter((u) => includeMock || !u.model.startsWith("mock:")));
+}
+
+/** 데이터 옮기기: 이번 달 AI 사용량을 그대로 더한다 (월 예산 계산이 이어지도록) */
+export async function importUsage(rows: UsageRow[]) {
+  if (useDynamo()) {
+    const month = D.monthKey(Date.now());
+    for (const r of rows) await D.addUsage(r, month);
+    return;
+  }
+  const db = await getDb();
+  const now = Date.now();
+  // SQL 판은 호출 1건 = 1행이라, 옮겨 온 합계는 작업·모델마다 1행으로 넣는다 (토큰·비용 합계는 같음)
+  for (const r of rows) {
+    await db.run(
+      "INSERT INTO ai_usage (task, model, input_tokens, output_tokens, cache_read_tokens, ok, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [r.task, r.model, r.input, r.output, r.cacheRead, r.failures < r.calls, now],
+    );
+  }
 }

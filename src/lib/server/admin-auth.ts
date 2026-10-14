@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { useDynamo } from "./db";
+import { bumpCounter, readCounter } from "./dynamo/client";
 import { getMeta, setMeta } from "./ops-repo";
 
 /**
@@ -77,4 +79,23 @@ export function recordFailure(who: string, now = Date.now()) {
 
 export function clearFailures(who: string) {
   failures.delete(who);
+}
+
+/**
+ * 여러 서버(Lambda 인스턴스)가 함께 세는 판 (DynamoDB 카운터, 15분 구간).
+ * DynamoDB 를 쓰지 않으면 위의 메모리 판을 그대로 쓴다.
+ */
+export async function lockedOut(who: string): Promise<boolean> {
+  if (!useDynamo()) return isLockedOut(who);
+  return (await readCounter(`admin-fail:${who}`, WINDOW_MS)) >= MAX_FAILURES;
+}
+
+export async function failedAttempt(who: string) {
+  if (!useDynamo()) return recordFailure(who);
+  await bumpCounter(`admin-fail:${who}`, WINDOW_MS);
+}
+
+export async function succeeded(who: string) {
+  if (!useDynamo()) clearFailures(who);
+  // DynamoDB 판은 15분 구간이 지나면 저절로 0 이 된다
 }

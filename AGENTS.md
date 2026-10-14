@@ -10,8 +10,8 @@ AI 문제 생성 기준은 `docs/ai-generation-policy.md` 에 있습니다.
 - 구조: 화면은 정적 페이지(GitHub Pages), 서버는 API(`src/api` — EC2 에서 Docker 로 실행, Lambda 진입점도 유지). `src/lib/server/**`, `src/lib/ai/**`, `src/api/**` 는 API 전용이고, 화면(`src/app`, `src/components`)은 이것들을 `import type` 으로만 가져온다. 화면에서 API 는 `src/lib/api.ts` 로만 부른다.
 - 문제 콘텐츠를 추가·수정하면 실행 검증(`npm run verify`)을 통과시킨다.
 - 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이.
-- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위(EC2 API 서버, RDS PostgreSQL, Bedrock Claude Haiku 4.5 — EC2 → 중계 Lambda(`infra/bedrock-relay`, SafeRole) → Bedrock, `AI_PROVIDER=relay`)만 진행한다. S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
-- SQL 은 SQLite·PostgreSQL 공통으로 쓴다 (`src/lib/server/db/types.ts` 의 규칙).
+- AWS 는 `docs/PROJECT_BRIEF.md` §11 에 확정된 범위만 진행한다: (A) EC2 API 서버 + RDS PostgreSQL + 중계 Lambda(`infra/bedrock-relay`)로 Bedrock(`AI_PROVIDER=relay`), (B) Lambda API(SafeRole) + DynamoDB(`DB_DRIVER=dynamodb`) + Bedrock 직접 호출(`AI_PROVIDER=converse`, `docs/DEPLOY_LAMBDA.md`). 모델은 Claude Haiku 4.5. S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
+- SQL 은 SQLite·PostgreSQL 공통으로 쓴다 (`src/lib/server/db/types.ts` 의 규칙). 저장소 함수(`session-repo`·`ops-repo`·`content-repo`)를 바꾸면 DynamoDB 판(`src/lib/server/dynamo/`)도 같이 바꾸고 `npm run smoke:dynamo` 로 확인한다.
 
 ## 명령
 ```bash
@@ -22,6 +22,7 @@ npm test             # 단위 테스트
 npm run verify       # 시드 콘텐츠 실제 실행 검증
 npm run build        # 정적 화면 빌드 (out/)
 npm run smoke        # API 전체 흐름 점검 (API 를 바꿨다면)
+npm run smoke:dynamo # 같은 점검을 DynamoDB(로컬 흉내 서버)로
 npm run build:server # EC2(Docker)용 API 묶음 dist/server/index.js
 ```
 작업을 마치기 전에 위 네 가지(typecheck, test, verify, build)를 모두 통과시키세요.

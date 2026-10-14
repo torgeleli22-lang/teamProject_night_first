@@ -22,7 +22,8 @@ const PORT = Number(process.env.API_PORT ?? 8787);
       let size = 0;
       for await (const chunk of req) {
         size += (chunk as Buffer).length;
-        if (size > LIMITS.maxBodyBytes) {
+        // 관리자 데이터 가져오기만 큰 파일(최대 8MB)을 받는다 (관리자 코드는 라우터에서 확인)
+        if (size > (req.url?.startsWith("/admin/import") ? 8 * 1024 * 1024 : LIMITS.maxBodyBytes)) {
           res.writeHead(413, { "content-type": "application/json" }).end(JSON.stringify({ error: "요청이 너무 커요." }));
           req.destroy();
           return;

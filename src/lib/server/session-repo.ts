@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { attemptQuality, dayKey, xpForAttempt } from "../learner/stats";
 import type { Answer, Attempt, ConceptId, GradedBy, Level, QuestionType } from "../types";
-import { getDb } from "./db";
+import { getDb, useDynamo } from "./db";
+import * as D from "./dynamo/session";
 
 /**
  * ② 사용자(세션) 그룹과 ③ 학습 기록 그룹을 다루는 저장소.
@@ -26,6 +27,7 @@ let lastPurge = 0;
 
 /** 만료된 세션 삭제 (학습 기록·요약·분석은 ON DELETE CASCADE 로 함께 삭제). 인스턴스마다 10분에 한 번만 */
 export async function purgeExpiredSessions(now = Date.now()) {
+  if (useDynamo()) return; // DynamoDB 는 TTL 이 자동으로 지운다
   if (now - lastPurge < 10 * 60_000) return;
   lastPurge = now;
   await (await getDb()).run("DELETE FROM sessions WHERE last_seen_at < ?", [now - SESSION_TTL_MS]);
@@ -46,7 +48,8 @@ export class SessionLimitError extends Error {
  * (클라이언트가 보낸 임의의 id 로 세션을 만들지 않는다)
  * canCreate 가 false 를 돌려주면 새 세션을 만들지 않고 SessionLimitError.
  */
-export async function touchSession(id: string | null, canCreate: () => boolean = () => true): Promise<SessionInfo> {
+export async function touchSession(id: string | null, canCreate: () => boolean | Promise<boolean> = () => true): Promise<SessionInfo> {
+  if (useDynamo()) return D.touchSession(id, !!id && SESSION_ID.test(id), SESSION_TTL_MS, canCreate, randomNickname, () => new SessionLimitError());
   await purgeExpiredSessions();
   const db = await getDb();
   const now = Date.now();
@@ -54,7 +57,7 @@ export async function touchSession(id: string | null, canCreate: () => boolean =
     const row = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [id]);
     if (row) return toSession(row);
   }
-  if (!canCreate()) throw new SessionLimitError();
+  if (!(await canCreate())) throw new SessionLimitError();
   const fresh = crypto.randomUUID();
   await db.run("INSERT INTO sessions (id, nickname, created_at, last_seen_at) VALUES (?, ?, ?, ?)", [fresh, randomNickname(), now, now]);
   return toSession((await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [fresh]))!);
@@ -85,14 +88,17 @@ export function randomNickname(): string {
 }
 
 export async function setNickname(id: string, nickname: string) {
+  if (useDynamo()) return D.setNickname(id, nickname);
   await (await getDb()).run("UPDATE sessions SET nickname = ? WHERE id = ?", [nickname, id]);
 }
 
 export async function setPreferredLevel(id: string, level: Level) {
+  if (useDynamo()) return D.setPreferredLevel(id, level);
   await (await getDb()).run("UPDATE sessions SET preferred_level = ? WHERE id = ?", [level, id]);
 }
 
 export async function resetSession(id: string) {
+  if (useDynamo()) return D.resetSession(id);
   const db = await getDb();
   await db.transaction(async (tx) => {
     for (const table of ["attempts", "daily_activity", "concept_progress", "analyses"]) {
@@ -118,6 +124,7 @@ export interface RankRow {
  * 하루 요약 테이블(daily_activity)의 XP 합계만 읽는다. 문제를 1개 이상 푼 세션만 집계.
  */
 export async function ranking(meId: string, limit = 10): Promise<{ top: RankRow[]; total: number }> {
+  if (useDynamo()) return D.ranking(meId, limit);
   const db = await getDb();
   const rows = await db.all<{ session_id: string; nickname: string; xp: number; solved: number; rank: number }>(
     `SELECT s.id AS session_id, s.nickname, CAST(SUM(d.xp) AS INTEGER) AS xp, CAST(SUM(d.solved) AS INTEGER) AS solved,
@@ -135,6 +142,7 @@ export async function ranking(meId: string, limit = 10): Promise<{ top: RankRow[
 
 /** 내 등수: 나보다 XP 가 많은 세션 수 + 1. 바로 위 등수와의 XP 차이도 함께 */
 export async function myRank(sessionId: string): Promise<{ rank: number; xp: number; nextXp: number | null } | null> {
+  if (useDynamo()) return D.myRank(sessionId);
   const db = await getDb();
   const mine = await db.get<{ xp: number | null; solved: number | null }>(
     "SELECT CAST(SUM(xp) AS INTEGER) AS xp, CAST(SUM(solved) AS INTEGER) AS solved FROM daily_activity WHERE session_id = ?",
@@ -152,6 +160,7 @@ export async function myRank(sessionId: string): Promise<{ rank: number; xp: num
 
 /** 데모용 가상 참가자 (랭킹 화면 확인용). is_demo = 1 로 표시해 따로 지울 수 있다 */
 export async function seedDemoPeers(count: number) {
+  if (useDynamo()) return D.seedDemoPeers(count, SESSION_TTL_MS, randomNickname);
   const db = await getDb();
   const now = Date.now();
   await db.transaction(async (tx) => {
@@ -174,6 +183,7 @@ export async function seedDemoPeers(count: number) {
 }
 
 export async function removeDemoPeers() {
+  if (useDynamo()) return D.removeDemoPeers();
   await (await getDb()).run("DELETE FROM sessions WHERE is_demo = 1");
 }
 
@@ -204,6 +214,7 @@ const pushRecent = <T>(json: string, value: T, keep: number): string => JSON.str
  * 화면은 요약 테이블만 읽으므로 기록이 쌓여도 느려지지 않는다.
  */
 export async function insertAttempt(a: NewAttempt): Promise<number> {
+  if (useDynamo()) return D.insertAttempt(a, SESSION_TTL_MS);
   const db = await getDb();
   const at = a.createdAt ?? Date.now();
   const xp = xpForAttempt(a);
@@ -255,6 +266,7 @@ interface AttemptRow {
 
 /** 세션의 풀이 기록 (세션 단위라 양이 많지 않다) */
 export async function listAttempts(sessionId: string): Promise<Attempt[]> {
+  if (useDynamo()) return D.listAttempts(sessionId);
   const rows = await (await getDb()).all<AttemptRow>(
     `SELECT id, session_id, question_id, code_item_id, question_type, concepts, level, correct, partial, hints_used, time_ms, misconception, graded_by, created_at
      FROM attempts WHERE session_id = ? ORDER BY created_at ASC, id ASC`,
@@ -279,11 +291,13 @@ export async function listAttempts(sessionId: string): Promise<Attempt[]> {
 }
 
 export async function attemptCount(sessionId: string): Promise<number> {
+  if (useDynamo()) return D.attemptCount(sessionId);
   return (await (await getDb()).get<{ n: number }>("SELECT CAST(COUNT(*) AS INTEGER) AS n FROM attempts WHERE session_id = ?", [sessionId]))?.n ?? 0;
 }
 
 /** 주관식 답변 원문 (AI 학습자 분석 재료) */
 export async function recentShortAnswers(sessionId: string, limit = 5): Promise<{ questionId: string; text: string; correct: boolean }[]> {
+  if (useDynamo()) return D.recentShortAnswers(sessionId, limit);
   const rows = await (await getDb()).all<{ question_id: string; answer: string; correct: number }>(
     "SELECT question_id, answer, correct FROM attempts WHERE session_id = ? AND question_type = 'short_answer' ORDER BY created_at DESC LIMIT ?",
     [sessionId, limit],
@@ -302,6 +316,7 @@ export interface DailyActivity {
 }
 
 export async function dailyActivity(sessionId: string): Promise<DailyActivity[]> {
+  if (useDynamo()) return D.dailyActivity(sessionId);
   const rows = await (await getDb()).all<{ day: string; solved: number; correct: number; time_ms: number; xp: number }>(
     "SELECT day, solved, correct, time_ms, xp FROM daily_activity WHERE session_id = ? ORDER BY day",
     [sessionId],
@@ -319,6 +334,7 @@ export interface ConceptProgressRow {
 }
 
 export async function conceptProgress(sessionId: string): Promise<ConceptProgressRow[]> {
+  if (useDynamo()) return D.conceptProgress(sessionId);
   const rows = await (await getDb()).all<{
     concept: string;
     attempts: number;
@@ -348,6 +364,7 @@ export interface StoredAnalysis<T> {
 }
 
 export async function latestAnalysis<T>(sessionId: string): Promise<StoredAnalysis<T> | null> {
+  if (useDynamo()) return D.latestAnalysis<T>(sessionId);
   const row = await (await getDb()).get<{ id: number; attempt_count: number; result: string; source: string; created_at: number }>(
     "SELECT id, attempt_count, result, source, created_at FROM analyses WHERE session_id = ? ORDER BY id DESC LIMIT 1",
     [sessionId],
@@ -356,6 +373,7 @@ export async function latestAnalysis<T>(sessionId: string): Promise<StoredAnalys
 }
 
 export async function insertAnalysis(sessionId: string, attemptCount: number, result: unknown, source: "ai" | "rule") {
+  if (useDynamo()) return D.insertAnalysis(sessionId, attemptCount, result, source, SESSION_TTL_MS);
   await (await getDb()).run("INSERT INTO analyses (session_id, attempt_count, result, source, created_at) VALUES (?, ?, ?, ?, ?)", [
     sessionId,
     attemptCount,

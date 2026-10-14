@@ -12,11 +12,15 @@
     "lint": "tsc --noEmit",
     "verify": "tsx scripts/verify-content.ts",
     "test": "tsx --test tests/*.test.ts",
-    "smoke": "tsx scripts/api-smoke.ts"
+    "smoke": "tsx scripts/api-smoke.ts",
+    "smoke:dynamo": "tsx scripts/smoke-dynamo.ts"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.34.4",
     "@anthropic-ai/sdk": "^0.132.1",
+    "@aws-sdk/client-bedrock-runtime": "^3.1149.0",
+    "@aws-sdk/client-dynamodb": "^3.1149.0",
+    "@aws-sdk/lib-dynamodb": "^3.1149.0",
     "next": "^15.5.4",
     "pg": "^8.23.1",
     "react": "^19.1.1",
@@ -31,6 +35,7 @@
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "autoprefixer": "^10.4.21",
+    "dynalite": "^3.2.2",
     "esbuild": "^0.28.2",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
