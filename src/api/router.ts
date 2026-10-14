@@ -51,7 +51,8 @@ export async function handle(req: ApiRequest, background: BackgroundRunner = det
     }
     if (isAiRequest(req.method, path, req.body)) {
       const okSession = !sessionId || (await hitShared(`ai-s:${sessionId}`, LIMITS.aiPerSessionPerHour, 3600_000));
-      if (!okSession || !(await hitShared(`ai-ip:${ip}`, LIMITS.aiPerIpPerHour, 3600_000))) {
+      const okIp = okSession && (await hitShared(`ai-ip:${ip}`, LIMITS.aiPerIpPerHour, 3600_000));
+      if (!okIp || !(await hitShared("ai-all", LIMITS.aiTotalPerHour, 3600_000))) {
         // 답 제출은 막지 않고 AI 없이 규칙으로만 채점한다
         if (path === "/attempts") ctx.aiLimited = true;
         else throw new HttpError(429, "AI 튜터를 잠깐 너무 많이 썼어요. 조금 쉬었다가(최대 1시간) 다시 물어봐 주세요. 그동안 힌트와 해설은 그대로 볼 수 있어요.");

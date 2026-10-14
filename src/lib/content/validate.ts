@@ -52,6 +52,34 @@ const TOO_ADVANCED: Record<Level, [string, RegExp][]> = {
 
 const squashCode = (s: string) => s.replace(/\s+/g, "");
 
+/**
+ * 문제를 만들기 전에 코드만 먼저 검사한다 (AI 생성 1단계): 안전·난이도·문법 범위, 그리고 실제로 실행해서 출력이 나오는지.
+ * 여기서 얻은 실제 실행 결과를 보고 AI 가 문제를 만들므로, 출력 예측 정답을 AI 가 직접 계산할 필요가 없다.
+ */
+export async function validateCode(code: string, concepts: string[], targetLevel: Level): Promise<ValidationReport> {
+  const checks: ValidationCheck[] = [];
+  const check = (name: string, pass: boolean, detail?: string) => checks.push({ name, pass, detail });
+  const conceptIds = new Set(CONCEPTS.map((c) => c.id));
+  const unknown = concepts.filter((c) => !conceptIds.has(c));
+  check("개념이 커리큘럼에 존재", unknown.length === 0, unknown.join(", ") || undefined);
+  const safe = !UNSAFE.test(code);
+  check("안전한 코드 (require/eval/무한 루프 등 없음)", safe);
+  const factors = computeFactors(code, concepts.length);
+  const estimatedLevel = estimateLevel(factors);
+  check("난이도가 목표에 맞음", Math.abs(estimatedLevel - targetLevel) <= 1, `목표 ${targetLevel}, 측정 ${estimatedLevel}`);
+  const advanced = TOO_ADVANCED[targetLevel].filter(([, re]) => re.test(code)).map(([n]) => n);
+  check("난이도에 비해 어려운 문법 없음", advanced.length === 0, advanced.join(", ") || undefined);
+  let actualOutput: string | null = null;
+  if (safe) {
+    const run = await runJs(code);
+    actualOutput = run.output;
+    check("코드가 시간 안에 실행됨", !run.timedOut);
+    check("코드가 오류 없이 실행됨", !run.threw, run.threw ? run.output.split("\n").find((l) => l.startsWith("Uncaught")) : undefined);
+    check("console.log 출력이 있음", run.output.trim().length > 0);
+  }
+  return { ok: checks.every((c) => c.pass), checks, actualOutput, factors, estimatedLevel };
+}
+
 export async function validateItem(item: ItemDraft): Promise<ValidationReport> {
   const checks: ValidationCheck[] = [];
   const check = (name: string, pass: boolean, detail?: string) => checks.push({ name, pass, detail });
