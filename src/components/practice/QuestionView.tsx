@@ -65,6 +65,14 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
 
   const answer = currentAnswer();
   const done = result !== null;
+  /** 튜터에게 함께 보내는 지금까지의 답 (제출 전이라도, 순서 맞추기는 일부만 놓았어도) */
+  const chatAnswer: Answer | null =
+    answer ??
+    (q.type === "shuffle" && order.length
+      ? { type: "shuffle", order }
+      : (q.type === "predict_output" || q.type === "short_answer") && text.trim()
+        ? { type: q.type, text }
+        : null);
 
   async function send(giveUp: boolean) {
     if (submitting || done || (!giveUp && !answer)) return;
@@ -200,7 +208,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
           </button>
         </div>
       )}
-      {!done && askOpen && <TutorChat questionId={q.id} solved={false} turns={chatTurns} setTurns={setChatTurns} />}
+      {!done && askOpen && <TutorChat questionId={q.id} solved={false} turns={chatTurns} setTurns={setChatTurns} answer={chatAnswer} />}
 
       <div ref={feedbackRef} className="scroll-mt-28">
         {result && (
@@ -214,7 +222,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
             onSimilar={onSimilar}
             similarLoading={similarLoading}
             onConcept={() => setShowConcept(true)}
-            chat={{ turns: chatTurns, setTurns: setChatTurns }}
+            chat={{ turns: chatTurns, setTurns: setChatTurns, answer: gaveUp ? null : chatAnswer }}
           />
         )}
       </div>

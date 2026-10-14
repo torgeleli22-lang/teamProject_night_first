@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import * as z from "zod/v4";
 import { computeFactors } from "../content/analyzer";
-import { validateItem, type ValidationReport } from "../content/validate";
+import { autoFixQuestions } from "../content/autofix";
+import { validateCode, validateItem, type ValidationReport } from "../content/validate";
 import { CONCEPTS, getConcept, levelInfo } from "../curriculum";
 import { saveGeneratedItem } from "../server/content-repo";
 import { POLICY, generatableLevels, isGeneratable, type Trigger } from "../content/policy";
@@ -68,35 +69,54 @@ function salvageGenerated(value: unknown): unknown {
   return { ...value, questions: kept };
 }
 
-const GeneratedSchema = z.object({
+/** 1단계: 코드만 (작은 호출). 서버가 실행해서 실제 출력을 얻는다 */
+const CodeSchema = z.object({
   title: z.string().describe("코드의 짧은 제목. 예: '성인 사용자 골라내기'"),
   code: z.string().describe("학습용 JavaScript 코드 (5~15줄, console.log 로 결과 출력)"),
   concepts: z.array(z.enum(conceptIds)).describe("코드에 쓰인 개념"),
-  expectedOutput: z.string().describe("코드를 실행했을 때 콘솔 출력 (브라우저 콘솔 표기, 여러 줄은 줄바꿈)"),
+});
+
+/** 2단계: 코드와 실제 실행 결과를 보고 만든 문제들 */
+const QuestionsSchema = z.object({
   questions: z.array(GeneratedQuestionSchema),
 });
 
-type Generated = z.infer<typeof GeneratedSchema>;
+/** 저장·검수에 쓰는 코드 세트 전체 */
+interface Generated {
+  title: string;
+  code: string;
+  concepts: z.infer<typeof CodeSchema>["concepts"];
+  questions: z.infer<typeof GeneratedQuestionSchema>[];
+}
+
+const CODE_RULES = `코드 규칙:
+- Node.js 에서 그대로 실행되는 순수 JavaScript. DOM, fetch, require, import, Math.random, Date 같은 외부 의존/비결정적 요소 금지.
+- 결과는 console.log 로만 출력. 출력이 결정적이어야 합니다.
+- 실생활에 가까운 친근한 예시(장바구니, 점수, 회원 목록 등). 변수명은 영어, 문자열 값은 한국어 가능.
+- 요청한 난이도에 맞는 문법만 사용하고, 학습 목표와 관계없는 어려운 개념은 넣지 않습니다.`;
+
+const CODE_SYSTEM = `당신은 프로그래밍 입문자를 위한 'JavaScript 코드 읽기' 학습 콘텐츠를 만드는 교육 콘텐츠 설계자입니다.
+학습자는 코드를 작성하지 않고, 주어진 코드를 읽고 이해하는 연습을 합니다.
+지금은 문제의 바탕이 될 코드 하나만 만듭니다. 서버가 이 코드를 실제로 실행해서 결과를 확인합니다.
+
+${CODE_RULES}`;
 
 const GENERATOR_SYSTEM = `당신은 프로그래밍 입문자를 위한 'JavaScript 코드 읽기' 학습 콘텐츠를 만드는 교육 콘텐츠 설계자입니다.
 학습자는 코드를 작성하지 않고, 주어진 코드를 읽고 이해하는 연습을 합니다.
 
-하나의 코드를 만든 뒤, 그 코드를 여러 관점에서 읽게 하는 문제들로 변환합니다.
-
-코드 규칙:
-- Node.js 에서 그대로 실행되는 순수 JavaScript. DOM, fetch, require, import, Math.random, Date 같은 외부 의존/비결정적 요소 금지.
-- 결과는 console.log 로만 출력. 출력이 결정적이어야 합니다.
-- 실생활에 가까운 친근한 예시(장바구니, 점수, 회원 목록 등). 변수명은 영어, 문자열 값은 한국어 가능.
-- 요청한 난이도에 맞는 문법만 사용하고, 학습 목표와 관계없는 어려운 개념은 넣지 않습니다.
+이미 만들어져 서버에서 실행까지 끝난 코드 하나와 그 실제 실행 결과가 주어집니다. 그 코드를 여러 관점에서 읽게 하는 문제들을 만듭니다.
+실행 결과는 서버가 실제로 실행한 값이므로, 직접 계산하지 말고 그대로 믿고 쓰세요. 해설도 이 결과와 맞아야 합니다.
 
 문제 규칙:
 - 객관식은 정답이 정확히 하나. 오답 보기에는 그 보기를 고르는 학습자의 오개념을 misconception 에 적습니다.
-- 빈칸 보기 중 원래 결과를 만드는 것은 정답 하나뿐이어야 합니다.
-- 오류 찾기는 원본에서 정확히 한 줄만 바꾸고, 바꾼 코드는 다른 결과를 내거나 에러가 나야 합니다.
-- 셔플 조각은 변수 의존 관계 때문에 올바른 순서가 하나로 정해져야 합니다.
+- 실행 결과를 묻는 객관식(skill=predict)은 실제 실행 결과와 똑같은 보기가 정답 하나뿐이어야 합니다.
+- 빈칸(fill_blank)의 blankedCode 는 원본 코드의 한 줄(또는 연속된 몇 줄)을 그대로 옮긴 뒤 한 곳만 ____ 로 바꿉니다. 정답 보기를 채우면 원본과 글자 그대로 같아야 하고, 다른 보기를 넣으면 실행 결과가 달라지거나 오류가 나야 합니다.
+- 오류 찾기(find_bug)의 buggyCode 는 원본 코드 전체를 줄 수까지 그대로 옮긴 뒤 정확히 한 줄만 바꿉니다. 바꾼 코드는 다른 결과를 내거나 에러가 나야 합니다. fixedLine 은 원본의 그 줄 그대로.
+- 셔플(shuffle) 조각은 원본 코드 전체를 위에서부터 3~6 덩어리로 나눈 것입니다 (모두 이어 붙이면 원본 코드와 같고 그대로 실행됨). 변수 의존 관계 때문에 올바른 순서가 하나로 정해져야 합니다.
+- 출력 예측(predict_output)의 정답은 주어진 실제 실행 결과 그대로.
+- 주관식(short_answer)의 rubric keywords 는 모범 답안(modelAnswer)에 실제로 들어 있는 짧은 표현을 포함해야 합니다. 오개념(misconceptions) 표현은 모범 답안에 들어 있으면 안 됩니다.
 - 해설은 실제 코드 동작과 정확히 일치해야 합니다.
 - 모든 문제에 prompt, hints(4개), explanation, keyPoint 를 빠짐없이 채웁니다. 그 유형에 해당하지 않는 칸은 null 로 씁니다.
-- expectedOutput 과 출력 예측 정답은 코드를 한 줄씩 직접 따라가며 계산해서 적습니다 (서버가 실제로 실행해 비교합니다).
 - 모든 문장은 한국어 존댓말("~해요" 체), 초보자가 이해할 수 있게 짧게.
 - 출력 표기는 브라우저 콘솔 형식: 배열 [1, 2, 3], 문자열 배열 ['a', 'b'], 객체 {name: 'Kim', age: 25}.`;
 
@@ -165,7 +185,13 @@ const ReviewSchema = z.object({
   issues: z.array(z.string()).describe("발견한 문제. 없으면 빈 배열"),
 });
 
-async function reviewContent(g: Generated, actualOutput: string | null, level: Level, signal?: AbortSignal): Promise<{ approve: boolean; issues: string[] }> {
+async function reviewContent(
+  code: string,
+  questions: Question[],
+  actualOutput: string | null,
+  level: Level,
+  signal?: AbortSignal,
+): Promise<{ approve: boolean; issues: string[] }> {
   return askStructured({
     signal,
     task: "content_review",
@@ -176,16 +202,19 @@ async function reviewContent(g: Generated, actualOutput: string | null, level: L
     mock: () => ({ approve: true, issues: [] }),
     prompt: [
       `목표 난이도: ${level} (${levelInfo(level).name} — ${levelInfo(level).description})`,
-      `코드:\n\`\`\`js\n${g.code}\n\`\`\``,
-      `실제 실행 결과 (검증됨):\n${actualOutput ?? "(실행 불가)"}`,
-      `문제들:\n${JSON.stringify(g.questions, null, 1)}`,
+      `코드:\n\`\`\`js\n${code}\n\`\`\``,
+      `실제 실행 결과 (서버가 실행해서 확인함 — 정답·출력은 이미 이 값과 맞는지 자동으로 검사했습니다):\n${actualOutput ?? "(실행 불가)"}`,
+      `문제들 (정답은 answerIndex·output·bugLine·pieces 순서 등에 있음):\n${JSON.stringify(
+        questions.map(({ id: _id, codeItemId: _c, ...q }) => q),
+        null,
+        1,
+      )}`,
       `다음을 확인하세요:
-1. 각 해설이 실제 코드 동작·실행 결과와 일치하는가?
-2. 객관식/빈칸의 정답이 하나로 명확한가? (다른 보기도 정답으로 볼 여지가 있는가?)
-3. 문제가 목표 난이도에 적절한가?
-4. 학습 목표와 관계없이 불필요하게 어려운 개념이 들어 있지 않은가?
-5. 힌트가 정답을 그대로 말하고 있지 않은가?
-하나라도 학습자에게 해가 되는 문제가 있으면 approve=false.`,
+A. 해설(explanation)이 실제 코드 동작·실행 결과와 어긋나서 잘못된 지식을 주는가?
+B. 객관식·빈칸에서 정답 말고 다른 보기도 정답으로 볼 수 있을 만큼 모호한가?
+C. (참고) 난이도가 맞지 않거나, 불필요하게 어려운 개념이 있거나, 힌트가 정답을 그대로 말하는가?
+A 또는 B 에 해당하는 문제가 있을 때만 approve=false. C 는 issues 에 적되 approve 는 true 로 두세요.
+issues 는 어느 문제(prompt 앞부분)의 무엇이 문제인지 한 문장씩.`,
     ].join("\n\n"),
   });
 }
@@ -253,91 +282,158 @@ export async function generateCodeSet(opts: {
   };
   const concept = getConcept(opts.concept)!;
   const info = levelInfo(opts.level);
-  let feedback = "";
-  let firstFailure = "";
+  const mockPool = () => {
+    const pool = MOCK_GENERATIONS[opts.concept];
+    if (!pool) throw new AIUnavailableError(`목업 예시가 없는 개념입니다 (목업 지원: ${Object.keys(MOCK_GENERATIONS).join(", ")})`);
+    return pool;
+  };
+  const adminRequest = opts.instructions
+    ? `관리자가 원하는 내용입니다. 위의 개념·난이도·규칙을 지키는 범위에서 최대한 반영하세요 (규칙과 부딪히면 규칙이 우선):\n<admin_request>\n${opts.instructions}\n</admin_request>`
+    : "";
+  const focus = opts.focus?.length ? `이 학습자에게서 발견된 혼동: ${opts.focus.join("; ")}. 이 혼동을 바로잡을 수 있도록 설계하세요.` : "";
+  /** 관리자 화면의 '검증 결과'에 함께 보여줄 진행 기록 (재시도·자동 수정) */
+  const notes: ValidationReport["checks"] = [];
 
   try {
+    // ── 1단계: 코드 만들기 → 서버에서 실행 (코드만 다시 만드는 건 싸므로 최대 3번) ──
+    let picked: { code: z.infer<typeof CodeSchema>; report: ValidationReport } | null = null;
+    let codeFeedback = "";
+    let lastCodeReport: ValidationReport | null = null;
+    // 고쳐서 다시 만들기: 이전 코드가 코드 검사를 통과하면 코드는 그대로 두고 문제만 다시 만든다
+    if (opts.repairFrom) {
+      const prev = { title: opts.repairFrom.title, code: opts.repairFrom.code, concepts: [opts.concept] as z.infer<typeof CodeSchema>["concepts"] };
+      const report = await validateCode(prev.code, prev.concepts, opts.level);
+      if (report.ok) picked = { code: prev, report };
+      else codeFeedback = `이전 코드가 다음 검사에 실패했습니다. 주제와 흐름은 살리되 고친 코드를 만드세요:\n<previous_code>\n${prev.code}\n</previous_code>\n${failed(report)}`;
+    }
+    for (let attempt = 0; !picked && attempt < 3; attempt++) {
+      if (await cancelled()) return stopped();
+      const code = await askStructured({
+        signal: controller.signal,
+        task: "content_generation",
+        tier: "smart",
+        effort: "high",
+        maxTokens: 3000,
+        system: CODE_SYSTEM,
+        schema: CodeSchema,
+        mockDelayMs: 800,
+        mock: () => {
+          const pool = mockPool();
+          const set = pool[Math.min(attempt, pool.length - 1)];
+          return { title: set.title, code: set.code, concepts: set.concepts as z.infer<typeof CodeSchema>["concepts"] };
+        },
+        prompt: [
+          `중심 개념: ${concept.name} — ${concept.keyIdea}`,
+          `난이도: Level ${opts.level} ${info.name} (${info.description}). 이 난이도의 주된 사고: ${info.skillLabel}.`,
+          "코드는 5~15줄. 출력 예측·빈칸·오류 찾기·순서 맞추기 문제를 만들 수 있게, 변수 의존 관계가 분명하고 console.log 출력이 1~3줄인 코드가 좋습니다.",
+          focus,
+          adminRequest,
+          codeFeedback,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      });
+      const report = await validateCode(code.code, code.concepts, opts.level);
+      lastCodeReport = report;
+      if (report.ok) {
+        picked = { code, report };
+        if (attempt > 0) notes.push({ name: `코드를 ${attempt + 1}번째 시도에서 통과시킴`, pass: true });
+        break;
+      }
+      codeFeedback = `방금 만든 코드가 서버 검사에 실패했습니다. 다음을 고친 새 코드를 만드세요:\n<previous_code>\n${code.code}\n</previous_code>\n${failed(report)}`;
+    }
+    if (!picked) {
+      const reason = `코드가 검사를 3번 모두 통과하지 못했어요:\n${lastCodeReport ? failed(lastCodeReport) : ""}`;
+      await finishJob(jobId, "failed", null, reason);
+      return { jobId, status: "failed", error: reason, report: lastCodeReport ?? undefined };
+    }
+    const { code: base, report: codeReport } = picked;
+    const actualOutput = codeReport.actualOutput ?? "";
+
+    // ── 2단계: 코드 + 실제 실행 결과를 보고 문제 만들기 → 규칙 자동 수정 → 실행 검증 → AI 검수 (최대 2번) ──
+    let feedback = "";
     for (let round = 0; round < 2; round++) {
       if (await cancelled()) return stopped();
-      let g: Generated;
+      let questionsOut: z.infer<typeof QuestionsSchema>;
       try {
-        g = await askStructured({
+        questionsOut = await askStructured({
           signal: controller.signal,
           task: "content_generation",
           tier: "smart",
           effort: "high",
-          maxTokens: 32000,
+          maxTokens: 16000,
           system: GENERATOR_SYSTEM,
-          schema: GeneratedSchema,
+          schema: QuestionsSchema,
           salvage: salvageGenerated,
-          mockDelayMs: 2500,
+          mockDelayMs: 1500,
           mock: () => {
-            const pool = MOCK_GENERATIONS[opts.concept];
-            if (!pool) throw new AIUnavailableError(`목업 예시가 없는 개념입니다 (목업 지원: ${Object.keys(MOCK_GENERATIONS).join(", ")})`);
-            return pool[Math.min(round, pool.length - 1)] as Generated;
+            const pool = mockPool();
+            const set = pool.find((p) => p.code === base.code) ?? pool[0];
+            return { questions: set.questions } as z.infer<typeof QuestionsSchema>;
           },
           prompt: [
             `중심 개념: ${concept.name} — ${concept.keyIdea}`,
             `난이도: Level ${opts.level} ${info.name} (${info.description}). 이 난이도의 주된 사고: ${info.skillLabel}.`,
+            `코드 (줄 번호는 참고용이며 코드의 일부가 아닙니다):\n\`\`\`js\n${base.code
+              .split("\n")
+              .map((l, i) => `${String(i + 1).padStart(2)}| ${l}`)
+              .join("\n")}\n\`\`\``,
+            `서버에서 실제로 실행한 결과 (정확함):\n<actual_output>\n${actualOutput}\n</actual_output>`,
             `문제마다 skill 은 ${SKILL_FOR_LEVEL[opts.level].join(", ")} 중에서 고르세요.`,
-            `다음 문제 유형을 각각 최소 1개씩, 총 6~8문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
-            opts.focus?.length ? `이 학습자에게서 발견된 혼동: ${opts.focus.join("; ")}. 이 혼동을 바로잡을 수 있도록 보기·오류·주관식을 설계하세요.` : "",
+            `다음 문제 유형을 각각 최소 1개씩, 총 6~7문제: ${QUESTION_TYPES.join(", ")}. 객관식 중 하나는 '코드의 특정 부분의 역할'을 묻고 focusLines 를 지정하세요.`,
+            focus,
             opts.repairFrom
               ? [
-                  `아래는 이전에 만든 코드 세트인데 자동 검증에서 반려됐습니다. 코드의 주제와 흐름은 최대한 살리되, 실패한 항목을 모두 고친 완성본 전체(코드·expectedOutput·문제 전부)를 다시 제출하세요.`,
-                  `<previous_title>${opts.repairFrom.title}</previous_title>`,
-                  `<previous_code>\n${opts.repairFrom.code}\n</previous_code>`,
-                  opts.repairFrom.actualOutput !== null
-                    ? `이 코드를 서버에서 실제로 실행한 출력입니다. 코드를 바꾸지 않는다면 expectedOutput 과 출력 예측 정답은 이 값과 같아야 합니다:\n<actual_output>\n${opts.repairFrom.actualOutput}\n</actual_output>`
-                    : "",
+                  "아래는 이전에 이 코드로 만든 문제들인데 자동 검증에서 반려됐습니다. 실패한 항목을 모두 고친 문제 전체를 다시 제출하세요.",
                   `<failed_checks>\n${opts.repairFrom.failures}\n</failed_checks>`,
-                  `<previous_questions>\n${JSON.stringify(opts.repairFrom.questions)}\n</previous_questions>`,
+                  opts.repairFrom.code === base.code ? `<previous_questions>\n${JSON.stringify(opts.repairFrom.questions)}\n</previous_questions>` : "",
                 ]
                   .filter(Boolean)
                   .join("\n")
               : "",
-            opts.instructions
-              ? `관리자가 원하는 내용입니다. 위의 개념·난이도·문제 유형·코드 규칙을 지키는 범위에서 최대한 반영하세요 (규칙과 부딪히면 규칙이 우선):\n<admin_request>\n${opts.instructions}\n</admin_request>`
-              : "",
+            adminRequest,
             feedback,
           ]
             .filter(Boolean)
             .join("\n\n"),
         });
       } catch (err) {
-        // 첫 번째 응답이 형식에 맞지 않거나 잘렸으면, 이유를 알려 주고 한 번 더 만든다
+        // 응답이 형식에 맞지 않거나 잘렸으면, 이유를 알려 주고 한 번 더 만든다
         const message = err instanceof Error ? err.message : String(err);
         if (round === 0 && /could not parse response|response was truncated/.test(message)) {
-          firstFailure = `- 응답 형식 오류: ${message}`;
+          notes.push({ name: "1차 문제 응답이 형식에 맞지 않아 다시 만듦", pass: true, detail: message });
           feedback = `이전 응답이 형식에 맞지 않았습니다 (${message}). 모든 문제에 prompt·hints·explanation·keyPoint 를 빠짐없이 채우고, 문제는 6개로 간결하게 만드세요.`;
           continue;
         }
         throw err;
       }
 
+      const g: Generated = { ...base, questions: questionsOut.questions };
       const itemId = `ai-${opts.concept}-${crypto.randomUUID().slice(0, 8)}`;
-      const { questions, problems } = toQuestions(g, itemId);
+      const converted = toQuestions(g, itemId);
+      const { questions, fixes } = autoFixQuestions(base.code, actualOutput, converted.questions);
       const report = await validateItem({
-        code: g.code,
-        concepts: g.concepts,
-        output: g.expectedOutput,
+        code: base.code,
+        concepts: base.concepts,
+        output: actualOutput,
         runnable: true,
         targetLevel: opts.level,
         questions,
       });
-      if (problems.length) report.checks.push(...problems.map((p) => ({ name: p, pass: false })));
-      report.ok = report.ok && problems.length === 0;
+      if (converted.problems.length) report.checks.push(...converted.problems.map((p) => ({ name: p, pass: false })));
+      report.ok = report.ok && converted.problems.length === 0;
+      if (fixes.length) report.checks.unshift({ name: `AI 가 틀린 정답 ${fixes.length}곳을 실행 결과로 자동 수정`, pass: true, detail: fixes.join(" / ") });
 
       let issues: string[] = [];
       if (report.ok) {
         if (await cancelled()) return stopped();
-        const review = await reviewContent(g, report.actualOutput, opts.level, controller.signal);
+        const review = await reviewContent(base.code, questions, actualOutput, opts.level, controller.signal);
         issues = review.issues;
         report.checks.push({ name: "AI 검수 (해설 일치·정답 유일성·난이도·불필요한 개념)", pass: review.approve, detail: issues.join(" / ") || undefined });
         report.ok = review.approve;
       }
+      report.checks.unshift(...notes);
 
-      if (feedback) report.checks.unshift({ name: "1차 생성물이 검증에 실패해 재생성함", pass: true, detail: firstFailure });
       const lastRound = round === 1;
       if (await cancelled()) return stopped();
       if (report.ok || lastRound) {
@@ -345,12 +441,12 @@ export async function generateCodeSet(opts: {
         await saveGeneratedItem(
           {
             id: itemId,
-            title: g.title,
-            code: g.code,
-            concepts: g.concepts.includes(opts.concept) ? g.concepts : [opts.concept, ...g.concepts],
+            title: base.title,
+            code: base.code,
+            concepts: base.concepts.includes(opts.concept) ? base.concepts : [opts.concept, ...base.concepts],
             level: opts.level,
-            factors: computeFactors(g.code, g.concepts.length),
-            output: report.actualOutput ?? g.expectedOutput,
+            factors: computeFactors(base.code, base.concepts.length),
+            output: report.actualOutput ?? actualOutput,
             runnable: true,
             status,
           },
@@ -361,9 +457,10 @@ export async function generateCodeSet(opts: {
         await finishJob(jobId, status, itemId, report.ok ? null : failed(report));
         return { jobId, status, itemId, report, issues };
       }
-      // 실패한 검증 항목을 알려주고 한 번 더 생성
-      firstFailure = failed(report);
-      feedback = `이전 생성물이 자동 검증에서 실패했습니다. 다음 문제를 고쳐서 처음부터 다시 만드세요:\n${firstFailure}`;
+      // 실패한 검증 항목을 알려주고 문제만 한 번 더 생성 (코드는 그대로)
+      const failures = failed(report);
+      notes.push({ name: "1차 문제가 검증에 실패해 문제만 다시 만듦", pass: true, detail: failures });
+      feedback = `이전에 만든 문제들이 자동 검증에서 실패했습니다. 같은 코드로, 다음 문제를 고쳐서 문제 전체를 다시 만드세요:\n${failures}`;
     }
     throw new Error("unreachable");
   } catch (err) {

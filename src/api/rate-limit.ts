@@ -20,6 +20,11 @@ export const LIMITS = {
   aiPerSessionPerHour: num("RATE_LIMIT_AI_PER_SESSION_HOUR", 30),
   /** IP 하나의 AI 요청 1시간 (교실 30명 × 10번) */
   aiPerIpPerHour: num("RATE_LIMIT_AI_PER_IP_HOUR", 300),
+  /**
+   * 서비스 전체의 AI 요청 1시간 (IP 를 바꿔 가며 보내는 공격도 이 수 이상은 AI 를 부르지 못함).
+   * 튜터 질문 한 번이 약 0.5센트 → 1시간 최대 약 2달러. 월 예산(AI_MONTHLY_BUDGET_USD)이 최종 상한
+   */
+  aiTotalPerHour: num("RATE_LIMIT_AI_TOTAL_HOUR", 400),
   /** IP 하나가 1시간에 새로 만들 수 있는 학습자(세션) (교실 30명이 탭을 몇 번씩 새로 열어도 충분) */
   newSessionsPerIpPerHour: num("RATE_LIMIT_NEW_SESSIONS_PER_HOUR", 120),
   /** 요청 본문 최대 크기 (가장 큰 정상 요청은 주관식 답·관리자 요청 수천 자 → 수십 KB) */

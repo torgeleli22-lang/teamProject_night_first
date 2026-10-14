@@ -41,7 +41,7 @@ import {
   setMeta,
   usageSummary,
 } from "../lib/server/ops-repo";
-import { ALL_CONCEPTS, planSession } from "../lib/server/planner";
+import { ALL_CONCEPTS, planSession, unshuffle } from "../lib/server/planner";
 import { attemptCount, listAttempts, removeDemoPeers, resetSession, seedDemoPeers, setNickname, setPreferredLevel } from "../lib/server/session-repo";
 import { HttpError, isProduction, notFound, parse, requireAdmin, type Ctx } from "./core";
 import { conceptsView, dashboardView, demoView, learnView, meView, rankingView, reviewView } from "./views";
@@ -134,6 +134,8 @@ const AskBody = z.object({
     .array(z.object({ role: z.enum(["user", "tutor"]), text: z.string().max(4000) }))
     .max(12)
     .default([]),
+  /** 학습자가 지금 고른·쓴·배열한 답 (순서 맞추기는 화면에 보이는 순서 번호, 일부만 놓은 것도 가능) */
+  answer: AnswerSchema.optional(),
 });
 
 /** 학습자가 직접 요청한 경우에만 AI 튜터가 답한다 (저비용 모델) */
@@ -141,7 +143,10 @@ const ask: Handler = async (ctx) => {
   const body = parse(AskBody, ctx.req.body);
   const found = await getQuestion(body.questionId);
   if (!found) throw notFound("문제");
-  return askAboutQuestion(found.question, found.item, body.question, body.history, body.solved);
+  const raw = body.answer?.type === found.question.type ? body.answer : undefined;
+  // 순서 맞추기는 화면에 섞여 보인 번호를 원래 조각 번호로 되돌린다 (채점과 같은 방식)
+  const answer = raw?.type === "shuffle" ? { type: "shuffle" as const, order: unshuffle(found.question, raw.order) } : raw;
+  return askAboutQuestion(found.question, found.item, body.question, body.history, body.solved, answer);
 };
 
 /**

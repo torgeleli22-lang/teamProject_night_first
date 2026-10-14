@@ -13,7 +13,7 @@ interface FunctionUrlEvent {
   headers?: Record<string, string | undefined>;
   body?: string;
   isBase64Encoded?: boolean;
-  requestContext?: { http?: { method?: string } };
+  requestContext?: { http?: { method?: string; sourceIp?: string } };
   background?: BackgroundTask;
 }
 
@@ -53,6 +53,10 @@ export async function handler(event: FunctionUrlEvent) {
     }
   }
   const headers = Object.fromEntries(Object.entries(event.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
+  // 요청 제한·관리자 잠금은 IP 로 센다. 브라우저가 보낸 x-forwarded-for 는 아무 값이나 넣을 수 있으므로
+  // 함수 URL 이 확인한 실제 접속 IP 로 덮어쓴다
+  const sourceIp = event.requestContext?.http?.sourceIp;
+  if (sourceIp) headers["x-forwarded-for"] = sourceIp;
   const res = await handle(
     {
       method: event.requestContext?.http?.method ?? "GET",

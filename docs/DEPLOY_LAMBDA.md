@@ -67,7 +67,8 @@ Lambda → **함수 생성** → 새로 작성
 | 키 | 값 |
 |---|---|
 | `DB_DRIVER` | `dynamodb` |
-| `DYNAMODB_TABLE` | `codereading` |
+| `DYNAMODB_TABLE` | `codereading` (1단계에서 만든 테이블 이름) |
+| `DYNAMODB_TTL_ATTR` | 1단계 TTL 속성 이름이 `ttl` 이 아닐 때만 (예: `jojo_ttl`) |
 | `AI_MODE` | `live` |
 | `AI_PROVIDER` | `converse` |
 | `AI_MONTHLY_BUDGET_USD` | `10` |
@@ -133,6 +134,35 @@ aws lambda add-permission --region ap-northeast-2 --function-name $FN --statemen
 - Lambda: 매달 요청 100만 건 · 40만 GB-초 무료 → 학교 규모에서는 0원에 가까움
 - DynamoDB 온디맨드: 쓰기 100만 건 약 1.4달러, 읽기 100만 건 약 0.3달러, 저장 25GB 무료 → 수십 센트 이하
 - Bedrock: 쓴 토큰만큼 (월 예산 `AI_MONTHLY_BUDGET_USD` 를 넘지 않게 코드가 막음)
+
+## 악성 사용자·요금 폭탄 막기
+
+화면(GitHub Pages)과 함수 URL 은 누구나 열 수 있습니다. 그래서 **요금이 나가는 곳마다 코드와 AWS 설정 두 겹으로** 막아 둡니다.
+
+### 코드에 이미 들어 있는 것 (설정 없이 동작)
+| 막는 것 | 방법 |
+|---|---|
+| AI 요금 | 월 예산 `AI_MONTHLY_BUDGET_USD` 를 넘으면 AI 를 부르지 않음 (진행 중인 호출의 최대 비용까지 미리 계산) |
+| 한 사람이 AI 를 많이 부름 | 학습자 1명 1시간 30번, IP 1개 1시간 300번 (`RATE_LIMIT_AI_*`) |
+| IP 를 바꿔 가며 AI 를 부름 | 서비스 전체 1시간 400번 (`RATE_LIMIT_AI_TOTAL_HOUR`) |
+| 요청 폭주 | IP 1개 1분 600번, 새 학습자 IP 1개 1시간 120명, 요청 크기 256KB |
+| IP 속이기 | 요청 헤더(`x-forwarded-for`)는 무시하고 **함수 URL 이 확인한 실제 접속 IP** 로 셈 |
+| 관리자 코드 맞히기 | 10번 틀리면 15분 잠김 (모든 Lambda 인스턴스가 함께 셈) |
+| AI 문제 생성 | 관리자 생성 + 자동 생성 합쳐 하루 30번 (`AI_GENERATION_DAILY_LIMIT`), 같은 칸 동시 생성 금지 |
+| 다른 사이트에서 부르기 | `ALLOWED_ORIGINS` 의 화면 주소만 브라우저가 응답을 읽을 수 있음 |
+
+횟수는 DynamoDB 에 세므로 Lambda 가 여러 개 떠도 한도가 늘어나지 않습니다.
+
+### AWS 콘솔에서 해 두면 좋은 것 (권장 순서)
+1. **Lambda 동시 실행 제한** — Lambda → 함수 → 구성 → 동시성 → 편집 → **예약된 동시성 10** (학교 규모에 충분).
+   동시에 실행되는 수가 10을 넘으면 AWS 가 바로 거절해서, 공격이 와도 Lambda·DynamoDB 요금이 일정 이상 커지지 않습니다.
+   (계정의 동시성 여유가 적어 저장이 안 되면 5 로)
+2. **AWS Budgets 알림** — Billing → Budgets → 월 예산(예: 15달러) → 80%·100% 에 이메일 알림. 예상 밖의 요금을 바로 알 수 있습니다.
+3. **DynamoDB 용량 상한(선택)** — 테이블 → 추가 설정 → 읽기/쓰기 용량 → **온디맨드 최대 처리량** 에 읽기 100·쓰기 100 을 넣으면 초당 처리량이 그 이상 늘지 않습니다.
+4. **CloudWatch 로그 보관 기간** — CloudWatch → 로그 그룹 `/aws/lambda/<함수 이름>` → 보존 기간 **2주** (로그 저장 요금 방지).
+5. **비밀 값 관리** — `ADMIN_TOKEN`·관리자 코드는 Lambda 환경 변수에만. 새어 나간 것 같으면 값을 바꾸고 저장하면 바로 바뀝니다.
+
+이보다 강하게 막아야 할 때(실제 서비스 규모)는 함수 URL 앞에 API Gateway + AWS WAF(IP별 요청 제한·봇 차단)를 두는 방법이 있지만, 요금이 추가되고 학교 계정 권한이 필요할 수 있어 지금 구성에는 넣지 않았습니다.
 
 ## 문제 해결
 

@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 import { getConcept } from "../curriculum";
-import type { RuleEvaluation } from "../grading";
-import type { CodeItem, ConceptCheck, Question, ShortAnswerQuestion } from "../types";
+import { describeAnswer, gradeObjective, type RuleEvaluation } from "../grading";
+import type { Answer, CodeItem, ConceptCheck, Question, ShortAnswerQuestion } from "../types";
 import { askStructured, withFallback } from "./client";
 import { questionContext, TUTOR_SYSTEM } from "./prompts";
 
@@ -121,8 +121,15 @@ function ruleFeedback(q: ShortAnswerQuestion, rule: RuleEvaluation): ShortAnswer
 
 // ───────────────────────── 문제에 대해 질문하기 ─────────────────────────
 
-function mockChat(q: Question, item: CodeItem, question: string, solved: boolean): string {
+function mockChat(q: Question, item: CodeItem, question: string, solved: boolean, answer?: Answer): string {
   const concept = getConcept(item.concepts[0]);
+  if (q.type === "shuffle" && answer?.type === "shuffle" && /틀|왜|순서|어디/.test(question)) {
+    const wrongAt = answer.order.findIndex((p, i) => q.pieces[p] !== q.pieces[i]);
+    if (wrongAt >= 0) {
+      return `놓아 주신 순서를 보면 ${wrongAt + 1}번째 자리의 \`${q.pieces[answer.order[wrongAt]].trim()}\` 가 조금 일러요. 이 줄이 쓰는 값이 그 위에서 먼저 만들어졌는지 확인해 보세요.`;
+    }
+    if (answer.order.length < q.pieces.length) return `지금까지 놓은 ${answer.order.length}줄은 순서가 맞아요. 남은 조각 중에서 바로 다음에 실행되어야 할 줄을 골라 보세요.`;
+  }
   const firstLine = item.code.split("\n").find((l) => l.trim()) ?? "";
   if (/어디|모르겠|시작/.test(question)) {
     return `좋은 질문이에요. 먼저 첫 줄 \`${firstLine.trim()}\` 에서 어떤 값이 만들어지는지부터 적어 보세요. 그다음 줄마다 '이 줄이 끝나면 값이 어떻게 바뀌었지?'를 하나씩 따라가면 돼요. 어느 줄에서 막혔나요?`;
@@ -138,6 +145,33 @@ const AskSchema = z.object({
   answer: z.string().describe("첫 질문은 2~5문장. 학습자가 이어서 더 깊이 물으면 예시·단계별 설명을 더해 자세히(10문장 이내). 필요하면 되묻는 질문으로 마무리"),
 });
 
+/**
+ * 학습자의 현재 답을 튜터가 읽을 수 있는 글로 (AI 없이 규칙으로).
+ * 순서 맞추기는 원래 조각 번호로 되돌린 순서를 받아, 학습자가 놓은 그대로 한 줄씩 적는다.
+ */
+export function describeLearnerAnswer(q: Question, answer: Answer | undefined, solved: boolean): string {
+  if (!answer || answer.type !== q.type) return "";
+  const lines: string[] = [];
+  if (q.type === "shuffle" && answer.type === "shuffle") {
+    const placed = answer.order.filter((i) => i >= 0 && i < q.pieces.length);
+    lines.push(`학습자가 놓은 코드 순서 (${placed.length}/${q.pieces.length}개 놓음${placed.length < q.pieces.length ? ", 아직 다 놓지 않음" : ""}):`);
+    placed.forEach((pieceIndex, i) => {
+      const right = q.pieces[pieceIndex] === q.pieces[i];
+      lines.push(`${i + 1}. ${q.pieces[pieceIndex]}${right ? "" : "   ← 이 자리에 올 조각이 아님"}`);
+    });
+  } else {
+    lines.push(`학습자의 답: ${describeAnswer(q, answer)}`);
+  }
+  const complete = !(answer.type === "shuffle" && q.type === "shuffle" && answer.order.length < q.pieces.length);
+  if (q.type !== "short_answer" && complete) lines.push(`이 답은 ${gradeObjective(q, answer) ? "정답" : "오답"}입니다.`);
+  lines.push(
+    solved
+      ? "학습자의 질문이 '왜 틀렸는지' 같은 내용이면 위 답을 직접 짚어서(어느 줄·어느 보기가 왜 다른지) 설명하세요."
+      : "위 답은 참고용입니다. 정답을 통째로 알려주지 말고, 학습자의 답에서 다시 볼 곳(예: 몇 번째 줄 근처)을 짚어 스스로 고치게 하세요.",
+  );
+  return `<learner_submission>\n${lines.join("\n")}\n</learner_submission>`;
+}
+
 export interface ChatTurn {
   role: "user" | "tutor";
   text: string;
@@ -149,6 +183,7 @@ export async function askAboutQuestion(
   question: string,
   history: ChatTurn[],
   solved: boolean,
+  learnerAnswer?: Answer,
 ): Promise<{ answer: string; source: "ai" | "offline" }> {
   return withFallback(
     async () => {
@@ -158,7 +193,7 @@ export async function askAboutQuestion(
         maxTokens: 4000,
         system: TUTOR_SYSTEM,
         schema: AskSchema,
-        mock: () => ({ answer: mockChat(q, item, question, solved) }),
+        mock: () => ({ answer: mockChat(q, item, question, solved, learnerAnswer) }),
         // 이전 대화는 실제 대화(messages)로 넘겨서 앞에서 한 말을 기억하게 한다 (최근 10턴)
         history: history.slice(-10).map((t) => ({ role: t.role === "user" ? ("user" as const) : ("assistant" as const), text: t.text })),
         prompt: [
@@ -169,6 +204,7 @@ export async function askAboutQuestion(
           solved
             ? "학습자는 이미 이 문제를 제출했으므로 정답을 이야기해도 됩니다."
             : "학습자는 아직 이 문제를 풀고 있습니다. 정답을 직접 말하지 말고 스스로 생각할 수 있게 실마리를 주세요.",
+          describeLearnerAnswer(q, learnerAnswer, solved),
           `<learner_answer>\n학습자 질문: ${question}\n</learner_answer>`,
           "코드 읽기 학습과 관계없는 요청(다른 코드 작성 대행 등)은 정중히 이 문제로 돌아오게 하세요.",
         ]
