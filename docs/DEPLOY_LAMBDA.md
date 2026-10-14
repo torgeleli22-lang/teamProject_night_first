@@ -67,7 +67,8 @@ Lambda → **함수 생성** → 새로 작성
 | 키 | 값 |
 |---|---|
 | `DB_DRIVER` | `dynamodb` |
-| `DYNAMODB_TABLE` | `codereading` |
+| `DYNAMODB_TABLE` | `codereading` (1단계에서 만든 테이블 이름) |
+| `DYNAMODB_TTL_ATTR` | 1단계 TTL 속성 이름이 `ttl` 이 아닐 때만 (예: `jojo_ttl`) |
 | `AI_MODE` | `live` |
 | `AI_PROVIDER` | `converse` |
 | `AI_MONTHLY_BUDGET_USD` | `10` |

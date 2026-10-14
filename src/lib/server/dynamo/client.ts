@@ -25,11 +25,27 @@ import {
  *   CONTENT / <코드 id>                  코드와 문제 (문제는 코드 항목 안에 함께)
  *   JOB / <작업 id>, USAGE / 월#작업#모델, META / 키, STATS / GRADED, DEMAND / 개념#난이도#세션
  *   RL / 키#구간                         요청 제한·관리자 코드 오답 횟수
- * 모든 항목에 ttl(초)을 두면 DynamoDB 가 기한이 지난 항목을 알아서 지운다 (TTL 속성: ttl).
+ * 모든 항목에 ttl(초)을 두면 DynamoDB 가 기한이 지난 항목을 알아서 지운다.
+ * 테이블의 TTL 속성 이름이 ttl 이 아니면 DYNAMODB_TTL_ATTR 로 알려 준다 (예: jojo_ttl) — 코드에서는 계속 ttl 로 다룬다.
  * TTL 삭제는 최대 이틀까지 늦을 수 있으므로, 읽을 때 기한이 지난 항목은 걸러 낸다.
  */
 
 export const TABLE = process.env.DYNAMODB_TABLE || "codereading";
+/** 테이블에 설정한 TTL 속성 이름 (콘솔의 Time to Live 설정과 같아야 자동 삭제가 된다) */
+export const TTL_ATTR = process.env.DYNAMODB_TTL_ATTR || "ttl";
+
+/** 저장할 때: 코드의 ttl → 테이블의 TTL 속성 이름 */
+function toStored<T extends Item>(item: T): T {
+  if (TTL_ATTR === "ttl" || !("ttl" in item)) return item;
+  const { ttl, ...rest } = item;
+  return { ...rest, [TTL_ATTR]: ttl } as unknown as T;
+}
+
+/** 읽을 때: 테이블의 TTL 속성 → 코드의 ttl */
+function fromStored<T extends Item>(item: T): T {
+  if (TTL_ATTR === "ttl" || !(TTL_ATTR in item)) return item;
+  return { ...item, ttl: item[TTL_ATTR] };
+}
 
 let doc: DynamoDBDocumentClient | null = null;
 let ready: Promise<void> | null = null;
@@ -76,7 +92,7 @@ export function ensureTable(): Promise<void> {
         if (t.Table?.TableStatus === "ACTIVE") break;
         await new Promise((r) => setTimeout(r, 1000));
       }
-      await raw.send(new UpdateTimeToLiveCommand({ TableName: TABLE, TimeToLiveSpecification: { AttributeName: "ttl", Enabled: true } })).catch(() => {});
+      await raw.send(new UpdateTimeToLiveCommand({ TableName: TABLE, TimeToLiveSpecification: { AttributeName: TTL_ATTR, Enabled: true } })).catch(() => {});
     } catch (e) {
       throw new Error(
         `DynamoDB 테이블 '${TABLE}' 이 없고 자동으로 만들지 못했어요 (${(e as Error).name}). 콘솔에서 파티션 키 pk(문자열), 정렬 키 sk(문자열)로 만들어 주세요.`,
@@ -100,12 +116,12 @@ export const timeId = (ms = Date.now()) => ms * 1000 + Math.floor(Math.random() 
 export async function getItem<T extends Item>(pk: string, sk: string, consistent = false): Promise<T | null> {
   await ensureTable();
   const r = await client().send(new GetCommand({ TableName: TABLE, Key: { pk, sk }, ConsistentRead: consistent }));
-  return (r.Item as T | undefined) ?? null;
+  return r.Item ? fromStored(r.Item as T) : null;
 }
 
 export async function putItem(item: Item & { pk: string; sk: string }, condition?: string) {
   await ensureTable();
-  await client().send(new PutCommand({ TableName: TABLE, Item: item, ...(condition ? { ConditionExpression: condition } : {}) }));
+  await client().send(new PutCommand({ TableName: TABLE, Item: toStored(item), ...(condition ? { ConditionExpression: condition } : {}) }));
 }
 
 export async function deleteItem(pk: string, sk: string) {
@@ -135,7 +151,7 @@ export async function updateItem(
   const values: Item = { ...(opts.conditionValues ?? {}) };
   const parts: string[] = [];
   let i = 0;
-  const sets = Object.entries(opts.set ?? {}).filter(([, v]) => v !== undefined);
+  const sets = Object.entries(toStored(opts.set ?? {})).filter(([, v]) => v !== undefined);
   if (sets.length) parts.push("SET " + sets.map(([k, v]) => ((names[`#s${i}`] = k), (values[`:s${i}`] = v), `#s${i} = :s${i++}`)).join(", "));
   const adds = Object.entries(opts.add ?? {});
   if (adds.length) parts.push("ADD " + adds.map(([k, v]) => ((names[`#a${i}`] = k), (values[`:a${i}`] = v), `#a${i} :a${i++}`)).join(", "));
@@ -152,7 +168,7 @@ export async function updateItem(
         ReturnValues: opts.returnNew ? "ALL_NEW" : "NONE",
       }),
     );
-    return { ok: true, attributes: r.Attributes };
+    return { ok: true, attributes: r.Attributes ? fromStored(r.Attributes) : undefined };
   } catch (e) {
     if ((e as Error).name === "ConditionalCheckFailedException") return { ok: false };
     throw e;
@@ -191,7 +207,7 @@ export async function queryAll<T extends Item>(
       ...(start ? { ExclusiveStartKey: start } : {}),
     };
     const r = await client().send(new QueryCommand(input));
-    out.push(...((r.Items ?? []) as T[]));
+    out.push(...((r.Items ?? []) as T[]).map(fromStored));
     start = r.LastEvaluatedKey;
   } while (start && (!opts.limit || out.length < opts.limit));
   return out;
@@ -202,7 +218,7 @@ export async function batchWrite(ops: ({ put: Item } | { delete: { pk: string; s
   if (!ops.length) return;
   await ensureTable();
   for (let i = 0; i < ops.length; i += 25) {
-    let requests = ops.slice(i, i + 25).map((o) => ("put" in o ? { PutRequest: { Item: o.put } } : { DeleteRequest: { Key: o.delete } }));
+    let requests = ops.slice(i, i + 25).map((o) => ("put" in o ? { PutRequest: { Item: toStored(o.put) } } : { DeleteRequest: { Key: o.delete } }));
     for (let attempt = 0; requests.length && attempt < 6; attempt++) {
       const r = await client().send(new BatchWriteCommand({ RequestItems: { [TABLE]: requests } }));
       requests = (r.UnprocessedItems?.[TABLE] ?? []) as typeof requests;
