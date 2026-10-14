@@ -3,7 +3,7 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { Spinner } from "@/components/ui";
-import { apiPost } from "@/lib/api";
+import { ApiError, apiPost } from "@/lib/api";
 
 export interface Turn {
   role: "user" | "tutor";
@@ -51,8 +51,10 @@ export function TutorChat({
         history,
       });
       setTurns((t) => [...t, { role: "tutor", text: res.answer, source: res.source }]);
-    } catch {
-      setTurns((t) => [...t, { role: "tutor", text: "앗, 지금은 답변을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.", source: "offline" }]);
+    } catch (e) {
+      // 너무 많이 물어본 경우(429)는 서버가 보낸 안내를 그대로 보여 준다
+      const text = e instanceof ApiError && e.status === 429 ? e.message : "앗, 지금은 답변을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.";
+      setTurns((t) => [...t, { role: "tutor", text, source: "offline" }]);
     } finally {
       setLoading(false);
       requestAnimationFrame(() => endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));

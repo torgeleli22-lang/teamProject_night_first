@@ -34,11 +34,19 @@ export async function purgeExpiredSessions(now = Date.now()) {
 /** 세션 id 형식: 서버가 만든 UUID 만 받는다 */
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** 같은 곳(IP)에서 새 학습자를 너무 많이 만들 때 */
+export class SessionLimitError extends Error {
+  constructor() {
+    super("새로 시작하는 요청이 너무 많아요. 잠시 뒤(최대 1시간)에 다시 시도해 주세요.");
+  }
+}
+
 /**
  * 요청마다 호출: 알려진 세션이면 마지막 사용 시각을 갱신하고, 없거나 만료됐으면 새 세션을 만든다.
  * (클라이언트가 보낸 임의의 id 로 세션을 만들지 않는다)
+ * canCreate 가 false 를 돌려주면 새 세션을 만들지 않고 SessionLimitError.
  */
-export async function touchSession(id: string | null): Promise<SessionInfo> {
+export async function touchSession(id: string | null, canCreate: () => boolean = () => true): Promise<SessionInfo> {
   await purgeExpiredSessions();
   const db = await getDb();
   const now = Date.now();
@@ -46,6 +54,7 @@ export async function touchSession(id: string | null): Promise<SessionInfo> {
     const row = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [id]);
     if (row) return toSession(row);
   }
+  if (!canCreate()) throw new SessionLimitError();
   const fresh = crypto.randomUUID();
   await db.run("INSERT INTO sessions (id, nickname, created_at, last_seen_at) VALUES (?, ?, ?, ?)", [fresh, randomNickname(), now, now]);
   return toSession((await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [fresh]))!);

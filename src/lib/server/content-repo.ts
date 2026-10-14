@@ -152,3 +152,26 @@ export async function listGeneratedItems(limit = 30): Promise<GeneratedItemRow[]
     createdAt: r.created_at,
   }));
 }
+
+/** AI 가 만든 콘텐츠 하나 (반려된 것 포함) — 관리자가 '고쳐서 다시 만들기' 할 때 원본으로 쓴다 */
+export async function getGeneratedItem(id: string): Promise<{ row: GeneratedItemRow; output: string | null; questions: Question[] } | null> {
+  const db = await getDb();
+  const r = await db.get<ItemRow & { validation: string | null }>("SELECT * FROM code_items WHERE id = ? AND source = 'ai'", [id]);
+  if (!r) return null;
+  const qs = await db.all<{ payload: string }>("SELECT payload FROM questions WHERE code_item_id = ? ORDER BY id", [id]);
+  return {
+    row: {
+      id: r.id,
+      title: r.title,
+      code: r.code,
+      concepts: JSON.parse(r.concepts),
+      level: r.level,
+      status: r.status,
+      validation: r.validation ? JSON.parse(r.validation) : null,
+      questionCount: qs.length,
+      createdAt: r.created_at,
+    },
+    output: r.output,
+    questions: qs.map((q) => JSON.parse(q.payload) as Question),
+  };
+}

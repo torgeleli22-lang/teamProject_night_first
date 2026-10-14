@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CodeSnippet } from "@/components/CodeBlock";
+import { CodeBlock } from "@/components/CodeBlock";
 import { SectionTitle, Spinner } from "@/components/ui";
 import { API_URL } from "@/lib/api";
 import { CONCEPTS, LEVELS, UNITS, conceptName } from "@/lib/curriculum";
+import { explainCheck } from "@/lib/content/check-explain";
 import type { GenerateResult } from "@/lib/ai/generate";
 import type { POLICY as PolicyType, Trigger } from "@/lib/content/policy";
 import type { GeneratedItemRow } from "@/lib/server/content-repo";
@@ -51,7 +52,10 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function AdminPage() {
+  /** 확인을 눌러 적용한 관리자 코드 (서버에 보내는 값) */
   const [token, setToken] = useState("");
+  /** 입력 칸에 치는 중인 값 — 확인을 누르기 전에는 서버에 보내지 않는다 (치는 도중의 값이 틀린 코드로 세어져 잠기지 않도록) */
+  const [codeInput, setCodeInput] = useState("");
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [concept, setConcept] = useState(CONCEPTS[0].id);
@@ -63,7 +67,9 @@ export default function AdminPage() {
 
   useEffect(() => {
     try {
-      setToken(sessionStorage.getItem("admin-token") ?? "");
+      const saved = sessionStorage.getItem("admin-token") ?? "";
+      setToken(saved);
+      setCodeInput(saved);
     } catch {
       /* ignore */
     }
@@ -191,14 +197,23 @@ export default function AdminPage() {
           onSubmit={(e) => {
             e.preventDefault();
             try {
-              sessionStorage.setItem("admin-token", token);
+              sessionStorage.setItem("admin-token", codeInput);
             } catch {
               /* ignore */
             }
-            load();
+            // 코드가 바뀌면 그 값으로 다시 불러오고(아래 useEffect), 같으면 한 번 더 불러온다
+            if (codeInput === token) load();
+            else setToken(codeInput);
           }}
         >
-          <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="관리자 코드" aria-label="관리자 코드" className="rounded-xl border border-ink-200 px-3 py-2 text-sm" />
+          <input
+            type="password"
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value)}
+            placeholder="관리자 코드"
+            aria-label="관리자 코드"
+            className="rounded-xl border border-ink-200 px-3 py-2 text-sm"
+          />
           <button className="btn-soft px-4 py-2 text-sm">확인</button>
         </form>
       </div>
@@ -524,8 +539,40 @@ export default function AdminPage() {
                       {g.concepts.map(conceptName).join(", ")} · Lv.{g.level} · 질문 {g.questionCount}개
                     </span>
                   </summary>
+                  {g.status === "rejected" && (
+                    <RejectedHelp
+                      item={g}
+                      verifiable={g.concepts.some((c) => (data.generatable[c]?.length ?? 0) > 0)}
+                      busy={!!busy}
+                      onRepair={async (instructions) => {
+                        setBusy("generate");
+                        setMessage(null);
+                        setTimeout(load, 800);
+                        try {
+                          const res = await fetch(`${API_URL}/admin/repair`, {
+                            method: "POST",
+                            headers: headers(),
+                            body: JSON.stringify({ itemId: g.id, instructions: instructions || undefined }),
+                          });
+                          const r = (await res.json()) as GenerateResult | { error: string };
+                          setMessage(
+                            !res.ok || !("status" in r)
+                              ? { ok: false, text: `✕ ${"error" in r ? r.error : "고치지 못했어요."}` }
+                              : r.status === "published"
+                                ? { ok: true, text: "✓ 고친 결과가 검증을 통과해 새 콘텐츠로 공개되었어요. (목록 맨 위)" }
+                                : r.status === "rejected"
+                                  ? { ok: false, text: "✕ 고친 결과도 검증을 통과하지 못했어요. 목록 맨 위의 새 보고서에서 이유를 확인하세요." }
+                                  : { ok: r.status === "cancelled", text: r.status === "cancelled" ? "생성을 중지했어요." : `✕ ${r.error}` },
+                          );
+                          await load();
+                        } finally {
+                          setBusy(null);
+                        }
+                      }}
+                    />
+                  )}
                   <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                    <CodeSnippet code={g.code} />
+                    <CodeBlock code={g.code} className="self-start" />
                     <ValidationList checks={g.validation?.checks ?? []} />
                   </div>
                 </details>
@@ -538,6 +585,7 @@ export default function AdminPage() {
             headers={headers}
             onChanged={(code) => {
               setToken(code);
+              setCodeInput(code);
               try {
                 sessionStorage.setItem("admin-token", code);
               } catch {
@@ -691,6 +739,74 @@ function Legend({ className, children }: { className: string; children: string }
   return <span className={`rounded-md px-2 py-0.5 font-mono ${className}`}>{children}</span>;
 }
 
+/** 반려된 콘텐츠: 이해하기 쉬운 반려 이유 + AI 로 고쳐서 다시 만들기 */
+function RejectedHelp({
+  item,
+  verifiable,
+  busy,
+  onRepair,
+}: {
+  item: GeneratedItemRow;
+  verifiable: boolean;
+  busy: boolean;
+  onRepair: (instructions: string) => Promise<void>;
+}) {
+  const [extra, setExtra] = useState("");
+  const [working, setWorking] = useState(false);
+  const reasons = [
+    ...new Set(
+      (item.validation?.checks ?? [])
+        .filter((c) => !c.pass)
+        .map((c) => explainCheck(c.name) ?? c.name),
+    ),
+  ];
+  return (
+    <div className="mt-4 rounded-2xl bg-coral-50/60 p-4">
+      <p className="font-bold text-coral-700">왜 반려됐나요?</p>
+      <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm leading-relaxed text-ink-700">
+        {reasons.length === 0 ? <li>검증 기록이 없어요.</li> : reasons.map((r) => <li key={r}>{r}</li>)}
+      </ul>
+      <p className="mt-2 text-xs text-ink-500">
+        자동 검증은 코드를 서버에서 실제로 실행해 정답·해설이 맞는지 확인해요. 하나라도 틀리면 학습자에게 틀린 문제가 나가지 않도록 공개하지 않아요.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          value={extra}
+          onChange={(e) => setExtra(e.target.value)}
+          maxLength={1000}
+          placeholder="고칠 때 추가로 바랄 점 (선택) — 예: 코드를 조금 더 짧게"
+          className="min-w-0 flex-1 rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm"
+        />
+        <button
+          type="button"
+          disabled={busy || working || !verifiable}
+          onClick={async () => {
+            setWorking(true);
+            try {
+              await onRepair(extra.trim());
+            } finally {
+              setWorking(false);
+            }
+          }}
+          className="btn-primary px-4 py-2 text-sm"
+        >
+          {working ? (
+            <>
+              <Spinner /> 고치는 중 (1~2분)
+            </>
+          ) : (
+            "✨ AI로 고쳐서 다시 만들기"
+          )}
+        </button>
+      </div>
+      <p className="mt-1.5 text-xs text-ink-400">
+        {!verifiable && "이 콘텐츠의 개념은 서버에서 실행 검증을 할 수 없어서 고칠 수 없어요. "}
+        반려 이유와 실제 실행 결과를 AI에게 알려 주고 고친 완성본을 받아, 검증·검수를 처음부터 다시 해요. 통과하면 새 콘텐츠로 공개돼요 (지금 항목은 그대로 남아요).
+      </p>
+    </div>
+  );
+}
+
 /** 검증 결과: 실패·참고 항목만 펼쳐 보여주고, 통과한 항목은 개수로 요약 */
 function ValidationList({ checks }: { checks: { name: string; pass: boolean; detail?: string }[] }) {
   const notable = checks.filter((c) => !c.pass || c.name.includes("재생성") || c.name.startsWith("AI 검수"));
@@ -704,6 +820,7 @@ function ValidationList({ checks }: { checks: { name: string; pass: boolean; det
         {notable.map((c, i) => (
           <li key={i} className={c.pass ? "text-ink-600" : "font-semibold text-coral-600"}>
             {c.pass ? "✓" : "✕"} {c.name}
+            {!c.pass && explainCheck(c.name) && <span className="block pl-4 text-xs font-normal text-ink-700">→ {explainCheck(c.name)}</span>}
             {c.detail && <span className="block whitespace-pre-line pl-4 text-xs font-normal text-ink-500">{c.detail}</span>}
           </li>
         ))}

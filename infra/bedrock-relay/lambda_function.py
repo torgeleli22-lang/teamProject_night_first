@@ -8,6 +8,9 @@ EC2 의 API 서버가 이 함수의 '함수 URL'로 AI 요청을 보내면, 이 
   - 일반 구성 → 제한 시간: 3분
   - 환경 변수 → RELAY_TOKEN: EC2 .env 의 AI_RELAY_TOKEN 과 같은 긴 임의 문자열 (GitHub·채팅에 쓰지 않기)
   - 함수 URL → 인증 유형 NONE (대신 RELAY_TOKEN 으로 막는다)
+  - 환경 변수 → ALLOWED_SOURCE_HOSTS: 요청을 받을 곳의 주소 (예: jjojjo.duckdns.org).
+      그 이름이 지금 가리키는 IP(= EC2)에서 온 요청만 받는다 → 토큰이 새어도 다른 곳에서는 쓸 수 없다.
+      쉼표로 여러 개, IP 를 직접 적어도 된다. 비워 두면 확인하지 않는다.
 
 요청 (POST, 헤더 x-relay-token):
   {"system": "...", "messages": [{"role": "user"|"assistant", "text": "..."}, ...],
@@ -20,8 +23,10 @@ EC2 의 API 서버가 이 함수의 '함수 URL'로 AI 요청을 보내면, 이 
 
 import base64
 import hmac
+import ipaddress
 import json
 import os
+import socket
 
 import boto3
 from botocore.config import Config
@@ -48,10 +53,35 @@ def respond(status, body):
     }
 
 
+def allowed_ips():
+    """ALLOWED_SOURCE_HOSTS 의 이름들이 지금 가리키는 IP 목록. 비어 있으면 None (확인하지 않음)."""
+    hosts = [h.strip() for h in os.environ.get("ALLOWED_SOURCE_HOSTS", "").split(",") if h.strip()]
+    if not hosts:
+        return None
+    ips = set()
+    for host in hosts:
+        try:
+            ips.add(str(ipaddress.ip_address(host)))  # IP 를 직접 적은 경우
+            continue
+        except ValueError:
+            pass
+        try:
+            ips.update(info[4][0] for info in socket.getaddrinfo(host, None, socket.AF_INET))
+        except OSError as err:
+            print("[relay] 주소 확인 실패:", host, err)
+    return ips
+
+
 def read_request(event):
-    """함수 URL 로 들어온 요청이면 토큰을 확인하고 본문을 꺼낸다. 콘솔 테스트(직접 호출)는 event 자체가 요청."""
+    """함수 URL 로 들어온 요청이면 보낸 곳(IP)과 토큰을 확인하고 본문을 꺼낸다. 콘솔 테스트(직접 호출)는 event 자체가 요청."""
     if "requestContext" not in event:
         return event  # 콘솔 '테스트' 또는 IAM 권한으로 직접 호출 — 이미 AWS 가 권한을 확인함
+    source = ((event.get("requestContext") or {}).get("http") or {}).get("sourceIp", "")
+    ips = allowed_ips()
+    if ips is not None and source not in ips:
+        # 주소를 확인하지 못했을 때도 막는다 (안전한 쪽으로)
+        print("[relay] 허용되지 않은 곳에서 온 요청:", source)
+        raise PermissionError()
     expected = os.environ.get("RELAY_TOKEN", "")
     got = (event.get("headers") or {}).get("x-relay-token", "")
     if len(expected) < 16 or not hmac.compare_digest(expected, got):

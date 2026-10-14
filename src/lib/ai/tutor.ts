@@ -46,9 +46,10 @@ export async function evaluateShortAnswer(
   text: string,
   rule: RuleEvaluation,
   force = false,
+  allowAi = true,
 ): Promise<ShortAnswerFeedback> {
   const fromRule = (): ShortAnswerFeedback => ruleFeedback(q, rule);
-  if (rule.aiReasons.length === 0 && !force) return fromRule();
+  if (!allowAi || (rule.aiReasons.length === 0 && !force)) return fromRule();
 
   return withFallback(async () => {
     const r = await askStructured({

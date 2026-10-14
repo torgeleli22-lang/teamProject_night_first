@@ -4,7 +4,7 @@ import { useState, type Dispatch, type SetStateAction } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { CodeSnippet } from "@/components/CodeBlock";
 import { Spinner, UnderstandingChip } from "@/components/ui";
-import { apiPost } from "@/lib/api";
+import { ApiError, apiPost } from "@/lib/api";
 import type { ShortAnswerFeedback } from "@/lib/ai/tutor";
 import type { AttemptResult, TutorNote } from "@/lib/server/grade";
 import type { PublicQuestion } from "@/lib/server/planner";
@@ -28,6 +28,7 @@ interface Props {
 export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, onNext, onSimilar, similarLoading, onConcept, chat }: Props) {
   const [tutor, setTutor] = useState<TutorNote>(result.tutor);
   const [deepLoading, setDeepLoading] = useState(false);
+  const [deepError, setDeepError] = useState<string | null>(null);
   // 제출 전에 대화했다면 이어서 볼 수 있게 열어 둔다
   const [chatOpen, setChatOpen] = useState(chat.turns.length > 0);
   const { correct, partial } = result;
@@ -39,6 +40,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
   async function deepAnalysis() {
     if (!answerText) return;
     setDeepLoading(true);
+    setDeepError(null);
     try {
       const fb = await apiPost<ShortAnswerFeedback>("/explain", { questionId: question.id, text: answerText });
       setTutor({
@@ -50,6 +52,8 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
         nextTip: fb.nextTip,
         source: fb.gradedBy === "ai" ? "ai" : "rule",
       });
+    } catch (e) {
+      setDeepError(e instanceof ApiError ? e.message : "지금은 AI 분석을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.");
     } finally {
       setDeepLoading(false);
     }
@@ -118,6 +122,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
               💬 튜터에게 질문
             </button>
           </div>
+          {deepError && <p className="text-sm text-coral-600">{deepError}</p>}
           {chatOpen && <TutorChat questionId={question.id} solved turns={chat.turns} setTurns={chat.setTurns} />}
         </div>
       </section>

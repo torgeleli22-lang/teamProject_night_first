@@ -305,6 +305,11 @@ sudo docker compose up -d --force-recreate
 sudo docker compose logs --tail 20 api     # "(DB: postgres, AI: live)"
 ```
 
+### 8-5-1. Lambda 를 EC2 에서 온 요청만 받게 하기 (권장)
+Lambda → 구성 → **환경 변수 → 편집** → 키 `ALLOWED_SOURCE_HOSTS`, 값 = EC2 주소 이름 (예: `jjojjo.duckdns.org`) → 저장.
+그 이름이 지금 가리키는 IP(= EC2)에서 온 요청만 받으므로, 중계 토큰이 새어도 다른 곳에서는 쓸 수 없습니다. (최신 `lambda_function.py` 를 붙여 넣은 뒤 설정)
+EC2 를 다시 켠 직후 1~2분은 DuckDNS 가 새 IP 로 바뀌는 중이라 AI 호출이 실패할 수 있습니다 (그동안은 규칙 기반으로 동작).
+
 ### 8-6. 동작 확인
 화면에서 **주관식 문제 답 제출**(AI 평가)이나 **AI 튜터에게 질문하기** 를 해 보세요. 관리자 화면(`/admin`) 사용량에 `us.anthropic.claude-haiku-4-5-...` 가 보이면 실제 AI 가 응답한 것입니다.
 실패해도 화면은 규칙 기반으로 계속 동작합니다. 원인은 EC2 의 `sudo docker compose logs --tail 50 api` (`[ai] 호출 실패` 줄) 와 Lambda 의 **모니터링 → CloudWatch 로그** (`[bedrock] 호출 실패` 줄) 에서 봅니다.

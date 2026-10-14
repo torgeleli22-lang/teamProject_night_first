@@ -43,6 +43,8 @@ export async function gradeAttempt(
   rawAnswer: Answer | null,
   hintsUsed: number,
   timeMs: number,
+  /** false 면 주관식도 규칙으로만 평가 (AI 요청 한도를 넘었을 때) */
+  allowAi = true,
 ): Promise<AttemptResult | null> {
   const found = await getQuestion(questionId);
   if (!found) return null;
@@ -70,7 +72,7 @@ export async function gradeAttempt(
   } else if (q.type === "short_answer" && answer.type === "short_answer") {
     // 주관식: 1차 규칙 평가 → 필요할 때만 AI
     const rule = evaluateShortAnswer(q, answer.text);
-    const fb = await aiEvaluate(q, item, answer.text, rule);
+    const fb = await aiEvaluate(q, item, answer.text, rule, false, allowAi);
     correct = fb.verdict === "correct";
     partial = fb.verdict === "partial";
     gradedBy = fb.gradedBy;
