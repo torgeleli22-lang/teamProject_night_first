@@ -151,7 +151,36 @@ export interface ShortAnswerQuestion extends QuestionBase {
   modelAnswer: string;
 }
 
-export type Question = MultipleChoiceQuestion | FillBlankQuestion | PredictQuestion | ShortAnswerQuestion;
+/** 흐름 따라가기: 따라갈 줄과 그 줄을 실행하기 직전(before)·직후(after)에 물어볼 값 */
+export interface TraceWatch {
+  /** 1부터 */
+  line: number;
+  when?: "before" | "after";
+  /** 학습자가 채울 값 (변수·식) */
+  ask: string[];
+  /** 상황 설명으로 보여 줄 값 (예: 반복문의 지금 요소) */
+  given?: string[];
+}
+
+/** 추적표 한 칸: 그 줄이 실행된 시점의 값 (서버가 실제로 실행해서 기록한 정답) */
+export interface TraceRow {
+  line: number;
+  when: "before" | "after";
+  /** "item = {name: '펜', …}" 같은 상황 설명. 없으면 빈 문자열 */
+  context: string;
+  expr: string;
+  /** 콘솔 표기 값 (문자열은 '따옴표') */
+  value: string;
+}
+
+export interface TraceQuestion extends QuestionBase {
+  type: "trace";
+  watch: TraceWatch[];
+  /** 실행 기록 = 정답. 시드는 작성해 두고 npm run verify 가 실제 실행과 같은지 확인, AI 생성은 실행해서 채운다 */
+  rows: TraceRow[];
+}
+
+export type Question = MultipleChoiceQuestion | FillBlankQuestion | PredictQuestion | ShortAnswerQuestion | TraceQuestion;
 
 export type QuestionType = Question["type"];
 
@@ -160,6 +189,8 @@ export type Answer =
   | { type: "multiple_choice"; index: number }
   | { type: "fill_blank"; index: number }
   | { type: "predict_output"; text: string }
+  /** 추적표 칸마다 쓴 값 (rows 순서) */
+  | { type: "trace"; values: string[] }
   | { type: "short_answer"; text: string };
 
 export type UnderstandingLevel = "good" | "ok" | "weak";

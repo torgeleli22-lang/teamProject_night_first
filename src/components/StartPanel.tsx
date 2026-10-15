@@ -181,7 +181,7 @@ export function StartPanel({
                 </optgroup>
               ))}
             </select>
-            <p className="mt-2 text-xs text-ink-500">코드 하나를 👀 훑어보기 → 🔑 핵심 줄 → 📝 정리 순서로 읽어요.</p>
+            <p className="mt-2 text-xs text-ink-500">코드 하나를 👀 훑어보기 → 🧭 흐름 따라가기 → 🔑 핵심 줄 → 📝 정리 순서로 읽어요.</p>
           </Step>
         </>
       )}

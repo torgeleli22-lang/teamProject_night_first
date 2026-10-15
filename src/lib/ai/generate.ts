@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import * as z from "zod/v4";
 import { computeFactors } from "../content/analyzer";
 import { autoFixQuestions } from "../content/autofix";
+import { autoTraceQuestion } from "../content/tracer";
 import { validateCode, validateItem, type ValidationReport } from "../content/validate";
 import { CONCEPTS, getConcept, levelInfo } from "../curriculum";
 import { saveGeneratedItem } from "../server/content-repo";
@@ -13,6 +14,7 @@ import { MOCK_GENERATIONS } from "./mock-content";
 
 /**
  * AI 콘텐츠 생성 파이프라인 (사용자가 문제를 풀 때마다가 아니라, 콘텐츠가 부족할 때만 실행).
+ * 흐름 따라가기(trace) 문제는 AI 가 만들지 않고, 코드를 실제로 실행한 기록으로 규칙에 따라 만든다 (tracer.ts).
  *
  *   AI 코드 + 문제 생성 (smart) → 구조 변환 → 실제 실행 검증 (validate.ts)
  *   → AI 검수 (fast: 해설-동작 일치, 정답 유일성, 난이도, 불필요한 개념) → DB 저장 (통과: published / 실패: rejected)
@@ -409,7 +411,11 @@ export async function generateCodeSet(opts: {
       const g: Generated = { ...base, questions: questionsOut.questions };
       const itemId = `ai-${opts.concept}-${crypto.randomUUID().slice(0, 8)}`;
       const converted = toQuestions(g, itemId);
-      const { questions, fixes } = autoFixQuestions(base.code, actualOutput, converted.questions);
+      const fixed = autoFixQuestions(base.code, actualOutput, converted.questions);
+      const fixes = fixed.fixes;
+      // 흐름 따라가기는 AI 가 아니라 실제 실행 기록으로 만든다 (만들 수 없는 코드면 그 단계 없이)
+      const trace = await autoTraceQuestion("javascript", base.code, itemId);
+      const questions = trace ? [...fixed.questions, trace] : fixed.questions;
       const report = await validateItem({
         code: base.code,
         concepts: base.concepts,

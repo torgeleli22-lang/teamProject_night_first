@@ -24,6 +24,16 @@ function fmt(value, nested) {
 }
 
 const lines = [];
+/** 흐름 따라가기: 코드에 끼워 넣은 __trace(...) 가 남기는 기록 (줄 실행 시점의 값) */
+const records = [];
+const maxRecords = workerData.maxRecords || 0;
+const capture = (fn) => {
+  try {
+    return fmt(fn(), true);
+  } catch (e) {
+    return "(아직 없음)";
+  }
+};
 let timedOut = false;
 const pushError = (e, prefix) => {
   if (e && e.code === "ERR_SCRIPT_EXECUTION_TIMEOUT") { timedOut = true; lines.push("Uncaught Timeout"); return; }
@@ -33,6 +43,9 @@ process.on("unhandledRejection", (e) => pushError(e, "Uncaught (in promise) "));
 
 const context = vm.createContext({
   console: { log: (...args) => lines.push(args.map((a) => fmt(a, false)).join(" ")) },
+  __trace: (watch, ask, given) => {
+    if (records.length < maxRecords) records.push({ watch, ask: ask.map(capture), given: given.map(capture) });
+  },
   setTimeout: (fn, ms) => setTimeout(() => { try { fn(); } catch (e) { pushError(e, "Uncaught "); } }, Math.min(Number(ms) || 0, 200)),
 });
 
@@ -41,7 +54,7 @@ try {
 } catch (e) {
   pushError(e, "Uncaught ");
 }
-setTimeout(() => parentPort.postMessage({ output: lines.join("\\n"), timedOut }), 300);
+setTimeout(() => parentPort.postMessage({ output: lines.join("\\n"), timedOut, records }), 300);
 `;
 
 export interface RunResult {
@@ -51,17 +64,29 @@ export interface RunResult {
   threw: boolean;
 }
 
+/** __trace(watch, ask, given) 한 번의 기록. 값은 콘솔 표기 (문자열은 '따옴표') */
+export interface TraceRecord {
+  watch: number;
+  ask: string[];
+  given: string[];
+}
+
 export function runJs(code: string): Promise<RunResult> {
+  return runJsTraced(code, 0);
+}
+
+/** runJs + 코드에 끼워 넣은 __trace 기록 (최대 maxRecords 개) */
+export function runJsTraced(code: string, maxRecords: number): Promise<RunResult & { records: TraceRecord[] }> {
   return new Promise((resolve) => {
     const worker = new Worker(WORKER_SOURCE, {
       eval: true,
-      workerData: { code },
+      workerData: { code, maxRecords },
       resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8 },
     });
-    const finish = (result: { output: string; timedOut: boolean }) => {
+    const finish = (result: { output: string; timedOut: boolean; records?: TraceRecord[] }) => {
       clearTimeout(timer);
       worker.terminate();
-      resolve({ ...result, threw: /(^|\n)Uncaught /.test(result.output) });
+      resolve({ ...result, records: result.records ?? [], threw: /(^|\n)Uncaught /.test(result.output) });
     };
     const timer = setTimeout(() => finish({ output: "Uncaught Timeout", timedOut: true }), 2000);
     worker.once("message", finish);

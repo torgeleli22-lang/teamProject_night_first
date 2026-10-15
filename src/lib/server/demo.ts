@@ -66,6 +66,8 @@ function fakeAnswer(q: Question, correct: boolean): { answer: Answer; misconcept
     }
     case "predict_output":
       return { answer: { type: q.type, text: correct ? q.output : "모르겠어요" }, misconception: null };
+    case "trace":
+      return { answer: { type: q.type, values: q.rows.map((r, i) => (correct || i > 0 ? r.value : "0")) }, misconception: null };
     case "short_answer":
       return { answer: { type: q.type, text: correct ? q.modelAnswer : "map 으로 골라서 새 배열을 만들어요" }, misconception: correct ? null : "map 이 요소를 고른다고 생각" };
   }

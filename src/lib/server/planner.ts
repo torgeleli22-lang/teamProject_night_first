@@ -26,6 +26,8 @@ export interface PublicQuestion {
   certs?: string[];
   /** 남은 힌트 수 (힌트 내용은 요청할 때 하나씩) */
   hintCount: number;
+  /** 흐름 따라가기: 채울 칸 (값은 빼고 보낸다) */
+  trace?: { line: number; when: "before" | "after"; context: string; expr: string }[];
 }
 
 /** 보기를 화면에 보일 순서 (문제마다 고정). 작성할 때 정답을 맨 앞에 두어도 화면에서는 섞인다 */
@@ -55,6 +57,13 @@ export function toPublic(q: Question, item: CodeItem): PublicQuestion {
         ...base,
         code: blankedDisplay(item.code, q.blankedCode, q.choices[q.answerIndex].text),
         choices: choiceOrder(q).map((i) => q.choices[i].text),
+      };
+    case "trace":
+      return {
+        ...base,
+        code: item.code,
+        focusLines: [...new Set(q.watch.map((w) => w.line))],
+        trace: q.rows.map(({ line, when, context, expr }) => ({ line, when, context, expr })),
       };
     default:
       return { ...base, code: item.code };
