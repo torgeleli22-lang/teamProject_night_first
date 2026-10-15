@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { AIBadge } from "@/components/AIBadge";
 import { Spinner } from "@/components/ui";
-import { ApiError, apiPost } from "@/lib/api";
+import { ApiError, LAMBDA_URLS, apiPost, lambdaPost } from "@/lib/api";
 import type { Answer } from "@/lib/types";
 
 export interface Turn {
@@ -28,6 +28,7 @@ export function TutorChat({
   turns,
   setTurns,
   answer,
+  lambda,
 }: {
   questionId: string;
   solved: boolean;
@@ -35,6 +36,11 @@ export function TutorChat({
   setTurns: Dispatch<SetStateAction<Turn[]>>;
   /** 학습자가 지금 고른·쓴·배열한 답 (순서 맞추기는 일부만 놓은 것도). 튜터가 이 답을 보고 이야기한다 */
   answer?: Answer | null;
+  /**
+   * 튜터 Lambda(lambda/tutor-chat) 로 보낼 때 필요한 값. 그 Lambda URL 이 설정되어 있으면 이쪽으로 보낸다.
+   * chatId 는 문제 화면이 들고 있어서 다음 문제로 넘어가면 새 대화가 된다.
+   */
+  lambda?: { codeItemId: string; answerText: string; chatId: string | null; setChatId: (id: string) => void };
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -73,13 +79,26 @@ export function TutorChat({
     setInput("");
     setLoading(true);
     try {
-      const res = await apiPost<{ answer: string; source: "ai" | "offline" }>("/ask", {
-        questionId,
-        question: q,
-        solved,
-        history,
-        ...(answer ? { answer } : {}),
-      });
+      const res =
+        LAMBDA_URLS.tutorChat && lambda
+          ? await lambdaPost<{ answer: string; chatId: string }>(LAMBDA_URLS.tutorChat, {
+              chatId: lambda.chatId ?? undefined,
+              codeItemId: lambda.codeItemId,
+              questionId,
+              question: q,
+              solved,
+              ...(lambda.answerText ? { answerText: lambda.answerText } : {}),
+            }).then((r) => {
+              lambda.setChatId(r.chatId);
+              return { answer: r.answer, source: "ai" as const };
+            })
+          : await apiPost<{ answer: string; source: "ai" | "offline" }>("/ask", {
+              questionId,
+              question: q,
+              solved,
+              history,
+              ...(answer ? { answer } : {}),
+            });
       setTurns((t) => [...t, { role: "tutor", text: res.answer, source: res.source }]);
     } catch (e) {
       // 너무 많이 물어본 경우(429)는 서버가 보낸 안내를 그대로 보여 준다

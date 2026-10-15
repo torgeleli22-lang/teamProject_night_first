@@ -36,6 +36,8 @@ jobs:
       - run: npm run build
         env:
           NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
+          # 기능별 Lambda URL (lambda/ 폴더). 없으면 그 기능도 API_URL 로 처리
+          NEXT_PUBLIC_TUTOR_CHAT_URL: ${{ vars.TUTOR_CHAT_URL }}
           NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
       - run: touch out/.nojekyll
       - uses: actions/configure-pages@v5

@@ -8,6 +8,15 @@ import { useCallback, useEffect, useState } from "react";
  * - 정답·채점은 모두 서버(API)에서 한다. 이 파일은 요청만 보낸다.
  */
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
+/**
+ * 기능별 Lambda URL (lambda/ 폴더의 Python Lambda). 비어 있으면 그 기능도 위의 API_URL 로 처리한다.
+ * GitHub → Settings → Secrets and variables → Actions → Variables 에 넣으면 화면 배포 때 들어간다.
+ */
+export const LAMBDA_URLS = {
+  /** 튜터 대화: lambda/tutor-chat */
+  tutorChat: (process.env.NEXT_PUBLIC_TUTOR_CHAT_URL || "").replace(/\/$/, ""),
+};
+
 /** 배포 화면인데 API 주소 없이 빌드된 경우 (화면 미리보기만 가능) */
 const API_MISSING = !process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_BASE_PATH;
 
@@ -62,6 +71,20 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown, 
   }
   const next = res.headers.get(SESSION_HEADER);
   if (next) saveSession(next);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError((data as { error?: string }).error ?? "요청에 실패했어요.", res.status);
+  return data as T;
+}
+
+/** 기능별 Lambda URL 로 JSON 을 보내고 JSON 을 받는다 (세션 헤더 없이, 필요한 값은 본문에 넣는다) */
+export async function lambdaPost<T>(url: string, body: unknown, opts: { signal?: AbortSignal } = {}): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: opts.signal });
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    throw new ApiError("서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.", 0);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError((data as { error?: string }).error ?? "요청에 실패했어요.", res.status);
   return data as T;

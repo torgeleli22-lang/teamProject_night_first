@@ -23,7 +23,12 @@ interface Props {
   similarLoading?: boolean;
   onConcept: () => void;
   /** 제출 전에 나눈 튜터 대화를 이어서 쓴다 */
-  chat: { turns: Turn[]; setTurns: Dispatch<SetStateAction<Turn[]>>; answer: Answer | null };
+  chat: {
+    turns: Turn[];
+    setTurns: Dispatch<SetStateAction<Turn[]>>;
+    answer: Answer | null;
+    lambda: { codeItemId: string; answerText: string; chatId: string | null; setChatId: (id: string) => void };
+  };
 }
 
 export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, onNext, onSimilar, similarLoading, onConcept, chat }: Props) {
@@ -126,7 +131,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
             </button>
           </div>
           {deepError && <p className="text-sm text-coral-600">{deepError}</p>}
-          {chatOpen && <TutorChat questionId={question.id} solved turns={chat.turns} setTurns={chat.setTurns} answer={chat.answer} />}
+          {chatOpen && <TutorChat questionId={question.id} solved turns={chat.turns} setTurns={chat.setTurns} answer={chat.answer} lambda={chat.lambda} />}
         </div>
       </section>
 

@@ -1,0 +1,7 @@
+{
+  "codeItemId": "set-cart",
+  "questionId": "cart-trace",
+  "question": "total 이 왜 3000 이 되는지 모르겠어요",
+  "solved": false,
+  "answerText": "10번째 줄 total = 3000, 10번째 줄 total = 5000"
+}
