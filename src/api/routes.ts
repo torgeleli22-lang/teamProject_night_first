@@ -6,7 +6,7 @@ import { manualReason } from "./background";
 import { ADMIN_CODE_MAX, ADMIN_CODE_MIN, adminCodeIsSet, setAdminCode } from "../lib/server/admin-auth";
 import { askAboutQuestion, evaluateShortAnswer as aiEvaluate } from "../lib/ai/tutor";
 import { decideOnSession, generatableLevels, launchFillPlan, POLICY, TRIGGER_LABEL } from "../lib/content/policy";
-import { CONCEPTS, getConcept } from "../lib/curriculum";
+import { CONCEPTS, conceptsOf, getConcept } from "../lib/curriculum";
 import { evaluateShortAnswer } from "../lib/grading";
 import { misconceptionCounts } from "../lib/learner/stats";
 import { AnswerSchema, LevelSchema } from "../lib/schemas";
@@ -18,6 +18,7 @@ import {
   importGeneratedItem,
   listGeneratedItems,
   loadContent,
+  reviewGeneratedItem,
   type ExportedItem,
 } from "../lib/server/content-repo";
 import type { Level } from "../lib/types";
@@ -212,7 +213,7 @@ const demo: Handler = async (ctx) => {
 
 async function fillPlan() {
   const stock = await coverage();
-  return launchFillPlan((c, l) => stock.get(`${c}:${l}`) ?? 0, CONCEPTS.map((c) => c.id));
+  return launchFillPlan((c, l) => stock.get(`${c}:${l}`) ?? 0, conceptsOf("code").map((c) => c.id));
 }
 
 const adminOverview: Handler = async (ctx) => {
@@ -229,7 +230,7 @@ const adminOverview: Handler = async (ctx) => {
     generatable: Object.fromEntries(CONCEPTS.map((c) => [c.id, generatableLevels(c.id)])),
     coverage: Object.fromEntries(stock),
     demand: await demandByCell(Date.now() - POLICY.demandWindowDays * 86400_000),
-    fillPlan: launchFillPlan((c, l) => stock.get(`${c}:${l}`) ?? 0, CONCEPTS.map((c) => c.id)),
+    fillPlan: launchFillPlan((c, l) => stock.get(`${c}:${l}`) ?? 0, conceptsOf("code").map((c) => c.id)),
     usage,
     cost: { total: estimateCost(usage), monthToDate: await monthToDateCostUsd(aiMode() === "mock") },
     grading: await gradingSplit(),
@@ -281,6 +282,38 @@ const adminFill: Handler = async (ctx) => {
   const cells = (await fillPlan()).slice(0, limit);
   await ctx.background({ kind: "fill", cells });
   return { started: cells.length, cells };
+};
+
+/** AI 콘텐츠 하나의 문제 전체 (정답·해설 포함, 관리자 전용) — 승인 대기 중인 개념 문제를 검토할 때 */
+const adminItem: Handler = async (ctx) => {
+  await requireAdmin(ctx.req);
+  const id = ctx.req.query.get("id") ?? "";
+  const found = await getGeneratedItem(id);
+  if (!found) throw notFound("AI 생성 콘텐츠");
+  return found;
+};
+
+/**
+ * 승인 대기 중인 AI 개념 문제를 승인(학습자에게 공개)하거나 반려한다.
+ * 승인하면서 일부 문제를 뺄 수 있다 (남는 문제가 1개 이상이어야 함)
+ */
+const adminReview: Handler = async (ctx) => {
+  await requireAdmin(ctx.req);
+  const body = parse(
+    z.object({
+      itemId: z.string().max(120),
+      decision: z.enum(["approve", "reject"]),
+      removeQuestionIds: z.array(z.string().max(160)).max(20).default([]),
+    }),
+    ctx.req.body,
+  );
+  const found = await getGeneratedItem(body.itemId);
+  if (!found) throw notFound("AI 생성 콘텐츠");
+  if (found.row.status !== "pending") throw new HttpError(400, "승인 대기 중인 콘텐츠만 승인·반려할 수 있어요.");
+  const remaining = found.questions.filter((q) => !body.removeQuestionIds.includes(q.id)).length;
+  if (body.decision === "approve" && remaining === 0) throw new HttpError(400, "남는 문제가 없어요. 반려를 눌러 주세요.");
+  await reviewGeneratedItem(body.itemId, body.decision === "approve" ? "published" : "rejected", body.decision === "approve" ? body.removeQuestionIds : []);
+  return { status: body.decision === "approve" ? "published" : "rejected", questions: body.decision === "approve" ? remaining : 0 };
 };
 
 /** 반려된 AI 콘텐츠를 실패 이유와 실제 실행 결과를 알려 주고 고쳐서 다시 만든다 (새 항목으로 저장, 검증·검수를 다시 거침) */
@@ -438,6 +471,8 @@ export const ROUTES: Record<string, Handler> = {
   "POST /admin/stop": adminStop,
   "POST /admin/code": adminCode,
   "POST /admin/repair": adminRepair,
+  "GET /admin/item": adminItem,
+  "POST /admin/review": adminReview,
   "GET /admin/export": adminExport,
   "POST /admin/import": adminImport,
 };

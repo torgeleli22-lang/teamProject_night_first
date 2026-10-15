@@ -154,6 +154,21 @@ const check = (cond: unknown, msg: string) => {
     await Promise.all(tasks);
     const batchJobs = (await call<{ jobs: { reason: string; status: string }[] }>("GET", "/admin/overview")).jobs.filter((j) => j.reason.includes("장바구니"));
     check(batchJobs.length === 2 && batchJobs.some((j) => j.reason.includes("2/2")), `맞춤 생성 기록 2개 (${batchJobs.map((j) => j.status).join(", ")})`);
+    // 개념 문제 AI 생성: 교차 검수(목업은 마지막 문제를 일부러 다르게 풂) → 승인 대기 → 관리자 승인 뒤에만 학습자에게
+    const before = (await call<{ questions: PublicQuestion[] }>("POST", "/session", { level: 2, track: "theory", concept: "net-dns", size: 20 })).questions.length;
+    const tgen = await call<{ status: string; itemId: string; report: { checks: { name: string; pass: boolean }[] } }>("POST", "/admin/generate", { concept: "net-dns", level: 2 });
+    check(tgen.status === "pending", `개념 문제 AI 생성 → 승인 대기 (${tgen.status})`);
+    check(tgen.report.checks.some((c) => c.name.includes("AI 교차 풀이") && !c.pass), "교차 풀이가 다른 답을 고른 문제는 빠짐");
+    const notYet = (await call<{ questions: PublicQuestion[] }>("POST", "/session", { level: 2, track: "theory", concept: "net-dns", size: 20 })).questions.length;
+    check(notYet === before, "승인 전에는 학습자에게 나가지 않음");
+    const detail = await call<{ questions: { id: string }[] }>("GET", `/admin/item?id=${tgen.itemId}`);
+    const approved = await call<{ status: string; questions: number }>("POST", "/admin/review", { itemId: tgen.itemId, decision: "approve", removeQuestionIds: [detail.questions[0].id] });
+    check(approved.status === "published" && approved.questions === detail.questions.length - 1, `한 문제는 빼고 ${approved.questions}문제 승인`);
+    const afterApprove = (await call<{ questions: PublicQuestion[] }>("POST", "/session", { level: 2, track: "theory", concept: "net-dns", size: 20 })).questions.length;
+    check(afterApprove === before + approved.questions, `승인하면 학습자에게 나감 (${before} → ${afterApprove}문제)`);
+    const tgen2 = await call<{ itemId: string }>("POST", "/admin/generate", { concept: "sec-auth", level: 2 });
+    check((await call<{ status: string }>("POST", "/admin/review", { itemId: tgen2.itemId, decision: "reject" })).status === "rejected", "개념 문제 반려");
+
     // 수동 생성 도중 중지 → 결과를 버리고 cancelled
     const pending = call<{ status: string }>("POST", "/admin/generate", { concept: "filter", level: 2 });
     await new Promise((r) => setTimeout(r, 500));

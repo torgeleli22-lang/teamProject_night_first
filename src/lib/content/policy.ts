@@ -31,7 +31,7 @@ export const POLICY = {
 /**
  * 개념별로 AI 생성을 허용하는 난이도.
  * - 단원 성격에 맞지 않는 칸(예: 변수 심화)은 만들지 않는다.
- * - 개념 갈래(분야 11~14)는 실행으로 정답을 확인할 수 없어, 관리자 승인 흐름이 생길 때까지 AI 로 만들지 않는다 (빈 배열).
+ * - 개념 갈래(분야 11~14)는 실행으로 정답을 확인할 수 없어, 관리자 수동 생성만 하고 AI 교차 검수 + 관리자 승인을 거친다.
  */
 const LEVELS_BY_UNIT: Record<number, Level[]> = {
   1: [1, 2, 3], // 변수·let/const·데이터 타입·연산자
@@ -40,6 +40,11 @@ const LEVELS_BY_UNIT: Record<number, Level[]> = {
   4: [2, 3, 4], // 함수·화살표 함수·스코프
   5: [3, 4, 5], // map·filter·forEach·find·reduce
   7: [4, 5], // Promise·async/await
+  // 개념 갈래 (네트워크·개발·운영·보안): 관리자가 직접 만들고, AI 교차 검수 + 관리자 승인 뒤 공개
+  11: [1, 2, 3, 4],
+  12: [1, 2, 3, 4],
+  13: [1, 2, 3, 4],
+  14: [1, 2, 3, 4],
 };
 const HUMAN_ONLY = new Set<ConceptId>();
 

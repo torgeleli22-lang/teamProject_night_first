@@ -255,3 +255,24 @@ export async function importGeneratedItem(e: ExportedItem) {
   }
   invalidateContent();
 }
+
+/**
+ * 관리자 승인·반려 (AI 가 만든 개념 문제는 '승인 대기' 로 저장되고, 승인해야 학습자에게 나간다).
+ * removeQuestionIds: 승인하면서 뺄 문제
+ */
+export async function reviewGeneratedItem(id: string, status: "published" | "rejected", removeQuestionIds: string[] = []): Promise<boolean> {
+  if (useDynamo()) {
+    const ok = await D.reviewGeneratedItem(id, status, removeQuestionIds);
+    invalidateContent();
+    return ok;
+  }
+  const db = await getDb();
+  const ok = await db.transaction(async (tx) => {
+    const changed = await tx.run("UPDATE code_items SET status = ? WHERE id = ? AND source = 'ai'", [status, id]);
+    if (!changed) return false;
+    for (const qid of removeQuestionIds) await tx.run("DELETE FROM questions WHERE id = ? AND code_item_id = ?", [qid, id]);
+    return true;
+  });
+  invalidateContent();
+  return ok;
+}

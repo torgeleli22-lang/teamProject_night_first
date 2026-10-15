@@ -169,3 +169,14 @@ export async function importGeneratedItem(row: GeneratedItemRow, item: CodeItem,
   });
   await bumpVersion();
 }
+
+/** 관리자 승인·반려: 상태를 바꾸고, 빼기로 한 문제는 지운다 */
+export async function reviewGeneratedItem(id: string, status: "published" | "rejected", removeQuestionIds: string[]): Promise<boolean> {
+  const r = await getItem<ContentItem>("CONTENT", id, true);
+  if (!r || r.source !== "ai") return false;
+  const remove = new Set(removeQuestionIds);
+  const questions = (r.questions ?? []).filter((q) => !remove.has(q.id));
+  await putItem({ ...r, status, item: { ...r.item, status }, questions });
+  await bumpVersion();
+  return true;
+}

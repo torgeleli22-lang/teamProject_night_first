@@ -4,12 +4,13 @@ import { computeFactors } from "../content/analyzer";
 import { autoFixQuestions } from "../content/autofix";
 import { autoTraceQuestion } from "../content/tracer";
 import { validateCode, validateItem, type ValidationReport } from "../content/validate";
-import { CONCEPTS, getConcept, levelInfo } from "../curriculum";
+import { CONCEPTS, getConcept, levelInfo, trackOf } from "../curriculum";
 import { saveGeneratedItem } from "../server/content-repo";
 import { POLICY, generatableLevels, isGeneratable, type Trigger } from "../content/policy";
 import { autoGenerationEnabled, createJob, finishJob, jobCancelled, jobsSince, monthToDateCostUsd, runningJob, stopRequestedSince } from "../server/ops-repo";
 import type { ConceptId, Level, Question, Skill } from "../types";
 import { AIUnavailableError, aiEnabled, aiMode, askStructured } from "./client";
+import { generateTheorySet } from "./generate-theory";
 import { MOCK_GENERATIONS } from "./mock-content";
 
 /**
@@ -222,7 +223,7 @@ issues 는 어느 문제(prompt 앞부분)의 무엇이 문제인지 한 문장�
 
 export interface GenerateResult {
   jobId: number;
-  status: "published" | "rejected" | "failed" | "skipped" | "cancelled";
+  status: "published" | "pending" | "rejected" | "failed" | "skipped" | "cancelled";
   itemId?: string;
   report?: ValidationReport;
   issues?: string[];
@@ -244,6 +245,38 @@ export function abortJobs(ids: number[]) {
 /** 문제가 부족할 때 AI 가 알아서 일으키는 생성 (관리자 화면의 '자동 생성' 스위치 대상) */
 const AUTO_TRIGGERS: Trigger[] = ["stock_floor", "demand", "personal_review"];
 
+/**
+ * 생성 작업 시작 (코드·개념 공통): 생성 기준·한도·예산을 확인하고 작업 기록을 만든다.
+ * 중지 버튼이 눌렸는지 확인하는 함수와, 중지됐을 때 결과를 함께 돌려준다.
+ */
+export async function beginJob(opts: { concept: ConceptId; level: Level; trigger: Trigger; reason: string; sessionId?: string; stopSince?: number }): Promise<
+  | { skipped: GenerateResult }
+  | { jobId: number; controller: AbortController; cancelled: () => Promise<boolean>; stopped: () => Promise<GenerateResult>; finish: () => void }
+> {
+  const skip = (error: string) => ({ skipped: { jobId: 0, status: "skipped" as const, error } });
+  if (!aiEnabled()) return skip("AI 가 설정되어 있지 않습니다.");
+  if (!getConcept(opts.concept)) return skip("알 수 없는 개념");
+  if (generatableLevels(opts.concept).length === 0) return skip(NOT_VERIFIABLE);
+  if (opts.trigger !== "manual" && !isGeneratable(opts.concept, opts.level)) return skip("AI 생성 대상이 아닌 칸입니다.");
+  // 개념 문제는 관리자 승인이 필요해서 관리자가 직접 만들 때만 생성한다
+  if (trackOf(opts.concept) === "theory" && opts.trigger !== "manual") return skip("개념 문제는 관리자가 직접 만들 때만 생성합니다.");
+  if (AUTO_TRIGGERS.includes(opts.trigger) && !(await autoGenerationEnabled())) return skip("자동 생성이 꺼져 있습니다.");
+  if (await runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
+  if ((await jobsSince(Date.now() - 86400_000)) >= POLICY.dailyLimit) return skip("오늘의 생성 한도에 도달했습니다.");
+  if (aiMode() === "live" && (await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) return skip("이번 달 AI 예산에 도달했습니다.");
+
+  const jobId = await createJob({ ...opts, mock: aiMode() === "mock" });
+  const controller = new AbortController();
+  running.set(jobId, controller);
+  const cancelled = async () =>
+    controller.signal.aborted || (await jobCancelled(jobId)) || (opts.stopSince !== undefined && (await stopRequestedSince(opts.stopSince)));
+  const stopped = async (): Promise<GenerateResult> => {
+    await finishJob(jobId, "cancelled", null, "관리자가 중지했어요");
+    return { jobId, status: "cancelled", error: "관리자가 중지했어요" };
+  };
+  return { jobId, controller, cancelled, stopped, finish: () => running.delete(jobId) };
+}
+
 export async function generateCodeSet(opts: {
   concept: ConceptId;
   level: Level;
@@ -261,25 +294,10 @@ export async function generateCodeSet(opts: {
   /** 여러 칸을 차례로 만드는 작업(출시 전 채우기)의 시작 시각 — 그 뒤에 '전부 중지'가 눌렸으면 멈춘다 */
   stopSince?: number;
 }): Promise<GenerateResult> {
-  const skip = (error: string): GenerateResult => ({ jobId: 0, status: "skipped", error });
-  if (!aiEnabled()) return skip("AI 가 설정되어 있지 않습니다.");
-  if (!getConcept(opts.concept)) return skip("알 수 없는 개념");
-  if (generatableLevels(opts.concept).length === 0) return skip(NOT_VERIFIABLE);
-  if (opts.trigger !== "manual" && !isGeneratable(opts.concept, opts.level)) return skip("AI 생성 대상이 아닌 칸입니다.");
-  if (AUTO_TRIGGERS.includes(opts.trigger) && !(await autoGenerationEnabled())) return skip("자동 생성이 꺼져 있습니다.");
-  if (await runningJob(opts.concept, opts.level)) return skip("같은 개념·난이도로 생성 중입니다.");
-  if ((await jobsSince(Date.now() - 86400_000)) >= POLICY.dailyLimit) return skip("오늘의 생성 한도에 도달했습니다.");
-  if (aiMode() === "live" && (await monthToDateCostUsd()) >= POLICY.monthlyBudgetUsd) return skip("이번 달 AI 예산에 도달했습니다.");
-
-  const jobId = await createJob({ ...opts, mock: aiMode() === "mock" });
-  const controller = new AbortController();
-  running.set(jobId, controller);
-  const cancelled = async () =>
-    controller.signal.aborted || (await jobCancelled(jobId)) || (opts.stopSince !== undefined && (await stopRequestedSince(opts.stopSince)));
-  const stopped = async (): Promise<GenerateResult> => {
-    await finishJob(jobId, "cancelled", null, "관리자가 중지했어요");
-    return { jobId, status: "cancelled", error: "관리자가 중지했어요" };
-  };
+  if (trackOf(opts.concept) === "theory") return generateTheorySet(opts);
+  const started = await beginJob(opts);
+  if ("skipped" in started) return started.skipped;
+  const { jobId, controller, cancelled, stopped } = started;
   const concept = getConcept(opts.concept)!;
   const info = levelInfo(opts.level);
   const mockPool = () => {

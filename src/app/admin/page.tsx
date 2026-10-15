@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { CodeBlock } from "@/components/CodeBlock";
 import { SectionTitle, Spinner } from "@/components/ui";
 import { API_URL } from "@/lib/api";
-import { CONCEPTS, LEVELS, UNITS, conceptName } from "@/lib/curriculum";
+import { CONCEPTS, LEVELS, UNITS, certSubject, conceptName, trackOf } from "@/lib/curriculum";
 import { explainCheck } from "@/lib/content/check-explain";
 import type { GenerateResult } from "@/lib/ai/generate";
 import type { POLICY as PolicyType, Trigger } from "@/lib/content/policy";
 import type { GeneratedItemRow } from "@/lib/server/content-repo";
+import type { Question } from "@/lib/types";
 import type { Job, UsageRow } from "@/lib/server/ops-repo";
 
 interface Overview {
@@ -45,6 +46,7 @@ const REQUEST_EXAMPLES = [
 const MODE_LABEL = { live: "✨ 실제 AI", mock: "🧪 목업", off: "📘 꺼짐" };
 const STATUS_STYLE: Record<string, string> = {
   published: "bg-mint-50 text-mint-700",
+  pending: "bg-sun-50 text-sun-600",
   running: "bg-brand-50 text-brand-700",
   rejected: "bg-coral-50 text-coral-600",
   failed: "bg-coral-50 text-coral-600",
@@ -64,6 +66,8 @@ export default function AdminPage() {
   const [instructions, setInstructions] = useState("");
   const [busy, setBusy] = useState<"generate" | "fill" | "auto" | "stop" | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  /** 고른 칸이 개념 문제인지 (개념은 교차 검수 + 관리자 승인을 거친다) */
+  const theory = trackOf(concept) === "theory";
 
   useEffect(() => {
     try {
@@ -114,13 +118,15 @@ export default function AdminPage() {
       if (!res.ok || !("status" in r)) {
         setMessage({ ok: false, text: `✕ ${"error" in r ? r.error : "만들지 못했어요."}` });
       } else if (r.status === "started") {
-        setMessage({ ok: true, text: `코드 ${r.started}개 만들기를 시작했어요. 아래 생성 작업 기록에서 진행 상황을 볼 수 있어요.` });
+        setMessage({ ok: true, text: `${theory ? "문제 세트" : "코드"} ${r.started}개 만들기를 시작했어요. 아래 생성 작업 기록에서 진행 상황을 볼 수 있어요.` });
       } else {
         setMessage({
-          ok: r.status === "published" || r.status === "cancelled",
+          ok: r.status === "published" || r.status === "pending" || r.status === "cancelled",
           text:
             r.status === "published"
               ? "✓ 검증을 통과해 공개되었어요."
+              : r.status === "pending"
+                ? "✓ 교차 검수를 통과해 승인 대기에 저장했어요. 아래 '승인 대기'에서 확인하고 승인해 주세요."
               : r.status === "rejected"
                 ? "✕ 검증에 실패해 반려되었어요. 아래 보고서를 확인하세요."
                 : r.status === "cancelled"
@@ -238,7 +244,7 @@ export default function AdminPage() {
             <Card
               label="AI 생성 콘텐츠"
               value={`${data.generated.filter((g) => g.status === "published").length}개 공개`}
-              sub={`반려 ${data.generated.filter((g) => g.status === "rejected").length} · 실패 ${data.jobs.filter((j) => j.status === "failed").length}`}
+              sub={`승인 대기 ${data.generated.filter((g) => g.status === "pending").length} · 반려 ${data.generated.filter((g) => g.status === "rejected").length} · 실패 ${data.jobs.filter((j) => j.status === "failed").length}`}
             />
           </section>
 
@@ -384,8 +390,8 @@ export default function AdminPage() {
               <label className="text-sm">
                 <span className="mb-1 block font-semibold text-ink-500">분야 (개념)</span>
                 <select value={concept} onChange={(e) => setConcept(e.target.value)} className="w-full rounded-xl border border-ink-200 px-3 py-2">
-                  {UNITS.filter((u) => u.track === "code").map((u) => (
-                    <optgroup key={u.id} label={`${u.emoji} ${u.title}`}>
+                  {UNITS.map((u) => (
+                    <optgroup key={u.id} label={`${u.track === "theory" ? "🧠 개념" : "💻 코드"} · ${u.emoji} ${u.title}`}>
                       {u.conceptIds.map((id) => (
                         <option key={id} value={id}>
                           {conceptName(id)} (공개 문제 {data.coverage[`${id}:${level}`] ?? 0}개)
@@ -410,7 +416,7 @@ export default function AdminPage() {
                 <select value={count} onChange={(e) => setCount(Number(e.target.value))} className="w-full rounded-xl border border-ink-200 px-3 py-2">
                   {[1, 2, 3, 4, 5].map((n) => (
                     <option key={n} value={n}>
-                      코드 {n}개 (문제 약 {n * 6}~{n * 8}개)
+                      {theory ? `문제 세트 ${n}개 (문제 약 ${n * 5}개, 승인 필요)` : `코드 ${n}개 (문제 약 ${n * 5}개)`}
                     </option>
                   ))}
                 </select>
@@ -442,10 +448,14 @@ export default function AdminPage() {
               ))}
               <span className="ml-auto self-center text-xs text-ink-400">{instructions.length}/1000</span>
             </div>
-            {(data.generatable[concept]?.length ?? 0) === 0 ? (
-              <p className="mt-3 rounded-xl bg-coral-50 px-3 py-2 text-sm text-coral-700">
-                {conceptName(concept)}은(는) 아직 AI로 만들 수 없어요. 개념 학습 문제는 실행으로 정답을 확인할 수 없어서, 관리자 승인 기능과 함께 다음 단계에서 열려요.
+            {theory && (
+              <p className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800">
+                🧠 개념 문제는 실행으로 정답을 확인할 수 없어서, 다른 AI 가 정답을 모르는 채로 직접 풀어 보는 <b>교차 검수</b>를 거쳐요. 통과한 문제는 아래{" "}
+                <b>승인 대기</b>에 저장되고, 관리자가 확인하고 승인해야 학습자에게 나가요.
               </p>
+            )}
+            {(data.generatable[concept]?.length ?? 0) === 0 ? (
+              <p className="mt-3 rounded-xl bg-coral-50 px-3 py-2 text-sm text-coral-700">{conceptName(concept)}은(는) AI로 만들 수 없어요.</p>
             ) : (
               !data.generatable[concept].includes(level) && (
                 <p className="mt-3 rounded-xl bg-sun-50 px-3 py-2 text-sm text-sun-600">
@@ -465,7 +475,7 @@ export default function AdminPage() {
                     <Spinner /> 만드는 중 (검증까지 1~2분)
                   </>
                 ) : (
-                  `${conceptName(concept)} Lv.${level} 코드 ${count}개 만들기`
+                  `${conceptName(concept)} Lv.${level} ${theory ? `문제 세트 ${count}개` : `코드 ${count}개`} 만들기`
                 )}
               </button>
               <span className="text-xs text-ink-400">
@@ -526,6 +536,8 @@ export default function AdminPage() {
             </div>
           </section>
 
+          <PendingReview items={data.generated.filter((g) => g.status === "pending")} headers={headers} onDone={load} />
+
           <section className="mt-6">
             <SectionTitle>AI 생성 콘텐츠와 검증 보고서</SectionTitle>
             <div className="space-y-4">
@@ -571,8 +583,8 @@ export default function AdminPage() {
                       }}
                     />
                   )}
-                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                    <CodeBlock code={g.code} className="self-start" />
+                  <div className={`mt-4 grid gap-4 ${g.code ? "lg:grid-cols-2" : ""}`}>
+                    {g.code && <CodeBlock code={g.code} className="self-start" />}
                     <ValidationList checks={g.validation?.checks ?? []} />
                   </div>
                 </details>
@@ -925,5 +937,137 @@ function ValidationList({ checks }: { checks: { name: string; pass: boolean; det
         </ul>
       </details>
     </div>
+  );
+}
+
+/**
+ * 승인 대기: AI 가 만든 개념 문제를 관리자가 직접 보고 승인(공개)하거나 반려한다.
+ * 문제마다 정답·해설·자격증 태그를 확인하고, 틀린 문제는 빼고 승인할 수 있다.
+ */
+function PendingReview({ items, headers, onDone }: { items: GeneratedItemRow[]; headers: () => Record<string, string>; onDone: () => Promise<void> }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<Question[] | null>(null);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const [working, setWorking] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function show(id: string) {
+    if (open === id) return setOpen(null);
+    setOpen(id);
+    setQuestions(null);
+    setRemoved(new Set());
+    const res = await fetch(`${API_URL}/admin/item?id=${encodeURIComponent(id)}`, { headers: headers() });
+    const r = await res.json().catch(() => ({}));
+    setQuestions(res.ok ? (r.questions as Question[]) : []);
+  }
+
+  async function decide(id: string, decision: "approve" | "reject") {
+    setWorking(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API_URL}/admin/review`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ itemId: id, decision, removeQuestionIds: decision === "approve" ? [...removed] : [] }),
+      });
+      const r = await res.json().catch(() => ({}));
+      setResult(
+        !res.ok
+          ? { ok: false, text: `✕ ${r.error ?? "처리하지 못했어요."}` }
+          : decision === "approve"
+            ? { ok: true, text: `✓ 문제 ${r.questions}개를 승인해 학습자에게 공개했어요.` }
+            : { ok: true, text: "반려했어요. 학습자에게는 나가지 않아요." },
+      );
+      setOpen(null);
+      await onDone();
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  if (items.length === 0 && !result) return null;
+  return (
+    <section className="card mt-6 p-5">
+      <SectionTitle>승인 대기 · AI 가 만든 개념 문제 {items.length}세트</SectionTitle>
+      <p className="mb-3 text-sm text-ink-500">
+        다른 AI 가 정답을 모르는 채로 풀어 같은 답을 고른 문제만 남겼어요. 그래도 사실이 틀릴 수 있으니 정답·해설을 확인하고 승인해 주세요. 틀린 문제는 <b>빼기</b>를 눌러 제외하고 승인할 수
+        있어요.
+      </p>
+      {result && <p className={`mb-3 rounded-xl px-3 py-2 text-sm ${result.ok ? "bg-mint-50 text-mint-700" : "bg-coral-50 text-coral-700"}`}>{result.text}</p>}
+      <ul className="space-y-3">
+        {items.map((g) => (
+          <li key={g.id} className="rounded-2xl border border-ink-100 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold">{g.title}</span>
+              <span className="text-sm text-ink-400">
+                {g.concepts.map(conceptName).join(", ")} · Lv.{g.level} · 문제 {g.questionCount}개
+              </span>
+              <button type="button" onClick={() => show(g.id)} className="btn-ghost ml-auto px-3 py-1.5 text-sm">
+                {open === g.id ? "접기" : "문제 확인하기"}
+              </button>
+            </div>
+            {open === g.id && (
+              <div className="mt-3 space-y-3">
+                {!questions && (
+                  <p className="flex items-center gap-2 text-sm text-ink-400">
+                    <Spinner /> 불러오는 중…
+                  </p>
+                )}
+                {questions?.map((q, n) => {
+                  const out = removed.has(q.id);
+                  return (
+                    <div key={q.id} className={`rounded-xl border p-3 text-sm ${out ? "border-coral-200 bg-coral-50/50 opacity-60" : "border-ink-100"}`}>
+                      <div className="flex items-start gap-2">
+                        <p className="flex-1 font-semibold text-ink-900">
+                          {n + 1}. {q.prompt}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRemoved((s) => {
+                              const next = new Set(s);
+                              if (next.has(q.id)) next.delete(q.id);
+                              else next.add(q.id);
+                              return next;
+                            })
+                          }
+                          className="btn-ghost shrink-0 px-2.5 py-1 text-xs"
+                        >
+                          {out ? "되돌리기" : "빼기"}
+                        </button>
+                      </div>
+                      {q.type === "multiple_choice" && (
+                        <ol className="mt-2 space-y-1">
+                          {q.choices.map((c, i) => (
+                            <li key={i} className={i === q.answerIndex ? "font-semibold text-mint-700" : "text-ink-600"}>
+                              {i === q.answerIndex ? "✓" : "·"} {c.text}
+                              {c.misconception && <span className="text-xs text-ink-400"> — 오개념: {c.misconception}</span>}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                      <p className="mt-2 whitespace-pre-line text-ink-600">💡 {q.explanation}</p>
+                      <p className="mt-1 text-xs text-ink-400">
+                        {(q.certs ?? []).map((id) => `🎓 ${certSubject(id)?.cert ?? id} ${certSubject(id)?.name ?? ""}`).join(" · ")}
+                      </p>
+                    </div>
+                  );
+                })}
+                {questions && (
+                  <div className="flex flex-wrap gap-2 border-t border-ink-100 pt-3">
+                    <button type="button" disabled={working || questions.length === removed.size} onClick={() => decide(g.id, "approve")} className="btn-primary px-4 py-2 text-sm">
+                      ✓ {questions.length - removed.size}문제 승인하고 공개
+                    </button>
+                    <button type="button" disabled={working} onClick={() => decide(g.id, "reject")} className="btn-ghost px-4 py-2 text-sm text-coral-600">
+                      반려
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

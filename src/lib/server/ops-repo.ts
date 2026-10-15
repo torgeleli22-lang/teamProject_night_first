@@ -51,7 +51,7 @@ export interface Job {
   trigger: Trigger;
   sessionId: string | null;
   mock: boolean;
-  status: "running" | "published" | "rejected" | "failed" | "cancelled";
+  status: "running" | "published" | "pending" | "rejected" | "failed" | "cancelled";
   reason: string;
   itemId: string | null;
   error: string | null;
