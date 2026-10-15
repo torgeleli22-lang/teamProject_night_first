@@ -9,7 +9,7 @@ import { decideOnSession, generatableLevels, launchFillPlan, POLICY, TRIGGER_LAB
 import { CONCEPTS, getConcept } from "../lib/curriculum";
 import { evaluateShortAnswer } from "../lib/grading";
 import { misconceptionCounts } from "../lib/learner/stats";
-import { AnswerSchema, LevelSchema, QuestionTypeSchema } from "../lib/schemas";
+import { AnswerSchema, LevelSchema } from "../lib/schemas";
 import {
   coverage,
   exportGeneratedItems,
@@ -41,7 +41,7 @@ import {
   setMeta,
   usageSummary,
 } from "../lib/server/ops-repo";
-import { ALL_CONCEPTS, planSession, unshuffle } from "../lib/server/planner";
+import { ALL_CONCEPTS, planSession, unshuffleAnswer } from "../lib/server/planner";
 import { attemptCount, listAttempts, removeDemoPeers, resetSession, seedDemoPeers, setNickname, setPreferredLevel } from "../lib/server/session-repo";
 import { HttpError, isProduction, notFound, parse, requireAdmin, type Ctx } from "./core";
 import { conceptsView, dashboardView, demoView, learnView, meView, rankingView, reviewView } from "./views";
@@ -52,10 +52,15 @@ type Handler = (ctx: Ctx) => Promise<unknown>;
 
 const SessionBody = z.object({
   level: LevelSchema,
-  /** 개념 id 또는 "all"(전체 개념 섞기) */
+  /** theory: 개념 학습, code: 코드 학습 */
+  track: z.enum(["theory", "code"]).default("code"),
+  /** 개념(주제) id 또는 "all"(전체 섞기) */
   concept: z.string().max(50).refine((c) => c === ALL_CONCEPTS || !!getConcept(c)).optional(),
-  types: z.array(QuestionTypeSchema).max(6).optional(),
-  size: z.number().int().min(1).max(10).optional(),
+  /** 개념 학습: 분야 전체 (단원 id) */
+  unit: z.number().int().min(1).max(99).optional(),
+  /** 개념 학습: 자격증 이름 (그 자격증 과목 태그가 붙은 문제만) */
+  cert: z.string().max(40).optional(),
+  size: z.number().int().min(1).max(20).optional(),
   /** 이미 이번 세션에 나온 문제 ("비슷한 문제 풀어보기") */
   exclude: z.array(z.string().max(120)).max(50).optional(),
   /** learn: 새로운 문제, review: 틀린 문제·취약 개념 */
@@ -75,8 +80,9 @@ const startSession: Handler = async (ctx) => {
   const [attempts, content] = await Promise.all([listAttempts(me.id), loadContent()]);
   const plan = planSession({ ...body, content, attempts });
 
-  // 복습·다시 풀기·전체 개념 섞기는 특정 칸(개념 × 난이도)을 고른 게 아니므로 생성 판단을 하지 않는다
-  if (body.mode !== "learn" || body.ids?.length || body.concept === ALL_CONCEPTS) return { ...plan, generating: false };
+  // 복습·다시 풀기·전체 섞기는 특정 칸(개념 × 난이도)을 고른 게 아니므로 생성 판단을 하지 않는다.
+  // 개념 학습은 아직 AI 생성 대상이 아니다 (관리자 승인 흐름이 생기면 추가)
+  if (body.mode !== "learn" || body.ids?.length || body.concept === ALL_CONCEPTS || plan.track !== "code") return { ...plan, generating: false };
 
   const concept = plan.focusConcept;
   const stock = (await coverage()).get(`${concept}:${body.level}`) ?? 0;
@@ -123,7 +129,9 @@ const hint: Handler = async (ctx) => {
   const body = parse(z.object({ questionId: z.string().max(120), level: z.number().int().min(1).max(4) }), ctx.req.body);
   const found = await getQuestion(body.questionId);
   if (!found) throw notFound("문제");
-  return { hint: found.question.hints[body.level - 1] };
+  const hints = found.question.hints.filter((h) => h.trim());
+  if (body.level > hints.length) throw new HttpError(400, "더 볼 힌트가 없어요.");
+  return { hint: hints[body.level - 1] };
 };
 
 const AskBody = z.object({
@@ -134,7 +142,7 @@ const AskBody = z.object({
     .array(z.object({ role: z.enum(["user", "tutor"]), text: z.string().max(4000) }))
     .max(12)
     .default([]),
-  /** 학습자가 지금 고른·쓴·배열한 답 (순서 맞추기는 화면에 보이는 순서 번호, 일부만 놓은 것도 가능) */
+  /** 학습자가 지금 고르거나 쓴 답 (보기는 화면에 보인 번호) */
   answer: AnswerSchema.optional(),
 });
 
@@ -144,8 +152,8 @@ const ask: Handler = async (ctx) => {
   const found = await getQuestion(body.questionId);
   if (!found) throw notFound("문제");
   const raw = body.answer?.type === found.question.type ? body.answer : undefined;
-  // 순서 맞추기는 화면에 섞여 보인 번호를 원래 조각 번호로 되돌린다 (채점과 같은 방식)
-  const answer = raw?.type === "shuffle" ? { type: "shuffle" as const, order: unshuffle(found.question, raw.order) } : raw;
+  // 보기는 화면에 섞여 보인 번호를 원래 보기 번호로 되돌린다 (채점과 같은 방식)
+  const answer = raw ? unshuffleAnswer(found.question, raw) : undefined;
   return askAboutQuestion(found.question, found.item, body.question, body.history, body.solved, answer);
 };
 
@@ -234,7 +242,7 @@ const AdminGenerateBody = z.object({
   concept: z.string().refine((c) => !!getConcept(c)),
   level: LevelSchema,
   focus: z.array(z.string().max(200)).max(5).optional(),
-  /** 만들 코드 세트 수 (세트마다 문제 6~8개) */
+  /** 만들 코드 수 (코드마다 단계별 문제 4개) */
   count: z.number().int().min(1).max(5).default(1),
   /** "어떤 내용으로 문제를 만들까요?" — 비워 두면 기본 기준대로 */
   instructions: z
@@ -308,7 +316,9 @@ const adminRepair: Handler = async (ctx) => {
 
 // ───────────────────────── 데이터 옮기기 (EC2·RDS → Lambda·DynamoDB 등) ─────────────────────────
 
-const EXPORT_FORMAT = "codereading-export/1";
+/** 2: "개념 / 코드" 학습 구조. 1(예전 문제 형식)의 콘텐츠는 가져오지 않고 설정·사용량만 가져온다 */
+const EXPORT_FORMAT = "codereading-export/2";
+const OLD_EXPORT_FORMAT = "codereading-export/1";
 /** 옮길 설정: 관리자 코드(해시), 자동 생성 켜짐 여부 */
 const EXPORT_META_KEYS = ["admin_code_hash", "auto_generation"];
 
@@ -333,7 +343,7 @@ const adminExport: Handler = async (ctx) => {
 };
 
 const ImportBody = z.object({
-  format: z.literal(EXPORT_FORMAT),
+  format: z.enum([EXPORT_FORMAT, OLD_EXPORT_FORMAT]),
   items: z
     .array(
       z.object({
@@ -355,7 +365,9 @@ const ImportBody = z.object({
 const adminImport: Handler = async (ctx) => {
   await requireAdmin(ctx.req);
   const body = parse(ImportBody, ctx.req.body);
-  for (const e of body.items) await importGeneratedItem(e as unknown as ExportedItem);
+  // 예전 형식의 AI 콘텐츠(셔플·오류 찾기 등)는 새 학습 구조에 맞지 않아 건너뛴다
+  const items = body.format === EXPORT_FORMAT ? body.items : [];
+  for (const e of items) await importGeneratedItem(e as unknown as ExportedItem);
   let settings = 0;
   for (const [key, value] of Object.entries(body.meta)) {
     if (!EXPORT_META_KEYS.includes(key)) continue;
@@ -363,7 +375,7 @@ const adminImport: Handler = async (ctx) => {
     settings++;
   }
   if (body.includeUsage) await importUsage(body.usageThisMonth);
-  return { items: body.items.length, settings, usage: body.includeUsage ? body.usageThisMonth.length : 0 };
+  return { items: items.length, skippedItems: body.items.length - items.length, settings, usage: body.includeUsage ? body.usageThisMonth.length : 0 };
 };
 
 /** 자동 생성 켜기/끄기 (문제가 부족할 때 AI 가 알아서 만드는 것). 관리자 수동 생성·출시 전 채우기는 그대로 쓸 수 있다 */

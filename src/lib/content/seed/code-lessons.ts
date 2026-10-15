@@ -1,13 +1,14 @@
 import type { SeedSet } from "./types";
 
 /**
- * 하나의 코드 → 여러 학습 문제.
- * 같은 코드를 객관식·주관식·빈칸·셔플·결과 예측·오류 찾기·역할 찾기로 여러 번 읽게 한다.
+ * 코드 학습 시드: 코드 하나를 읽는 순서대로 단계별 문제를 낸다.
+ * 훑어보기(overview) → 흐름 따라가기(trace, 다음 단계에서 추가) → 핵심 줄(key) → 정리(wrapup: 결과 예측·내 말로 설명)
  */
-export const SEED_SETS: SeedSet[] = [
+export const CODE_LESSONS: SeedSet[] = [
   // ─────────────────────────── 변수와 문자열 (입문) ───────────────────────────
   {
     id: "set-greeting",
+    track: "code",
     title: "인사말 만들기",
     concepts: ["variables", "let-const", "data-types", "operators"],
     code: `let name = "민지";
@@ -21,8 +22,31 @@ console.log(typeof age);`,
     output: "민지님은 21살\nnumber",
     questions: [
       {
+        id: "greeting-overview",
+        type: "multiple_choice",
+        stage: "overview",
+        skill: "analyze",
+        prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
+        choices: [
+          { text: "이름과 나이로 인사 문장을 만들어 출력하고, 나이 값의 종류를 확인한다" },
+          { text: "사용자에게 이름과 나이를 입력받는다", misconception: "변수에 값을 넣는 것을 입력받기로 생각" },
+          { text: "나이가 20살 이상인지 검사한다", misconception: "조건문이 없는데 비교를 한다고 생각" },
+          { text: "나이를 문자열로 바꿔서 저장한다", misconception: "문자열과 이어 붙이면 원래 변수의 타입이 바뀐다고 생각" },
+        ],
+        answerIndex: 0,
+        hints: [
+          "변수를 만드는 줄, 값을 바꾸는 줄, 출력하는 줄로 나눠 보세요.",
+          "console.log 가 두 번 있어요. 각각 무엇을 출력하나요?",
+        ],
+        explanation: `1~3번째 줄에서 이름과 나이를 준비하고(나이는 1 증가),
+5번째 줄에서 인사 문장을 만들어요.
+7~8번째 줄은 그 문장과 age 의 종류(typeof)를 출력해요.`,
+        keyPoint: "전체 흐름: 값 준비 → 문장 만들기 → 출력",
+      },
+      {
         id: "greeting-predict",
         type: "predict_output",
+        stage: "wrapup",
         skill: "predict",
         prompt: "이 코드의 실행 결과를 입력해 보세요. (한 줄에 하나씩)",
         output: "민지님은 21살\nnumber",
@@ -38,31 +62,9 @@ greeting 은 "민지" + "님은 " + 21 + "살" → "민지님은 21살" 이에�
         keyPoint: "문자열과 + 하면 이어 붙이기, 하지만 원래 변수의 타입은 그대로",
       },
       {
-        id: "greeting-typeof-choice",
-        type: "multiple_choice",
-        skill: "recall",
-        prompt: "greeting 변수에 담긴 값의 타입은 무엇일까요?",
-        focusLines: [5],
-        choices: [
-          { text: "string" },
-          { text: "number", misconception: "숫자가 섞이면 결과가 숫자가 된다고 생각" },
-          { text: "boolean" },
-          { text: "object" },
-        ],
-        answerIndex: 0,
-        hints: [
-          "5번째 줄은 여러 값을 + 로 연결해요. 그 값들 중 따옴표로 감싼 값이 있나요?",
-          '"민지", "님은 ", "살" 은 문자열이에요.',
-          "+ 의 한쪽이 문자열이면, 다른 값도 문자열로 바뀌어 이어 붙여져요.",
-          "결과는 '글자들의 나열'이에요.",
-        ],
-        explanation: `greeting 은 "민지" + "님은 " + age + "살" 로 만들어져요.
-문자열이 섞인 + 는 이어 붙이기라서 결과도 문자열(string)이에요.`,
-        keyPoint: "문자열 + 숫자 = 문자열",
-      },
-      {
         id: "greeting-blank",
         type: "fill_blank",
+        stage: "key",
         skill: "recall",
         prompt: "age 를 나중에 바꿀 수 있으려면 빈칸에 무엇이 들어가야 할까요?",
         blankedCode: `let name = "민지";
@@ -86,33 +88,9 @@ const 로 만들면 이 줄에서 TypeError 가 나요. 다시 대입할 변수�
         keyPoint: "다시 대입할 변수는 let",
       },
       {
-        id: "greeting-bug",
-        type: "find_bug",
-        skill: "analyze",
-        prompt: "실행하면 TypeError 가 나요. 어느 줄을 고쳐야 할까요?",
-        buggyCode: `let name = "민지";
-const age = 20;
-age = age + 1;
-
-const greeting = name + "님은 " + age + "살";
-
-console.log(greeting);
-console.log(typeof age);`,
-        bugLine: 2,
-        fixedLine: "let age = 20;",
-        hints: [
-          "에러는 어떤 동작을 할 때 날까요?",
-          "3번째 줄에서 age 에 다시 대입해요. age 는 어떻게 만들어졌나요?",
-          "const 변수는 다시 대입할 수 없어요.",
-          "에러가 나는 줄과 고쳐야 할 줄이 다를 수 있어요. 선언한 줄을 보세요.",
-        ],
-        explanation: `age 를 const 로 선언했는데 3번째 줄에서 다시 대입해서 TypeError 가 나요.
-2번째 줄을 let age = 20; 으로 바꾸면 해결돼요.`,
-        keyPoint: "에러가 난 줄 ≠ 고쳐야 할 줄일 수 있어요",
-      },
-      {
         id: "greeting-explain",
         type: "short_answer",
+        stage: "wrapup",
         skill: "analyze",
         prompt: "greeting 이 \"민지님은 20살\"이 아니라 \"민지님은 21살\"이 되는 이유를 설명해 주세요.",
         rubric: [
@@ -145,6 +123,7 @@ console.log(typeof age);`,
   // ─────────────────────────── 함수 + 조건문 (기초) ───────────────────────────
   {
     id: "set-grade",
+    track: "code",
     title: "점수로 등급 매기기",
     concepts: ["functions", "params-return", "if-else"],
     code: `function getGrade(score) {
@@ -162,8 +141,30 @@ console.log(getGrade(42));`,
     output: "A\nB\nC",
     questions: [
       {
+        id: "grade-overview",
+        type: "multiple_choice",
+        stage: "overview",
+        skill: "analyze",
+        prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
+        choices: [
+          { text: "점수를 받아 구간에 따라 등급(A·B·C)을 돌려주는 함수를 만들고, 세 점수의 등급을 출력한다" },
+          { text: "세 점수의 평균을 구한다", misconception: "함수 호출 여러 번을 하나의 계산으로 생각" },
+          { text: "90점 이상인 점수만 골라낸다", misconception: "if 를 고르기(filter)로 생각" },
+          { text: "등급을 입력받아 점수로 바꾼다", misconception: "함수의 입력과 출력 방향을 반대로 생각" },
+        ],
+        answerIndex: 0,
+        hints: [
+          "1~8번째 줄과 10~12번째 줄은 하는 일이 달라요.",
+          "function 으로 만든 것은 무엇이고, 아래에서 그것을 어떻게 쓰나요?",
+        ],
+        explanation: `1~8번째 줄은 점수(score)에 따라 "A", "B", "C" 중 하나를 돌려주는 함수 getGrade 를 만들어요.
+10~12번째 줄에서 95, 70, 42 로 함수를 불러 결과를 출력해요.`,
+        keyPoint: "함수 정의(만들기)와 호출(쓰기)을 나눠서 읽기",
+      },
+      {
         id: "grade-predict",
         type: "predict_output",
+        stage: "wrapup",
         skill: "predict",
         prompt: "세 줄의 출력 결과를 입력해 보세요.",
         output: "A\nB\nC",
@@ -179,31 +180,9 @@ getGrade(42): 두 조건 모두 거짓 → 아래의 return "C"`,
         keyPoint: ">= 는 경계값을 포함해요",
       },
       {
-        id: "grade-infer",
-        type: "multiple_choice",
-        skill: "infer",
-        prompt: "getGrade(89) 를 호출하면 무엇을 돌려줄까요?",
-        choices: [
-          { text: '"A"', misconception: "89를 90 이상으로 반올림해서 생각" },
-          { text: '"B"' },
-          { text: '"C"' },
-          { text: '"B" 와 "C" 둘 다', misconception: "return 이후에도 함수가 계속 실행된다고 생각" },
-        ],
-        answerIndex: 1,
-        hints: [
-          "89 는 첫 번째 조건을 통과하나요?",
-          "else if 의 조건 score >= 70 은 어떤가요?",
-          "조건을 만족해 return 하면 함수는 그 자리에서 끝나요.",
-          "89 가 처음으로 만족하는 조건의 return 값을 고르세요.",
-        ],
-        explanation: `89 >= 90 은 거짓이라 다음 조건으로 가요.
-89 >= 70 은 참이므로 "B" 를 돌려주고 함수가 끝나요.
-return "C" 는 실행되지 않아요.`,
-        keyPoint: "return 은 함수를 즉시 끝내요",
-      },
-      {
         id: "grade-role",
         type: "multiple_choice",
+        stage: "key",
         skill: "analyze",
         prompt: '강조된 7번째 줄 return "C"; 는 언제 실행될까요?',
         focusLines: [7],
@@ -226,37 +205,9 @@ return "C" 는 실행되지 않아요.`,
         keyPoint: "앞에서 return 하면 아래 코드는 실행되지 않아요",
       },
       {
-        id: "grade-bug",
-        type: "find_bug",
-        skill: "analyze",
-        prompt: "42점이 \"C\" 가 아니라 \"B\" 로 나와요. 어느 줄이 문제일까요?",
-        buggyCode: `function getGrade(score) {
-  if (score >= 90) {
-    return "A";
-  } else if (score <= 70) {
-    return "B";
-  }
-  return "C";
-}
-
-console.log(getGrade(95));
-console.log(getGrade(70));
-console.log(getGrade(42));`,
-        bugLine: 4,
-        fixedLine: "  } else if (score >= 70) {",
-        hints: [
-          "42 는 어떤 조건을 통과해서 \"B\" 가 되었을까요?",
-          "4번째 줄의 비교 연산자를 읽어 보세요.",
-          "<= 는 '작거나 같다', >= 는 '크거나 같다' 예요.",
-          "B 는 70점 '이상'이어야 해요.",
-        ],
-        explanation: `4번째 줄이 score <= 70 이라서 42 도 조건을 만족해 "B" 가 돼요.
-70점 이상만 B 가 되려면 score >= 70 이어야 해요.`,
-        keyPoint: "비교 연산자의 방향을 꼭 확인하세요",
-      },
-      {
         id: "grade-explain",
         type: "short_answer",
+        stage: "wrapup",
         skill: "analyze",
         prompt: "getGrade(70) 이 \"B\" 를 돌려주는 과정을 설명해 주세요.",
         rubric: [
@@ -290,6 +241,7 @@ console.log(getGrade(42));`,
   // ─────────────────────────── 반복문 + 객체 (초급) ───────────────────────────
   {
     id: "set-cart",
+    track: "code",
     title: "장바구니 합계",
     concepts: ["for", "objects", "arrays", "operators"],
     code: `const cart = [
@@ -308,8 +260,31 @@ console.log(total);`,
     output: "10000",
     questions: [
       {
+        id: "cart-overview",
+        type: "multiple_choice",
+        stage: "overview",
+        skill: "analyze",
+        prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
+        choices: [
+          { text: "장바구니의 상품마다 가격×수량을 더해 총 금액을 계산하고 출력한다" },
+          { text: "가장 비싼 상품을 찾는다", misconception: "반복문이 항상 최댓값을 찾는다고 생각" },
+          { text: "장바구니에 담긴 상품 개수를 센다", misconception: "total 이 개수를 센다고 생각" },
+          { text: "수량이 3개 이상인 상품만 고른다", misconception: "반복문 안에 조건이 있다고 생각" },
+        ],
+        answerIndex: 0,
+        hints: [
+          "total 은 어떤 값에서 시작해서 어떻게 바뀌나요?",
+          "10번째 줄에서 total 에 더하는 값은 무엇인가요?",
+        ],
+        explanation: `7번째 줄에서 total 을 0 으로 시작하고,
+9~11번째 줄의 반복문이 상품마다 가격 × 수량을 total 에 더해요.
+마지막에 총 금액을 출력해요.`,
+        keyPoint: "누적 패턴: 0 에서 시작해 반복하며 더하기",
+      },
+      {
         id: "cart-predict",
         type: "predict_output",
+        stage: "wrapup",
         skill: "predict",
         prompt: "출력되는 total 값을 입력해 보세요.",
         output: "10000",
@@ -327,6 +302,7 @@ console.log(total);`,
       {
         id: "cart-loop-count",
         type: "multiple_choice",
+        stage: "key",
         skill: "recall",
         prompt: "for 반복문의 본문(10번째 줄)은 몇 번 실행될까요?",
         focusLines: [9, 10, 11],
@@ -348,83 +324,9 @@ cart 에는 객체가 3개 있으므로 본문은 3번 실행돼요.`,
         keyPoint: "for...of = 배열 요소를 하나씩 꺼내 반복",
       },
       {
-        id: "cart-blank",
-        type: "fill_blank",
-        skill: "predict",
-        prompt: "합계가 10000 이 되려면 빈칸에 들어갈 연산자는?",
-        blankedCode: `let total = 0;
-
-for (const item of cart) {
-  total ____ item.price * item.qty;
-}`,
-        choices: [
-          { text: "+=" },
-          { text: "=", misconception: "대입(=)도 값을 누적한다고 생각" },
-          { text: "==" },
-          { text: "*=" },
-        ],
-        answerIndex: 0,
-        hints: [
-          "total 은 반복할 때마다 어떻게 되어야 하나요? 덮어써야 할까요, 쌓여야 할까요?",
-          "= 를 쓰면 마지막 상품의 금액만 남아요.",
-          "기존 값에 더해서 다시 저장하는 연산자가 있어요.",
-          "total = total + ... 를 줄여 쓴 형태예요.",
-        ],
-        explanation: `total += x 는 total = total + x 와 같아요. 매번 금액이 쌓여요.
-= 를 쓰면 매번 덮어써서 마지막 지우개 금액 2000 만 남아요.`,
-        keyPoint: "+= 는 누적, = 는 덮어쓰기",
-      },
-      {
-        id: "cart-infer",
-        type: "multiple_choice",
-        skill: "infer",
-        prompt: "지우개의 qty 를 4 에서 6 으로 바꾸면 출력은 어떻게 될까요?",
-        choices: [{ text: "10000" }, { text: "11000" }, { text: "12000", misconception: "변경된 수량만큼이 아니라 전체를 다시 계산하지 않음" }, { text: "13000" }],
-        answerIndex: 1,
-        hints: [
-          "바뀌는 것은 지우개 한 줄의 계산뿐이에요.",
-          "지우개의 금액은 원래 얼마였고, 바꾼 뒤엔 얼마인가요?",
-          "500 × 4 와 500 × 6 의 차이를 생각해 보세요.",
-          "원래 합계 10000 에 차이(1000)를 더해 보세요.",
-        ],
-        explanation: `지우개 금액이 500 × 4 = 2000 에서 500 × 6 = 3000 이 돼요.
-3000 + 5000 + 3000 = 11000 이 출력돼요.`,
-        keyPoint: "입력 하나가 바뀌면 그 부분의 계산만 다시 따라가기",
-      },
-      {
-        id: "cart-bug",
-        type: "find_bug",
-        skill: "analyze",
-        prompt: "합계 10000 대신 2000 이 출력돼요. 어느 줄이 문제일까요?",
-        buggyCode: `const cart = [
-  { name: "펜", price: 1000, qty: 3 },
-  { name: "노트", price: 2500, qty: 2 },
-  { name: "지우개", price: 500, qty: 4 },
-];
-
-let total = 0;
-
-for (const item of cart) {
-  total = item.price * item.qty;
-}
-
-console.log(total);`,
-        bugLine: 10,
-        fixedLine: "  total += item.price * item.qty;",
-        hints: [
-          "2000 은 어떤 상품의 금액인가요?",
-          "마지막 상품의 금액만 남았다는 건, total 이 매번 어떻게 되었다는 뜻일까요?",
-          "= 는 덮어쓰기, += 는 누적이에요.",
-          "반복문 안의 대입 연산자를 보세요.",
-        ],
-        explanation: `10번째 줄의 = 는 매번 total 을 덮어써요.
-그래서 마지막 지우개 금액 500 × 4 = 2000 만 남아요.
-+= 로 바꾸면 금액이 누적되어 10000 이 돼요.`,
-        keyPoint: "누적은 +=",
-      },
-      {
         id: "cart-flow",
         type: "short_answer",
+        stage: "wrapup",
         skill: "synthesize",
         prompt: "total 이 0 에서 10000 이 되기까지의 실행 흐름을 단계별로 설명해 주세요.",
         rubric: [
@@ -461,6 +363,7 @@ console.log(total);`,
   // ─────────────────────────── filter + 객체 배열 (초급) ───────────────────────────
   {
     id: "set-adults",
+    track: "code",
     title: "성인 사용자 골라내기",
     concepts: ["filter", "objects", "arrow-functions"],
     code: `const users = [
@@ -475,30 +378,31 @@ console.log(adults);`,
     output: "[{name: 'Kim', age: 25}, {name: 'Park', age: 31}]",
     questions: [
       {
-        id: "adults-count",
+        id: "adults-overview",
         type: "multiple_choice",
-        skill: "recall",
-        prompt: "adults 에 포함되는 사용자는 몇 명일까요?",
+        stage: "overview",
+        skill: "analyze",
+        prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
         choices: [
-          { text: "1명" },
-          { text: "2명" },
-          { text: "3명", misconception: "filter 가 모든 요소를 유지한다고 생각" },
-          { text: "0명" },
+          { text: "사용자 목록에서 20살 이상인 사람만 골라 새 배열로 만들어 출력한다" },
+          { text: "모든 사용자의 나이를 20살로 바꾼다", misconception: "filter 가 배열의 값을 변경한다고 생각" },
+          { text: "20살 미만인 사용자를 원래 목록에서 지운다", misconception: "filter 가 원본 배열을 수정한다고 생각" },
+          { text: "사용자가 몇 명인지 센다", misconception: "filter 가 개수를 센다고 생각" },
         ],
-        answerIndex: 1,
+        answerIndex: 0,
         hints: [
-          "filter 는 어떤 요소를 남길까요?",
-          "조건은 user.age >= 20 이에요.",
-          "filter 는 조건이 true 인 요소만 새 배열에 담아요.",
-          "25, 17, 31 중 20 이상인 나이를 세어 보세요.",
+          "users 와 adults 는 각각 무엇을 담고 있나요?",
+          "7번째 줄의 조건 user.age >= 20 은 무엇을 확인하나요?",
         ],
-        explanation: `Kim(25) → 통과, Lee(17) → 제외, Park(31) → 통과
-adults 에는 2명이 들어가요.`,
-        keyPoint: "filter = 조건을 통과한 요소만 남김",
+        explanation: `1~5번째 줄은 사용자 데이터예요.
+7번째 줄에서 filter 로 20살 이상인 사용자만 골라 새 배열 adults 를 만들고,
+9번째 줄에서 출력해요. users 는 그대로예요.`,
+        keyPoint: "데이터 → 고르기(filter) → 출력",
       },
       {
         id: "adults-predict",
         type: "predict_output",
+        stage: "wrapup",
         skill: "predict",
         prompt: "실행 결과를 입력해 보세요. (객체는 {name: 'Kim', age: 25} 형태로)",
         output: "[{name: 'Kim', age: 25}, {name: 'Park', age: 31}]",
@@ -513,31 +417,9 @@ adults 에는 2명이 들어가요.`,
         keyPoint: "filter 결과는 항상 배열",
       },
       {
-        id: "adults-blank",
-        type: "fill_blank",
-        skill: "recall",
-        prompt: "20살 이상인 사용자만 골라내려면 빈칸에 어떤 메서드가 들어가야 할까요?",
-        blankedCode: "const adults = users.____(user => user.age >= 20);",
-        choices: [
-          { text: "filter" },
-          { text: "map", misconception: "map과 filter를 혼동" },
-          { text: "forEach", misconception: "forEach 가 결과 배열을 돌려준다고 생각" },
-          { text: "find", misconception: "find 가 조건에 맞는 요소를 모두 돌려준다고 생각" },
-        ],
-        answerIndex: 0,
-        hints: [
-          "우리가 하고 싶은 일은 '바꾸기'인가요, '고르기'인가요?",
-          "결과는 여러 명이 담긴 배열이어야 해요.",
-          "map 은 변환, filter 는 고르기, find 는 첫 번째 하나만, forEach 는 반환값 없음.",
-          "조건을 통과한 요소'들'을 배열로 돌려주는 메서드예요.",
-        ],
-        explanation: `'조건에 맞는 요소만 골라 새 배열' → filter 예요.
-map 을 쓰면 [true, false, true] 가 되고, find 는 Kim 한 명만, forEach 는 undefined 를 돌려줘요.`,
-        keyPoint: "고르기 = filter",
-      },
-      {
         id: "adults-role",
         type: "multiple_choice",
+        stage: "key",
         skill: "analyze",
         prompt: "이 코드에서 filter() 는 어떤 역할을 할까요?",
         focusLines: [7],
@@ -559,54 +441,9 @@ map 을 쓰면 [true, false, true] 가 되고, find 는 Kim 한 명만, forEach 
         keyPoint: "filter 는 원본을 바꾸지 않고 새 배열을 만든다",
       },
       {
-        id: "adults-shuffle",
-        type: "shuffle",
-        skill: "analyze",
-        prompt: "코드가 올바르게 실행되도록 조각을 순서대로 배치해 보세요.",
-        pieces: [
-          "const users = [{ name: \"Kim\", age: 25 }, { name: \"Lee\", age: 17 }];",
-          "const adults = users.filter(user => user.age >= 20);",
-          "console.log(adults);",
-        ],
-        hints: [
-          "어떤 변수가 다른 변수를 사용하고 있나요?",
-          "adults 를 만들려면 users 가 먼저 있어야 해요.",
-          "const 변수는 선언되기 전에 사용할 수 없어요.",
-          "데이터 → 가공 → 출력 순서예요.",
-        ],
-        explanation: `users 를 먼저 만들어야 filter 를 호출할 수 있어요.
-adults 를 만든 뒤에야 출력할 수 있어요.`,
-        keyPoint: "데이터 준비 → 가공 → 출력",
-      },
-      {
-        id: "adults-bug",
-        type: "find_bug",
-        skill: "analyze",
-        prompt: "성인 사용자 목록을 기대했는데 [true, false, true] 가 출력돼요. 어느 줄이 문제일까요?",
-        buggyCode: `const users = [
-  { name: "Kim", age: 25 },
-  { name: "Lee", age: 17 },
-  { name: "Park", age: 31 },
-];
-
-const adults = users.map(user => user.age >= 20);
-
-console.log(adults);`,
-        bugLine: 7,
-        fixedLine: "const adults = users.filter(user => user.age >= 20);",
-        hints: [
-          "true/false 배열은 콜백이 돌려준 값이 그대로 담긴 거예요.",
-          "콜백의 결과를 그대로 모으는 메서드는 무엇인가요?",
-          "map 은 변환, filter 는 고르기예요.",
-          "7번째 줄의 메서드 이름을 보세요.",
-        ],
-        explanation: `map 은 콜백이 돌려준 true/false 를 그대로 모아요.
-고르기를 하려면 filter 를 써야 해요.`,
-        keyPoint: "map 은 변환, filter 는 고르기",
-      },
-      {
         id: "adults-explain",
         type: "short_answer",
+        stage: "wrapup",
         skill: "analyze",
         prompt: "adults 변수가 만들어지는 과정을 설명해 주세요.",
         rubric: [
@@ -650,6 +487,7 @@ console.log(adults);`,
   // ─────────────────────────── map + 템플릿 문자열 (초급) ───────────────────────────
   {
     id: "set-labels",
+    track: "code",
     title: "상품 라벨 만들기",
     concepts: ["map", "strings", "arrow-functions"],
     code: `const prices = [1000, 2500, 4000];
@@ -661,8 +499,30 @@ console.log(labels[1]);`,
     output: "3\n2번 상품: 2500원",
     questions: [
       {
+        id: "labels-overview",
+        type: "multiple_choice",
+        stage: "overview",
+        skill: "analyze",
+        prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
+        choices: [
+          { text: "가격마다 '번호 + 가격' 라벨 문자열을 만든 뒤, 라벨 개수와 두 번째 라벨을 출력한다" },
+          { text: "가격의 합계를 구한다", misconception: "map 과 reduce 를 혼동" },
+          { text: "1000원보다 비싼 상품만 고른다", misconception: "map 과 filter 를 혼동" },
+          { text: "가격을 반올림해서 원래 배열에 다시 저장한다", misconception: "map 이 원본 배열을 바꾼다고 생각" },
+        ],
+        answerIndex: 0,
+        hints: [
+          "3번째 줄의 map 은 가격 하나를 무엇으로 바꾸나요?",
+          "5~6번째 줄은 labels 의 무엇을 출력하나요?",
+        ],
+        explanation: `1번째 줄의 가격 3개를 3번째 줄에서 map 으로 "1번 상품: 1000원" 같은 문자열로 하나씩 바꿔 labels 에 담아요.
+5번째 줄은 라벨 개수(3), 6번째 줄은 두 번째 라벨을 출력해요.`,
+        keyPoint: "map = 하나씩 바꿔 같은 개수의 새 배열",
+      },
+      {
         id: "labels-predict",
         type: "predict_output",
+        stage: "wrapup",
         skill: "predict",
         prompt: "두 줄의 실행 결과를 입력해 보세요.",
         output: "3\n2번 상품: 2500원",
@@ -679,6 +539,7 @@ labels[1] 은 price = 2500, i = 1 일 때 만든 값 → \`\${1 + 1}번 상품: 
       {
         id: "labels-index-role",
         type: "multiple_choice",
+        stage: "key",
         skill: "analyze",
         prompt: "콜백의 두 번째 매개변수 i 에는 무엇이 들어갈까요?",
         focusLines: [3],
@@ -700,31 +561,9 @@ i 는 0, 1, 2 순서의 인덱스라서, 사람이 읽기 좋게 1부터 표시�
         keyPoint: "map((요소, 인덱스) => ...)",
       },
       {
-        id: "labels-blank",
-        type: "fill_blank",
-        skill: "infer",
-        prompt: "labels[1] 이 \"2번 상품: 2500원\" 이 되려면 빈칸에 어떤 메서드가 들어가야 할까요?",
-        blankedCode: "const labels = prices.____((price, i) => `${i + 1}번 상품: ${price}원`);",
-        choices: [
-          { text: "map" },
-          { text: "forEach", misconception: "forEach 가 새 배열을 만든다고 생각" },
-          { text: "filter", misconception: "map과 filter를 혼동" },
-          { text: "find" },
-        ],
-        answerIndex: 0,
-        hints: [
-          "labels 는 무엇이 담긴 배열이어야 하나요?",
-          "각 가격을 '라벨 문자열'로 바꿔야 해요.",
-          "변환한 값들로 새 배열을 만드는 메서드가 필요해요.",
-          "filter 는 고르기만 하고 값을 바꾸지 않아요.",
-        ],
-        explanation: `각 가격을 라벨 문자열로 '변환'해야 하므로 map 이에요.
-filter 는 값을 바꾸지 않아서 labels[1] 이 숫자 2500 그대로이고, forEach 는 undefined 를 돌려줘서 에러가 나요.`,
-        keyPoint: "변환 = map",
-      },
-      {
         id: "labels-explain",
         type: "short_answer",
+        stage: "wrapup",
         skill: "analyze",
         prompt: "labels 배열이 어떻게 만들어지는지 설명해 주세요.",
         rubric: [
@@ -758,6 +597,7 @@ filter 는 값을 바꾸지 않아서 labels[1] 이 숫자 2500 그대로이고,
   // ─────────────────────────── 데이터 파이프라인 (심화) ───────────────────────────
   {
     id: "set-pipeline",
+    track: "code",
     title: "점수 보정과 평균",
     level: 5,
     concepts: ["filter", "map", "reduce", "arrow-functions"],
@@ -773,8 +613,55 @@ console.log(average);`,
     output: "4\n[77, 100, 93, 69]\n84.75",
     questions: [
       {
+        id: "pipeline-overview",
+        type: "multiple_choice",
+        stage: "overview",
+        skill: "analyze",
+        prompt: "코드를 처음부터 끝까지 훑어보세요. 이 코드는 전체적으로 무엇을 하나요?",
+        choices: [
+          { text: "60점 이상인 점수만 골라 5점씩 올리고(최대 100점) 그 평균을 구해 출력한다" },
+          { text: "모든 점수를 5점씩 올려 평균을 구한다", misconception: "filter 단계를 건너뛰고 읽음" },
+          { text: "60점 미만인 점수를 60점으로 올린다", misconception: "filter 가 값을 바꾼다고 생각" },
+          { text: "가장 높은 점수를 찾는다", misconception: "Math.min/reduce 를 최댓값 찾기로 생각" },
+        ],
+        answerIndex: 0,
+        hints: [
+          "3·4·5번째 줄이 각각 앞 줄의 결과를 받아 다음 일을 해요.",
+          "filter → map → reduce 가 각각 고르기·바꾸기·합치기 중 무엇인가요?",
+        ],
+        explanation: `3번째 줄: 60점 이상만 고르기(filter)
+4번째 줄: 고른 점수에 5점씩 더하되 100점 넘지 않게(map)
+5번째 줄: 모두 더해 개수로 나눠 평균(reduce)
+7~9번째 줄에서 결과를 출력해요.`,
+        keyPoint: "고르기 → 바꾸기 → 합치기 파이프라인",
+      },
+      {
+        id: "pipeline-key",
+        type: "multiple_choice",
+        stage: "key",
+        skill: "analyze",
+        prompt: "강조된 4번째 줄 passed.map(s => Math.min(s + 5, 100)) 은 어떤 역할을 할까요?",
+        focusLines: [4],
+        choices: [
+          { text: "합격한 점수마다 5점을 더하되, 100점을 넘지 않게 한 새 배열을 만든다" },
+          { text: "점수 중 100점 이하인 것만 골라낸다", misconception: "map과 filter를 혼동" },
+          { text: "scores 배열의 점수를 직접 5점씩 올린다", misconception: "map 이 원본 배열을 바꾼다고 생각" },
+          { text: "점수 중 가장 작은 값 하나를 찾는다", misconception: "Math.min 이 배열 전체에서 최솟값을 찾는다고 생각" },
+        ],
+        answerIndex: 0,
+        hints: [
+          "map 은 고르기인가요, 바꾸기인가요?",
+          "Math.min(s + 5, 100) 은 두 값 중 작은 값이에요. 95 라면 어떻게 될까요?",
+        ],
+        explanation: `map 은 passed 의 점수 s 하나하나를 Math.min(s + 5, 100) 으로 바꾼 새 배열을 만들어요.
+95 + 5 = 100, 100 과 100 중 작은 값 → 100 이라서 100점을 넘지 않아요.
+passed 와 scores 는 바뀌지 않아요.`,
+        keyPoint: "map = 하나씩 바꿔 새 배열, Math.min 으로 상한 두기",
+      },
+      {
         id: "pipeline-predict",
         type: "predict_output",
+        stage: "wrapup",
         skill: "synthesize",
         prompt: "세 줄의 실행 결과를 입력해 보세요.",
         output: "4\n[77, 100, 93, 69]\n84.75",
@@ -790,73 +677,9 @@ average: (77 + 100 + 93 + 69) / 4 = 339 / 4 = 84.75`,
         keyPoint: "변환 단계마다 중간 값을 적어가며 따라가기",
       },
       {
-        id: "pipeline-infer",
-        type: "multiple_choice",
-        skill: "infer",
-        prompt: "scores 의 58 을 61 로 바꾸면 passed.length 는 얼마가 될까요?",
-        choices: [{ text: "4" }, { text: "5" }, { text: "6", misconception: "바뀐 값이 새로 추가된다고 생각" }, { text: "3" }],
-        answerIndex: 1,
-        hints: [
-          "passed 를 만드는 조건은 무엇인가요?",
-          "61 은 그 조건을 통과하나요?",
-          "원래 58 만 빠졌었어요.",
-          "이제 빠지는 점수가 있나요?",
-        ],
-        explanation: `조건은 s >= 60 이에요. 원래는 58 하나만 빠졌어요.
-61 은 조건을 통과하므로 5개 모두 남아 passed.length 는 5 예요.`,
-        keyPoint: "조건을 바꾸지 않아도 데이터가 바뀌면 결과가 바뀐다",
-      },
-      {
-        id: "pipeline-shuffle",
-        type: "shuffle",
-        skill: "synthesize",
-        prompt: "평균이 올바르게 계산되도록 코드 조각을 순서대로 배치해 보세요.",
-        pieces: [
-          "const scores = [72, 95, 58, 88, 64];",
-          "const passed = scores.filter(s => s >= 60);",
-          "const curved = passed.map(s => Math.min(s + 5, 100));",
-          "const average = curved.reduce((sum, s) => sum + s, 0) / curved.length;",
-          "console.log(average);",
-        ],
-        hints: [
-          "각 줄이 어떤 변수를 사용하는지 표시해 보세요.",
-          "curved 는 passed 를, average 는 curved 를 사용해요.",
-          "사용하는 변수가 먼저 만들어져 있어야 해요.",
-          "scores → passed → curved → average → 출력",
-        ],
-        explanation: `데이터가 흐르는 순서대로 배치해요.
-scores → filter → map → reduce 로 평균 → 출력`,
-        keyPoint: "데이터 흐름 = 코드 순서",
-      },
-      {
-        id: "pipeline-bug",
-        type: "find_bug",
-        skill: "infer",
-        prompt: "불합격 점수(58)까지 보정되어 평균에 들어가고 있어요. 어느 줄이 문제일까요?",
-        buggyCode: `const scores = [72, 95, 58, 88, 64];
-
-const passed = scores.filter(s => s >= 60);
-const curved = scores.map(s => Math.min(s + 5, 100));
-const average = curved.reduce((sum, s) => sum + s, 0) / curved.length;
-
-console.log(passed.length);
-console.log(curved);
-console.log(average);`,
-        bugLine: 4,
-        fixedLine: "const curved = passed.map(s => Math.min(s + 5, 100));",
-        hints: [
-          "curved 에 58 + 5 = 63 이 들어있다면, curved 는 어디에서 만들어졌을까요?",
-          "passed 를 만들어 놓고 실제로 사용하고 있나요?",
-          "4번째 줄이 어떤 배열에 map 을 하는지 보세요.",
-          "걸러낸 결과(passed)를 다음 단계에서 써야 해요.",
-        ],
-        explanation: `4번째 줄이 passed 가 아니라 scores 에 map 을 해서 58 도 보정돼요.
-passed.map(...) 으로 바꿔야 걸러낸 결과만 보정돼요.`,
-        keyPoint: "이전 단계의 결과를 다음 단계에서 쓰는지 확인",
-      },
-      {
         id: "pipeline-explain",
         type: "short_answer",
+        stage: "wrapup",
         skill: "synthesize",
         prompt: "코드 전체의 실행 흐름과 데이터 변화를 설명해 주세요.",
         rubric: [

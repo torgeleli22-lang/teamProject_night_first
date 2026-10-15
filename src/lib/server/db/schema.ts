@@ -2,7 +2,7 @@ import type { Dialect } from "./types";
 
 /**
  * 테이블은 목적별로 나눈다.
- * ① 문제: code_items, questions — 모든 사용자가 함께 읽는 콘텐츠 (시드 + AI 생성)
+ * ① 문제: code_items, questions — 모든 사용자가 함께 읽는 콘텐츠 (시드 + AI 생성). code_items 한 줄 = 코드 학습의 코드 하나 또는 개념 학습의 주제 묶음 하나
  * ② 사용자: sessions — 로그인 없는 브라우저 세션 (일정 시간 쓰지 않으면 학습 기록과 함께 삭제)
  * ③ 학습 기록: attempts, daily_activity, concept_progress, analyses — 세션이 지워지면 함께 삭제
  * ④ 운영: generation_jobs, demand_signals, ai_usage, app_meta — 콘텐츠 생성과 비용 관리 (개인 기록 아님)
@@ -16,6 +16,8 @@ export function schema(dialect: Dialect): string {
   return `
 CREATE TABLE IF NOT EXISTS code_items (
   id TEXT PRIMARY KEY,
+  track TEXT NOT NULL DEFAULT 'code',
+  language TEXT,
   title TEXT NOT NULL,
   code TEXT NOT NULL,
   concepts TEXT NOT NULL,

@@ -3,7 +3,7 @@ import { buildSeed } from "../../content/seed";
 import type { ValidationReport } from "../../content/validate";
 import type { CodeItem, Question } from "../../types";
 import type { GeneratedItemRow } from "../content-repo";
-import { batchWrite, getItem, putItem, queryAll, type Item } from "./client";
+import { batchWrite, getItem, putItem, queryAll, updateItem, type Item } from "./client";
 
 /**
  * 문제 콘텐츠 (content-repo 의 DynamoDB 판).
@@ -29,15 +29,46 @@ async function bumpVersion() {
   await putItem({ pk: "META", sk: "content_version", value: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` });
 }
 
-/** 코드에 들어 있는 시드 콘텐츠를 테이블과 맞춘다 (바뀌었을 때만, AI 콘텐츠는 건드리지 않음) */
+/** SQL 판의 CONTENT_MODEL 과 같은 값 (학습 구조가 바뀔 때 올린다) */
+const CONTENT_MODEL = "2";
+
+async function deletePartition(pk: string) {
+  const rows = await queryAll<{ pk: string; sk: string }>(pk);
+  await batchWrite(rows.map((r) => ({ delete: { pk: r.pk, sk: r.sk } })));
+}
+
+/**
+ * 학습 구조를 "개념 / 코드" 두 갈래로 바꾸면서 예전 문제·학습 기록·랭킹을 한 번 지운다.
+ * AI 사용량(USAGE)·설정(META)·요청 제한(RL)은 남긴다. 여러 Lambda 가 동시에 떠도 한 곳만 지우도록 먼저 표시를 바꾼다.
+ */
+async function resetForContentModel() {
+  const claimed = await updateItem("META", "content_model", {
+    set: { value: CONTENT_MODEL },
+    condition: "attribute_not_exists(pk) OR #cv <> :cv",
+    conditionNames: { "#cv": "value" },
+    conditionValues: { ":cv": CONTENT_MODEL },
+  });
+  if (!claimed.ok) return;
+  const learners = await queryAll<{ sk: string }>("LEARNER");
+  for (const l of learners) await deletePartition(`S#${l.sk}`);
+  for (const pk of ["LEARNER", "CONTENT", "DEMAND", "STATS", "JOB"]) await deletePartition(pk);
+  await batchWrite([{ delete: { pk: "META", sk: "seed_hash" } }]);
+  console.log("[dynamo] 새 학습 구조로 바꾸며 예전 문제·학습 기록을 지웠어요 (AI 사용량·설정은 유지)");
+}
+
+/** 코드에 들어 있는 시드 콘텐츠를 테이블과 맞춘다 (바뀌었을 때만, AI 콘텐츠는 건드리지 않음. 코드에서 빠진 시드는 지움) */
 let seedChecked: Promise<void> | null = null;
 export function syncSeed(): Promise<void> {
   seedChecked ??= (async () => {
+    await resetForContentModel();
     const { items, questions } = buildSeed(0);
     const hash = hashOf({ items, questions });
     const current = await getItem<{ value: string }>("META", "seed_hash", true);
     if (current?.value === hash) return;
     const now = Date.now();
+    const seedIds = new Set(items.map((i) => i.id));
+    const stale = (await queryAll<ContentItem>("CONTENT")).filter((r) => r.source === "seed" && !seedIds.has(r.sk));
+    await batchWrite(stale.map((r) => ({ delete: { pk: "CONTENT", sk: r.sk } })));
     const byItem = new Map<string, Question[]>();
     for (const q of questions) byItem.set(q.codeItemId, [...(byItem.get(q.codeItemId) ?? []), q]);
     await batchWrite(

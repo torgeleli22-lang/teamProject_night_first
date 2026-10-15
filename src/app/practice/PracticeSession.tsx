@@ -8,7 +8,7 @@ import { ProgressBar, Spinner } from "@/components/ui";
 import { apiPost } from "@/lib/api";
 import { conceptName, levelInfo } from "@/lib/curriculum";
 import type { PublicQuestion, SessionPlan } from "@/lib/server/planner";
-import type { Level } from "@/lib/types";
+import type { Level, Track } from "@/lib/types";
 
 type Plan = SessionPlan & { generating: boolean };
 
@@ -20,7 +20,8 @@ const REASON_TEXT: Record<SessionPlan["reason"], string> = {
   wrong: "틀렸던 문제를 먼저 다시 풀어요",
   weak: "헷갈렸던 개념의 문제를 다시 풀어요",
   picked: "오답 노트의 문제를 다시 풀어요",
-  all: "여러 개념의 새 문제를 섞어서 풀어요",
+  all: "여러 주제의 새 문제를 섞어서 풀어요",
+  empty: "",
 };
 
 export function PracticeSession() {
@@ -33,10 +34,11 @@ function Session({ params }: { params: URLSearchParams }) {
   const router = useRouter();
   const level = (Math.min(5, Math.max(1, Number(params.get("level")) || 1)) as Level);
   const concept = params.get("concept") ?? undefined;
+  const track: Track = params.get("track") === "theory" ? "theory" : "code";
+  const unit = Number(params.get("unit")) || undefined;
+  const cert = params.get("cert") ?? undefined;
   const mode = params.get("mode") === "review" ? "review" : "learn";
-  const typesParam = params.get("types") ?? "";
   const idsParam = params.get("ids") ?? "";
-  const types = typesParam ? typesParam.split(",") : undefined;
   const ids = idsParam ? idsParam.split(",") : undefined;
 
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -50,7 +52,7 @@ function Session({ params }: { params: URLSearchParams }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    apiPost<Plan>("/session", { level, concept, mode, types, ids }, { signal: controller.signal })
+    apiPost<Plan>("/session", { level, track, concept, unit, cert, mode, ids }, { signal: controller.signal })
       .then((p) => {
         setPlan(p);
         setQueue(p.questions);
@@ -76,8 +78,10 @@ function Session({ params }: { params: URLSearchParams }) {
           mode === "review"
             ? "틀린 문제가 생기면 여기서 다시 풀 수 있어요."
             : plan.generating
-              ? "AI가 새 문제를 만들고 검증하는 중이에요. 잠시 후 다시 시도하거나 다른 난이도·유형을 골라보세요."
-              : "다른 난이도나 문제 유형을 골라보세요."
+              ? "AI가 새 문제를 만들고 검증하는 중이에요. 잠시 후 다시 시도하거나 다른 난이도·개념을 골라보세요."
+              : track === "theory"
+                ? "이 범위의 문제를 모두 풀었어요. 다른 주제나 분야를 골라보세요. 틀린 문제는 복습 탭에서 다시 풀 수 있어요."
+                : "이 조건의 코드를 모두 읽었어요. 다른 난이도나 개념을 골라보세요."
         }
       />
     );
@@ -92,10 +96,10 @@ function Session({ params }: { params: URLSearchParams }) {
   async function loadSimilar() {
     setSimilarLoading(true);
     try {
-      // 비슷한 문제 = 지금 문제와 같은 개념의 새 문제 ('전체 개념' 세션이어도 지금 문제의 개념 기준)
-      const p = await apiPost<Plan>("/session", { level, concept: q.concepts[0], types, size: 1, exclude: queue.map((x) => x.id) });
+      // 비슷한 문제 = 지금 문제와 같은 주제의 새 문제 (코드 학습은 같은 개념의 새 코드 하나를 단계별로)
+      const p = await apiPost<Plan>("/session", { level, track: q.track, concept: q.concepts[0], size: 1, exclude: queue.map((x) => x.id) });
       if (p.questions.length) {
-        setQueue((list) => [...list.slice(0, index + 1), p.questions[0], ...list.slice(index + 1)]);
+        setQueue((list) => [...list.slice(0, index + 1), ...p.questions, ...list.slice(index + 1)]);
         setIndex((i) => i + 1);
       } else {
         setNoSimilar((s) => new Set(s).add(q.id));
@@ -113,7 +117,9 @@ function Session({ params }: { params: URLSearchParams }) {
             ←
           </Link>
           <span className={`chip ${mode === "review" ? "bg-sun-50 text-sun-600" : "bg-brand-50 text-brand-700"}`}>{mode === "review" ? "🔁 복습" : "📘 학습"}</span>
-          <span className="text-ink-700">JavaScript · {conceptLabel}</span>
+          <span className="text-ink-700">
+            {q.track === "theory" ? "개념" : "JavaScript"} · {conceptLabel}
+          </span>
           <span className="ml-auto font-mono text-ink-400">
             {String(index + 1).padStart(2, "0")}/{String(queue.length).padStart(2, "0")}
           </span>
@@ -166,6 +172,7 @@ function SessionSummary({ plan, queue, results, again }: { plan: Plan; queue: Pu
   const analyzing = results.some((r) => r.analyzing);
   const aiCalls = results.filter((r) => r.gradedBy === "ai").length;
   const codes = new Set(queue.map((q) => q.codeItemId)).size;
+  const theory = plan.track === "theory";
 
   return (
     <div className="mx-auto max-w-xl px-4 pb-24 pt-10">
@@ -175,9 +182,7 @@ function SessionSummary({ plan, queue, results, again }: { plan: Plan; queue: Pu
             {ratio === 1 ? "🏆" : ratio >= 0.5 ? "🎉" : "🌱"}
           </p>
           <h1 className="mt-3 text-2xl font-extrabold">{ratio === 1 ? "완벽해요!" : ratio >= 0.5 ? "오늘의 학습 완료!" : "한 걸음 더 나아갔어요"}</h1>
-          <p className="mt-1 text-brand-100">
-            코드 {codes}개를 {results.length}가지 질문으로 읽어봤어요.
-          </p>
+          <p className="mt-1 text-brand-100">{theory ? `개념 문제 ${results.length}개를 풀었어요.` : `코드 ${codes}개를 ${results.length}단계로 읽어봤어요.`}</p>
           <div className="mt-6 grid grid-cols-3 gap-2">
             <Stat label="맞힌 문제" value={`${correct}/${results.length}`} />
             <Stat label="얻은 XP" value={`+${xp}`} />
@@ -196,7 +201,10 @@ function SessionSummary({ plan, queue, results, again }: { plan: Plan; queue: Pu
       </div>
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         {/* 같은 주소로 새로 시작해야 하므로 Link 대신 페이지를 다시 연다 (GitHub Pages 하위 경로 포함) */}
-        <a href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${plan.mode === "review" ? `/practice/?mode=review&level=${plan.level}` : again.replace(/&?ids=[^&]*/, "")}`} className="btn-primary">
+        <a
+          href={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${plan.mode === "review" ? `/practice/?mode=review&track=${plan.track}&level=${plan.level}` : again.replace(/&?ids=[^&]*/, "")}`}
+          className="btn-primary"
+        >
           {plan.mode === "review" ? "복습 더 하기 →" : "같은 조건으로 한 세트 더 →"}
         </a>
         <Link href={analyzing ? "/dashboard" : results.some((r) => !r.correct) ? "/review" : "/learn"} className="btn-soft">

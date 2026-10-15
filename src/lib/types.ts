@@ -1,8 +1,26 @@
 export type ConceptId = string;
 
+/**
+ * 학습 갈래.
+ * - theory: "개념" 학습 — 네트워크·개발·운영·보안 지식을 자격증 시험처럼 객관식으로 (코드 없음)
+ * - code  : "코드" 학습 — 코드 하나를 읽는 순서(훑어보기 → 흐름 → 핵심 줄 → 정리)대로 단계별로
+ * (화면 이름 "개념"과 개념 id(ConceptId)가 헷갈리지 않도록 코드에서는 theory 라고 부른다)
+ */
+export type Track = "theory" | "code";
+
+/** 코드 학습 언어 (지금은 JavaScript 만. 실행 검증기가 생기면 추가) */
+export type Language = "javascript";
+
+/**
+ * 코드 학습의 읽기 단계 (한 코드의 문제는 이 순서로 나온다)
+ * overview 훑어보기 → trace 흐름 따라가기 → key 핵심 줄 → wrapup 정리
+ */
+export type Stage = "overview" | "trace" | "key" | "wrapup";
+
 export interface Concept {
   id: ConceptId;
   name: string;
+  /** 속한 단원 (코드: JavaScript 단원, 개념: 분야) — 갈래는 단원에서 정해진다 */
   unitId: number;
   /** 한 줄 요약: "map = 배열의 각 요소를 변환" */
   keyIdea: string;
@@ -11,9 +29,10 @@ export interface Concept {
   example: string;
 }
 
-/** 주제 묶음 (변수/흐름/데이터/함수/배열/브라우저/비동기) */
+/** 주제 묶음. 코드 갈래는 JavaScript 단원(변수/흐름/…), 개념 갈래는 분야(네트워크/개발/운영/보안) */
 export interface Unit {
   id: number;
+  track: Track;
   title: string;
   description: string;
   emoji: string;
@@ -45,9 +64,16 @@ export type Skill = "recall" | "predict" | "analyze" | "infer" | "synthesize";
 export type ContentSource = "seed" | "ai";
 export type ContentStatus = "published" | "rejected";
 
-/** 하나의 학습용 코드. 여러 문제(Question)가 이 코드를 공유한다. */
+/**
+ * 콘텐츠 묶음 하나.
+ * - 코드 갈래: 학습용 코드 하나 + 그 코드를 단계별로 읽는 문제들
+ * - 개념 갈래: 한 주제(예: OSI 7계층)의 객관식 문제 묶음. code 는 빈 문자열
+ */
 export interface CodeItem {
   id: string;
+  track: Track;
+  /** 코드 갈래의 언어 (개념 갈래는 null) */
+  language: Language | null;
   title: string;
   code: string;
   concepts: ConceptId[];
@@ -86,12 +112,16 @@ interface QuestionBase {
   codeItemId: string;
   prompt: string;
   skill: Skill;
-  /** 4단계 힌트: 질문 → 핵심 짚기 → 문법 설명 → 방향 제시 (5단계는 정답+해설) */
-  hints: [string, string, string, string];
+  /** 단계별 힌트 1~4개 (생각할 질문 → 핵심 짚기 → 설명 → 방향). 다 보면 "정답과 해설 보기" */
+  hints: string[];
   explanation: string;
   keyPoint: string;
   /** 코드에서 강조할 줄 (역할 찾기 문제 등) */
   focusLines?: number[];
+  /** 코드 갈래: 읽기 단계 */
+  stage?: Stage;
+  /** 개념 갈래: 관련 자격증 과목 id (CERT_SUBJECTS) — 시험 대비로 골라 풀 때 쓴다 */
+  certs?: string[];
 }
 
 export interface MultipleChoiceQuestion extends QuestionBase {
@@ -108,24 +138,10 @@ export interface FillBlankQuestion extends QuestionBase {
   answerIndex: number;
 }
 
-export interface ShuffleQuestion extends QuestionBase {
-  type: "shuffle";
-  /** 올바른 순서의 코드 조각 */
-  pieces: string[];
-}
-
 export interface PredictQuestion extends QuestionBase {
   type: "predict_output";
   output: string;
   accepted?: string[];
-}
-
-export interface FindBugQuestion extends QuestionBase {
-  type: "find_bug";
-  buggyCode: string;
-  /** 1부터 시작 */
-  bugLine: number;
-  fixedLine: string;
 }
 
 export interface ShortAnswerQuestion extends QuestionBase {
@@ -135,13 +151,7 @@ export interface ShortAnswerQuestion extends QuestionBase {
   modelAnswer: string;
 }
 
-export type Question =
-  | MultipleChoiceQuestion
-  | FillBlankQuestion
-  | ShuffleQuestion
-  | PredictQuestion
-  | FindBugQuestion
-  | ShortAnswerQuestion;
+export type Question = MultipleChoiceQuestion | FillBlankQuestion | PredictQuestion | ShortAnswerQuestion;
 
 export type QuestionType = Question["type"];
 
@@ -149,9 +159,7 @@ export type QuestionType = Question["type"];
 export type Answer =
   | { type: "multiple_choice"; index: number }
   | { type: "fill_blank"; index: number }
-  | { type: "shuffle"; order: number[] }
   | { type: "predict_output"; text: string }
-  | { type: "find_bug"; line: number }
   | { type: "short_answer"; text: string };
 
 export type UnderstandingLevel = "good" | "ok" | "weak";

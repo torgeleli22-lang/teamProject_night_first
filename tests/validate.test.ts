@@ -56,14 +56,6 @@ test("빈칸의 다른 보기도 같은 결과를 내면 실패", async () => {
   assert.ok((await failedNames(item)).some((n) => n.includes("원래 결과를 만드는 보기가 정답 하나뿐")));
 });
 
-test("오류 찾기의 '오류 코드'가 같은 결과를 내면 실패", async () => {
-  const item: ItemDraft = {
-    ...good,
-    questions: [{ ...base, id: "f", type: "find_bug", buggyCode: good.code.replace("n * 2", "2 * n"), bugLine: 2, fixedLine: "const doubled = nums.map(n => n * 2);" }],
-  };
-  assert.ok((await failedNames(item)).some((n) => n.includes("오류 코드는 다른 결과")));
-});
-
 test("위험한 코드·무한 루프는 실행하지 않거나 시간 초과로 끊는다", async () => {
   assert.ok((await failedNames({ ...good, code: "require('fs')" })).includes("안전한 코드 (require/eval/무한 루프 등 없음)"));
   const loop = await runJs("let i = 0; for (;;) { i++; }");

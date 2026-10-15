@@ -5,6 +5,7 @@ import {
   badges,
   currentUnitId,
   isWeak,
+  lastTrack,
   learnerLevel,
   misconceptionCounts,
   overallProgress,
@@ -61,6 +62,7 @@ export async function learnView(me: SessionInfo) {
     suggestion,
     suggestedLevel: analysis?.result.recommendedLevel ?? (suggestion.direction !== "stay" ? suggestion.level : null),
     recommendedConcept: plan.focusConcept,
+    lastTrack: lastTrack(attempts),
     unit: { emoji: unit.emoji, title: unit.title },
     solvedToday: progress.solvedToday,
     dailyGoal: me.dailyGoal,
@@ -85,6 +87,8 @@ export async function reviewView(me: SessionInfo) {
       ...w,
       prompt: found.question.prompt,
       type: found.question.type,
+      stage: found.question.stage ?? null,
+      track: found.item.track,
       concept: found.item.concepts[0],
       level: found.item.level,
     });
@@ -168,12 +172,13 @@ export async function conceptsView(me: SessionInfo) {
     mastery: Object.fromEntries([...progress.stats.values()].map((s) => [s.conceptId, { mastery: s.mastery, weak: isWeak(s) }])),
     items: [...items.values()].map((item) => ({
       id: item.id,
+      track: item.track,
       title: item.title,
       concepts: item.concepts,
       level: item.level,
       source: item.source,
       lines: item.factors.lines,
-      questions: (byItem.get(item.id) ?? []).map((q) => ({ id: q.id, type: q.type as QuestionType, prompt: q.prompt, solved: solved.get(q.id) ?? null })),
+      questions: (byItem.get(item.id) ?? []).map((q) => ({ id: q.id, type: q.type as QuestionType, stage: q.stage ?? null, prompt: q.prompt, solved: solved.get(q.id) ?? null })),
     })),
   };
 }

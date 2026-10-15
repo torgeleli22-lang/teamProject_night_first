@@ -10,7 +10,7 @@ import { insertAttempt, resetSession, setPreferredLevel } from "./session-repo";
 export const PERSONAS = {
   empty: { label: "처음 온 학습자", description: "기록 없음. 첫 화면과 빈 상태를 확인해요." },
   steady: { label: "꾸준한 학습자", description: "5일 동안 기초를 안정적으로 푼 기록 (정답률 높음 → 난이도 상향 추천)" },
-  confused: { label: "map·filter 를 혼동하는 학습자", description: "6일 동안 26문제. 배열 메서드에서 같은 오개념을 반복 → AI 분석과 맞춤 복습 생성" },
+  confused: { label: "map·filter 를 혼동하는 학습자", description: "6일 동안 여러 문제. 배열 메서드와 보안·네트워크 개념에서 오개념을 반복 → AI 분석과 복습" },
 } as const;
 
 export type Persona = keyof typeof PERSONAS;
@@ -33,6 +33,9 @@ const PLANS: Record<Exclude<Persona, "empty">, { level: Level; days: number; pla
       { concept: "operators", results: [true, true, true] },
       { concept: "if-else", results: [true, true, true, true] },
       { concept: "for", results: [true, true, false, true] },
+      { concept: "net-osi", results: [true, true, true] },
+      { concept: "net-http", results: [true, false, true] },
+      { concept: "dev-git", results: [true, true, true] },
     ],
   },
   confused: {
@@ -45,7 +48,8 @@ const PLANS: Record<Exclude<Persona, "empty">, { level: Level; days: number; pla
       { concept: "functions", results: [true, false, true] },
       { concept: "map", results: [false, true, false, false, true], hints: 2 },
       { concept: "filter", results: [false, false, true, false], hints: 1 },
-      { concept: "for-each", results: [false, true, false, false] },
+      { concept: "net-tcp-udp", results: [true, false, false] },
+      { concept: "sec-crypto", results: [false, true, false] },
     ],
   },
 };
@@ -62,10 +66,6 @@ function fakeAnswer(q: Question, correct: boolean): { answer: Answer; misconcept
     }
     case "predict_output":
       return { answer: { type: q.type, text: correct ? q.output : "모르겠어요" }, misconception: null };
-    case "find_bug":
-      return { answer: { type: q.type, line: correct ? q.bugLine : Math.max(1, q.bugLine - 1) }, misconception: null };
-    case "shuffle":
-      return { answer: { type: q.type, order: correct ? q.pieces.map((_, i) => i) : q.pieces.map((_, i) => i).reverse() }, misconception: null };
     case "short_answer":
       return { answer: { type: q.type, text: correct ? q.modelAnswer : "map 으로 골라서 새 배열을 만들어요" }, misconception: correct ? null : "map 이 요소를 고른다고 생각" };
   }
@@ -83,7 +83,7 @@ export async function loadPersona(sessionId: string, persona: Persona) {
   let n = 0;
   for (const plan of plans) {
     const questions = [...items.values()]
-      .filter((i) => i.concepts[0] === plan.concept)
+      .filter((i) => i.concepts.includes(plan.concept))
       .sort((a, b) => a.level - b.level)
       .flatMap((i) => (byItem.get(i.id) ?? []).map((q) => ({ q, item: i })));
     for (const [k, correct] of plan.results.entries()) {

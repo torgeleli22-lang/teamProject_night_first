@@ -8,13 +8,12 @@ const { questions } = buildSeed();
 const byId = (id: string) => questions.find((q) => q.id === id)!;
 const adults = byId("adults-explain") as ShortAnswerQuestion;
 
-test("객관식·빈칸·오류 찾기·셔플·결과 예측은 규칙으로 채점된다", () => {
-  assert.equal(gradeObjective(byId("adults-count"), { type: "multiple_choice", index: 1 }), true);
-  assert.equal(gradeObjective(byId("adults-count"), { type: "multiple_choice", index: 2 }), false);
-  assert.equal(gradeObjective(byId("adults-blank"), { type: "fill_blank", index: 0 }), true);
-  assert.equal(gradeObjective(byId("adults-bug"), { type: "find_bug", line: 7 }), true);
-  assert.equal(gradeObjective(byId("adults-shuffle"), { type: "shuffle", order: [0, 1, 2] }), true);
-  assert.equal(gradeObjective(byId("adults-shuffle"), { type: "shuffle", order: [1, 0, 2] }), false);
+test("객관식·빈칸·결과 예측은 규칙으로 채점된다", () => {
+  assert.equal(gradeObjective(byId("adults-role"), { type: "multiple_choice", index: 0 }), true);
+  assert.equal(gradeObjective(byId("adults-role"), { type: "multiple_choice", index: 2 }), false);
+  assert.equal(gradeObjective(byId("greeting-blank"), { type: "fill_blank", index: 0 }), true);
+  assert.equal(gradeObjective(byId("osi-routing"), { type: "multiple_choice", index: 0 }), true);
+  assert.equal(gradeObjective(byId("osi-routing"), { type: "multiple_choice", index: 1 }), false);
   assert.equal(
     gradeObjective(byId("adults-predict"), { type: "predict_output", text: '[{ name: "Kim", age: 25 }, { name: "Park", age: 31 }]' }),
     true,

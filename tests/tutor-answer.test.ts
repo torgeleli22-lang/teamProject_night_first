@@ -2,35 +2,46 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { describeLearnerAnswer } from "../src/lib/ai/tutor";
 import { buildSeed } from "../src/lib/content/seed";
-import { unshuffle } from "../src/lib/server/planner";
+import { displayChoiceIndex, displayedChoices, toPublic, unshuffleAnswer } from "../src/lib/server/planner";
+import type { MultipleChoiceQuestion } from "../src/lib/types";
 
-const { questions } = buildSeed();
+const { items, questions } = buildSeed();
 const byId = (id: string) => questions.find((q) => q.id === id)!;
+const itemOf = (id: string) => items.find((i) => i.id === byId(id).codeItemId)!;
 
-test("튜터는 순서 맞추기에서 학습자가 놓은 순서를 줄마다 본다", () => {
-  const q = byId("adults-shuffle");
-  if (q.type !== "shuffle") throw new Error("shuffle 문제가 아니에요");
-  const text = describeLearnerAnswer(q, { type: "shuffle", order: [1, 0, 2] }, true);
-  assert.match(text, /3\/3개 놓음/);
-  assert.match(text, new RegExp(`1\\. ${q.pieces[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*이 자리에 올 조각이 아님`));
-  assert.match(text, /오답/);
-  // 일부만 놓은 경우: 채점하지 않고 놓은 만큼만 보여준다
-  const partial = describeLearnerAnswer(q, { type: "shuffle", order: [0] }, false);
-  assert.match(partial, /1\/3개 놓음, 아직 다 놓지 않음/);
-  assert.doesNotMatch(partial, /정답입니다|오답입니다/);
+test("보기는 화면에서 섞이고, 고른 번호는 원래 보기로 되돌아간다", () => {
+  const q = byId("osi-routing") as MultipleChoiceQuestion;
+  const pub = toPublic(q, itemOf(q.id));
+  assert.deepEqual([...pub.choices!].sort(), q.choices.map((c) => c.text).sort());
+  assert.deepEqual(pub.choices, displayedChoices(q));
+  // 화면에서 정답 글을 고르면 원래 정답 번호로 되돌아간다
+  const shown = pub.choices!.indexOf(q.choices[q.answerIndex].text);
+  assert.equal(shown, displayChoiceIndex(q, q.answerIndex));
+  assert.deepEqual(unshuffleAnswer(q, { type: "multiple_choice", index: shown }), { type: "multiple_choice", index: q.answerIndex });
 });
 
-test("화면 순서 번호는 원래 조각 번호로 되돌린 뒤 설명한다", () => {
-  const q = byId("adults-shuffle");
-  if (q.type !== "shuffle") throw new Error("shuffle 문제가 아니에요");
-  // 화면에서 섞인 순서를 그대로 고르면, 되돌린 결과는 0..n-1 의 어떤 순열
-  const restored = unshuffle(q, q.pieces.map((_, i) => i));
-  assert.deepEqual([...restored].sort(), q.pieces.map((_, i) => i));
+test("정답을 맨 앞에 쓴 문제도 화면에서는 대부분 다른 자리에 정답이 있다", () => {
+  const firsts = questions.filter((q) => q.type === "multiple_choice" && q.answerIndex === 0);
+  const stillFirst = firsts.filter((q) => displayChoiceIndex(q, 0) === 0).length;
+  assert.ok(stillFirst / firsts.length < 0.5, `${stillFirst}/${firsts.length}`);
 });
 
-test("객관식 답과 정오도 튜터에게 전달된다", () => {
-  const q = byId("adults-count");
-  assert.match(describeLearnerAnswer(q, { type: "multiple_choice", index: 2 }, true), /학습자의 답: .*\n이 답은 오답입니다/);
+test("클라이언트로 가는 문제에는 정답·해설이 없다", () => {
+  for (const q of questions) {
+    const item = itemOf(q.id);
+    const json = JSON.stringify(toPublic(q, item));
+    // 해설 첫 줄이 코드 그 자체인 경우(예: 'for (const item of cart)')는 코드와 겹치므로 빼고 본다
+    const snippet = q.explanation.split("\n")[0];
+    if (!item.code.includes(snippet)) assert.ok(!json.includes(snippet), q.id);
+    assert.ok(!/answerIndex|explanation|modelAnswer|rubric/.test(json), q.id);
+  }
+});
+
+test("튜터는 학습자가 고른 보기와 정오를 본다", () => {
+  const q = byId("osi-routing");
+  const text = describeLearnerAnswer(q, { type: "multiple_choice", index: 1 }, true);
+  assert.match(text, /학습자의 답: 데이터 링크 계층/);
+  assert.match(text, /이 답은 오답입니다/);
   assert.equal(describeLearnerAnswer(q, undefined, true), "");
-  assert.equal(describeLearnerAnswer(q, { type: "find_bug", line: 1 }, true), "");
+  assert.equal(describeLearnerAnswer(q, { type: "predict_output", text: "x" }, true), "");
 });

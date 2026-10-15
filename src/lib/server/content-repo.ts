@@ -19,6 +19,8 @@ let cache: { content: ContentCache; version: string; checkedAt: number } | null 
 
 interface ItemRow {
   id: string;
+  track: string;
+  language: string | null;
   title: string;
   code: string;
   concepts: string;
@@ -34,6 +36,8 @@ interface ItemRow {
 function toItem(r: ItemRow): CodeItem {
   return {
     id: r.id,
+    track: r.track === "theory" ? "theory" : "code",
+    language: r.language === "javascript" ? "javascript" : null,
     title: r.title,
     code: r.code,
     concepts: JSON.parse(r.concepts),
@@ -124,9 +128,9 @@ export async function saveGeneratedItem(item: Omit<CodeItem, "createdAt" | "sour
   const db = await getDb();
   await db.transaction(async (tx) => {
     await tx.run(
-      `INSERT INTO code_items (id, title, code, concepts, level, factors, output, runnable, source, status, validation, job_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?, ?)`,
-      [item.id, item.title, item.code, JSON.stringify(item.concepts), item.level, JSON.stringify(item.factors), item.output, item.runnable, item.status, JSON.stringify(report), jobId, Date.now()],
+      `INSERT INTO code_items (id, track, language, title, code, concepts, level, factors, output, runnable, source, status, validation, job_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, ?, ?)`,
+      [item.id, item.track, item.language, item.title, item.code, JSON.stringify(item.concepts), item.level, JSON.stringify(item.factors), item.output, item.runnable, item.status, JSON.stringify(report), jobId, Date.now()],
     );
     for (const q of questions) {
       await tx.run("INSERT INTO questions (id, code_item_id, type, payload) VALUES (?, ?, ?, ?)", [q.id, q.codeItemId, q.type, JSON.stringify(q)]);
@@ -240,9 +244,9 @@ export async function importGeneratedItem(e: ExportedItem) {
       await tx.run("DELETE FROM questions WHERE code_item_id = ?", [i.id]);
       await tx.run("DELETE FROM code_items WHERE id = ?", [i.id]);
       await tx.run(
-        `INSERT INTO code_items (id, title, code, concepts, level, factors, output, runnable, source, status, validation, job_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, NULL, ?)`,
-        [i.id, i.title, i.code, JSON.stringify(i.concepts), i.level, JSON.stringify(i.factors), i.output, i.runnable, e.row.status, e.row.validation ? JSON.stringify(e.row.validation) : null, e.row.createdAt],
+        `INSERT INTO code_items (id, track, language, title, code, concepts, level, factors, output, runnable, source, status, validation, job_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai', ?, ?, NULL, ?)`,
+        [i.id, i.track ?? "code", i.language ?? null, i.title, i.code, JSON.stringify(i.concepts), i.level, JSON.stringify(i.factors), i.output, i.runnable, e.row.status, e.row.validation ? JSON.stringify(e.row.validation) : null, e.row.createdAt],
       );
       for (const q of e.questions) {
         await tx.run("INSERT INTO questions (id, code_item_id, type, payload) VALUES (?, ?, ?, ?)", [q.id, q.codeItemId, q.type, JSON.stringify(q)]);

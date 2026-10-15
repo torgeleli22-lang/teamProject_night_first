@@ -6,6 +6,7 @@
  */
 import { runTask, type BackgroundTask } from "../src/api/background";
 import { handle, SESSION_HEADER } from "../src/api/router";
+import { buildSeed } from "../src/lib/content/seed";
 import type { PublicQuestion } from "../src/lib/server/planner";
 
 const tasks: Promise<void>[] = [];
@@ -31,12 +32,8 @@ function answerFor(q: PublicQuestion) {
     case "multiple_choice":
     case "fill_blank":
       return { type: q.type, index: 0 };
-    case "shuffle":
-      return { type: q.type, order: q.pieces!.map((_, i) => i) };
     case "predict_output":
       return { type: q.type, text: "1" };
-    case "find_bug":
-      return { type: q.type, line: 1 };
     case "short_answer":
       return { type: q.type, text: "filter 는 조건에 맞는 요소만 골라서 새 배열을 만들어요" };
   }
@@ -59,9 +56,28 @@ const check = (cond: unknown, msg: string) => {
   const learn = await call<{ recommendedConcept: string }>("GET", "/learn");
   check(learn.recommendedConcept, "학습 탭 데이터");
 
-  const plan = await call<{ questions: PublicQuestion[] }>("POST", "/session", { level: 3, concept: "filter", mode: "learn" });
-  check(plan.questions.length > 0, `filter 세트 ${plan.questions.length}문제`);
+  const plan = await call<{ questions: PublicQuestion[]; track: string }>("POST", "/session", { level: 3, track: "code", concept: "filter", mode: "learn" });
+  check(plan.track === "code" && plan.questions.length > 0, `코드 학습 filter 세트 ${plan.questions.length}문제`);
+  check(plan.questions[0].stage === "overview" && plan.questions.every((q) => q.code && q.stage), "코드 학습은 훑어보기부터 단계 순서로");
   check(plan.questions.every((q) => !("answerIndex" in q) && !("explanation" in q)), "정답·해설이 응답에 없음");
+
+  // 개념 학습: 분야(네트워크) 전체에서 객관식 10문제, 코드 없음. 화면에 섞인 보기에서 정답을 고르면 정답 처리
+  const seed = buildSeed().questions;
+  const theory = await call<{ questions: PublicQuestion[]; track: string }>("POST", "/session", { level: 2, track: "theory", unit: 11, mode: "learn" });
+  check(theory.track === "theory" && theory.questions.length === 10, `개념 학습 네트워크 ${theory.questions.length}문제`);
+  check(theory.questions.every((q) => !q.code && q.type === "multiple_choice" && q.choices?.length === 4 && q.certs?.length), "개념 문제는 코드 없는 4지선다 + 자격증 태그");
+  const tq = theory.questions[0];
+  const original = seed.find((x) => x.id === tq.id)!;
+  const rightText = original.type === "multiple_choice" ? original.choices[original.answerIndex].text : "";
+  const graded = await call<{ correct: boolean; answerIndex: number }>("POST", "/attempts", {
+    questionId: tq.id,
+    answer: { type: "multiple_choice", index: tq.choices!.indexOf(rightText) },
+    hintsUsed: 0,
+    timeMs: 3000,
+  });
+  check(graded.correct && tq.choices![graded.answerIndex] === rightText, "섞인 보기에서 정답을 고르면 정답 (정답 표시도 화면 순서)");
+  const sqld = await call<{ questions: PublicQuestion[] }>("POST", "/session", { level: 3, track: "theory", concept: "all", cert: "SQLD", mode: "learn" });
+  check(sqld.questions.length > 0 && sqld.questions.every((q) => q.certs?.includes("sqld")), `자격증(SQLD) 대비 ${sqld.questions.length}문제`);
 
   const hint = await call<{ hint: string }>("POST", "/hint", { questionId: plan.questions[0].id, level: 1 });
   check(hint.hint, "힌트 1단계");
@@ -81,7 +97,7 @@ const check = (cond: unknown, msg: string) => {
   const dash = await call<{ empty: boolean; days: unknown[] }>("GET", "/dashboard");
   check(!dash.empty && dash.days.length === 1, "내 학습 (캘린더 1일)");
   const concepts = await call<{ items: unknown[] }>("GET", "/concepts");
-  check(concepts.items.length > 50, `탐색 코드 ${concepts.items.length}개`);
+  check(concepts.items.length >= 20, `탐색 콘텐츠 ${concepts.items.length}개`);
 
   await call("POST", "/me", { nickname: "테스트" });
   await call("POST", "/demo", { peers: "add" });
