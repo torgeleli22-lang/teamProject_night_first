@@ -1,6 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+// Anthropic SDK 는 AI_PROVIDER=anthropic·bedrock 일 때만 쓴다. Lambda(converse)·EC2(relay)에서는 불러오지 않도록 필요할 때만 import 한다
+import type Anthropic from "@anthropic-ai/sdk";
+import type { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { toJSONSchema } from "zod/v4";
 import type * as z from "zod/v4";
 import { POLICY } from "../content/policy";
@@ -73,13 +73,17 @@ export function aiMode(): AIMode {
   return process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? "live" : "off";
 }
 
-export function getClient(): AIClient | null {
+export async function getClient(): Promise<AIClient | null> {
   if (client !== undefined) return client;
   if (aiMode() !== "live" || TOOL_PROVIDER) client = null;
-  else if (AI_PROVIDER === "bedrock")
+  else if (AI_PROVIDER === "bedrock") {
+    const { AnthropicBedrockMantle } = await import("@anthropic-ai/bedrock-sdk");
     // 자격 증명은 환경 변수(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) 또는 EC2 IAM 역할에서 자동으로 읽는다
     client = new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-1", timeout: 120_000, maxRetries: 1 });
-  else client = new Anthropic({ timeout: 120_000, maxRetries: 1 });
+  } else {
+    const { default: AnthropicClient } = await import("@anthropic-ai/sdk");
+    client = new AnthropicClient({ timeout: 120_000, maxRetries: 1 });
+  }
   return client;
 }
 
@@ -186,8 +190,9 @@ async function callModel<T extends z.ZodType>(
   limits: { inputChars: number; maxOutput: number },
 ): Promise<z.infer<T>> {
   if (TOOL_PROVIDER) return askViaTool(opts, limits, AI_PROVIDER === "converse" ? converseTransport : relayTransport);
-  const anthropic = getClient();
+  const anthropic = await getClient();
   if (!anthropic) throw new AIUnavailableError("AI is not configured");
+  const { betaZodOutputFormat } = await import("@anthropic-ai/sdk/helpers/beta/zod");
   // Bedrock 에는 서버 측 fallback 이 없다
   const fallback = AI_PROVIDER === "anthropic" && SUPPORTS_FALLBACK.test(model);
 

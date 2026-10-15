@@ -44,7 +44,8 @@ DynamoDB → **테이블 생성**
 ## 2단계. API 파일 받기 (GitHub)
 
 저장소 → **Actions** → main 의 최신 **CI** 실행(초록 체크) → 아래쪽 **Artifacts** → **`lambda-upload`** 를 내려받습니다.
-받은 `lambda-upload.zip` 안에 `index.js` 하나가 들어 있고, **이 zip 을 그대로 Lambda 에 올립니다** (풀지 마세요).
+받은 `lambda-upload.zip` 안에는 `index.js`, `api/`, `lib/`, `README.md` 가 들어 있고, **이 zip 을 그대로 Lambda 에 올립니다** (풀지 마세요).
+파일마다 TypeScript 를 JavaScript 로만 바꾼 읽을 수 있는 소스라서, 올린 뒤 Lambda 콘솔 코드 탭에서 폴더별로 열어 볼 수 있어요 (구성은 `README.md`).
 
 ## 3단계. Lambda 함수 만들기 (서울 리전)
 

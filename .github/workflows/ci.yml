@@ -1,5 +1,6 @@
 # 자동 검사 (push · PR 마다): 타입 · 테스트 · 콘텐츠 실행 검증 · API 전체 흐름(SQLite, PostgreSQL, DynamoDB) · 정적 빌드 · Lambda 패키지
-# 끝나면 Actions 실행 화면의 Artifacts 에서 'lambda-upload' 를 받아 Lambda 콘솔에 그대로 올리면 된다 (안에 index.js 하나).
+# 끝나면 Actions 실행 화면의 Artifacts 에서 'lambda-upload' 를 받아 Lambda 콘솔에 그대로 올리면 된다
+# (안에 읽을 수 있는 소스 파일들: index.js, api/, lib/, README.md — 파일마다 JavaScript 로만 바꾼 것).
 name: CI
 
 on:
@@ -50,9 +51,9 @@ jobs:
       - run: npm run build
       - run: npm run build:server
       - run: npm run build:lambda
-      # GitHub 이 파일을 zip 으로 묶어 주므로, 받은 zip 이 곧 Lambda 에 올릴 파일이다 (index.js 가 맨 위에 있음)
+      # GitHub 이 폴더를 zip 으로 묶어 주므로, 받은 zip 이 곧 Lambda 에 올릴 파일이다 (index.js 가 맨 위에 있음)
       - uses: actions/upload-artifact@v4
         with:
           name: lambda-upload
-          path: dist/lambda/index.js
+          path: dist/lambda/
           retention-days: 30
