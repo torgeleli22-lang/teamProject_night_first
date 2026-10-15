@@ -132,7 +132,8 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
 
       {/* 해설 */}
       <section className="card animate-fade-up space-y-5 p-5 [animation-delay:80ms]">
-        {!correct && (
+        {/* 흐름 따라가기는 표 안에 칸마다 정답을 보여 주므로 여기서는 생략 */}
+        {!correct && question.type !== "trace" && (
           <div className="grid gap-3 sm:grid-cols-2">
             {!gaveUp && (
               <div>

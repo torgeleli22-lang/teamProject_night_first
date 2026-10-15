@@ -36,6 +36,8 @@ function answerFor(q: PublicQuestion) {
       return { type: q.type, text: "1" };
     case "short_answer":
       return { type: q.type, text: "filter 는 조건에 맞는 요소만 골라서 새 배열을 만들어요" };
+    case "trace":
+      return { type: q.type, values: (q.trace ?? []).map(() => "0") };
   }
 }
 
@@ -60,6 +62,16 @@ const check = (cond: unknown, msg: string) => {
   check(plan.track === "code" && plan.questions.length > 0, `코드 학습 filter 세트 ${plan.questions.length}문제`);
   check(plan.questions[0].stage === "overview" && plan.questions.every((q) => q.code && q.stage), "코드 학습은 훑어보기부터 단계 순서로");
   check(plan.questions.every((q) => !("answerIndex" in q) && !("explanation" in q)), "정답·해설이 응답에 없음");
+  const ORDER = ["overview", "trace", "key", "wrapup"];
+  const stagesSorted = (qs: PublicQuestion[]) => qs.every((q, i) => i === 0 || q.codeItemId !== qs[i - 1].codeItemId || ORDER.indexOf(q.stage!) >= ORDER.indexOf(qs[i - 1].stage!));
+  check(stagesSorted(plan.questions), "코드 학습 단계 순서: 훑어보기 → 흐름 따라가기 → 핵심 줄 → 정리");
+  // 흐름 따라가기: 칸에는 값(정답)이 없고, 실제 실행 기록대로 적으면 정답, 하나 틀리면 부분 정답 (시드 코드로 확인)
+  const lesson = await call<{ questions: PublicQuestion[] }>("POST", "/session", { level: 2, track: "code", ids: ["cart-overview", "cart-trace", "cart-loop-count"] });
+  check(lesson.questions.map((q) => q.stage).join(",") === "overview,trace,key", "장바구니 코드: 훑어보기 → 흐름 따라가기 → 핵심 줄");
+  const traceQ = lesson.questions.find((q) => q.type === "trace")!;
+  const traceSeed = buildSeed().questions.find((x) => x.id === traceQ.id)!;
+  const rightValues = traceSeed.type === "trace" ? traceSeed.rows.map((r) => r.value.replace(/^'|'$/g, "")) : [];
+  check(traceQ.trace?.length === rightValues.length && !JSON.stringify(traceQ.trace).includes("value"), `흐름 따라가기 칸 ${rightValues.length}개 (정답 없이)`);
 
   // 개념 학습: 분야(네트워크) 전체에서 객관식 10문제, 코드 없음. 화면에 섞인 보기에서 정답을 고르면 정답 처리
   const seed = buildSeed().questions;
@@ -81,6 +93,19 @@ const check = (cond: unknown, msg: string) => {
 
   const hint = await call<{ hint: string }>("POST", "/hint", { questionId: plan.questions[0].id, level: 1 });
   check(hint.hint, "힌트 1단계");
+
+  const traced = await call<{ correct: boolean; cells: { ok: boolean }[] }>("POST", "/attempts", {
+    questionId: traceQ.id,
+    answer: { type: "trace", values: rightValues },
+    hintsUsed: 0,
+    timeMs: 4000,
+  });
+  check(traced.correct && traced.cells.every((c) => c.ok), "흐름 따라가기: 실행 기록대로 적으면 정답 (따옴표 없이 써도)");
+  const half = await call<{ correct: boolean; partial: boolean }>("POST", "/attempts", {
+    questionId: traceQ.id,
+    answer: { type: "trace", values: rightValues.map((v, i) => (i === rightValues.length - 1 ? "틀린 값" : v)) },
+  });
+  check(rightValues.length < 2 || (!half.correct && half.partial), "흐름 따라가기: 일부만 맞으면 부분 정답");
 
   for (const q of plan.questions) {
     const r = await call<{ xp: number; tutor: { source: string } }>("POST", "/attempts", { questionId: q.id, answer: answerFor(q), hintsUsed: 0, timeMs: 5000 });

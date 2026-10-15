@@ -2,7 +2,8 @@ import type { SeedSet } from "./types";
 
 /**
  * 코드 학습 시드: 코드 하나를 읽는 순서대로 단계별 문제를 낸다.
- * 훑어보기(overview) → 흐름 따라가기(trace, 다음 단계에서 추가) → 핵심 줄(key) → 정리(wrapup: 결과 예측·내 말로 설명)
+ * 훑어보기(overview) → 흐름 따라가기(trace) → 핵심 줄(key) → 정리(wrapup: 결과 예측·내 말로 설명)
+ * 흐름 따라가기의 rows(정답)는 실제 실행 기록을 옮긴 것이고, npm run verify 가 다시 실행해서 같은지 확인한다.
  */
 export const CODE_LESSONS: SeedSet[] = [
   // ─────────────────────────── 변수와 문자열 (입문) ───────────────────────────
@@ -42,6 +43,24 @@ console.log(typeof age);`,
 5번째 줄에서 인사 문장을 만들어요.
 7~8번째 줄은 그 문장과 age 의 종류(typeof)를 출력해요.`,
         keyPoint: "전체 흐름: 값 준비 → 문장 만들기 → 출력",
+      },
+      {
+        id: "greeting-trace",
+        type: "trace",
+        stage: "trace",
+        skill: "predict",
+        prompt: "강조된 줄이 실행된 직후 값이 어떻게 되는지 따라가 보세요.",
+        watch: [{ line: 3, ask: ["age"] }, { line: 5, ask: ["greeting"] }],
+        rows: [
+          { line: 3, when: "after", context: "", expr: "age", value: "21" },
+          { line: 5, when: "after", context: "", expr: "greeting", value: "'민지님은 21살'" },
+        ],
+        hints: [
+          "3번째 줄은 age 의 지금 값에 1을 더해서 다시 넣어요.",
+          "5번째 줄은 바뀐 age 로 문장을 만들어요. 문자열과 숫자를 + 하면 이어 붙여져요.",
+        ],
+        explanation: "3번째 줄: age 는 20 → 21\n5번째 줄: \"민지\" + \"님은 \" + 21 + \"살\" → '민지님은 21살'",
+        keyPoint: "값은 위에서 아래로, 바뀐 뒤의 값으로 계속 쓰여요",
       },
       {
         id: "greeting-predict",
@@ -160,6 +179,25 @@ console.log(getGrade(42));`,
         explanation: `1~8번째 줄은 점수(score)에 따라 "A", "B", "C" 중 하나를 돌려주는 함수 getGrade 를 만들어요.
 10~12번째 줄에서 95, 70, 42 로 함수를 불러 결과를 출력해요.`,
         keyPoint: "함수 정의(만들기)와 호출(쓰기)을 나눠서 읽기",
+      },
+      {
+        id: "grade-trace",
+        type: "trace",
+        stage: "trace",
+        skill: "predict",
+        prompt: "getGrade 가 불릴 때마다 2번째 줄의 조건이 참(true)인지 거짓(false)인지 따라가 보세요.",
+        watch: [{ line: 2, when: "before", given: ["score"], ask: ["score >= 90"] }],
+        rows: [
+          { line: 2, when: "before", context: "score = 95", expr: "score >= 90", value: "true" },
+          { line: 2, when: "before", context: "score = 70", expr: "score >= 90", value: "false" },
+          { line: 2, when: "before", context: "score = 42", expr: "score >= 90", value: "false" },
+        ],
+        hints: [
+          "10~12번째 줄에서 getGrade 를 세 번 불러요. 그때마다 score 는 무엇인가요?",
+          "score >= 90 은 score 가 90 이상이면 true 예요.",
+        ],
+        explanation: "95 >= 90 → true (\"A\" 를 돌려줌)\n70 >= 90 → false (다음 조건으로)\n42 >= 90 → false (다음 조건으로)",
+        keyPoint: "함수는 부를 때마다 매개변수 값이 새로 정해져요",
       },
       {
         id: "grade-predict",
@@ -282,6 +320,25 @@ console.log(total);`,
         keyPoint: "누적 패턴: 0 에서 시작해 반복하며 더하기",
       },
       {
+        id: "cart-trace",
+        type: "trace",
+        stage: "trace",
+        skill: "predict",
+        prompt: "반복할 때마다 10번째 줄이 실행된 직후 total 이 얼마인지 적어 보세요.",
+        watch: [{ line: 10, given: ["item.name"], ask: ["total"] }],
+        rows: [
+          { line: 10, when: "after", context: "item.name = '펜'", expr: "total", value: "3000" },
+          { line: 10, when: "after", context: "item.name = '노트'", expr: "total", value: "8000" },
+          { line: 10, when: "after", context: "item.name = '지우개'", expr: "total", value: "10000" },
+        ],
+        hints: [
+          "total 은 0 에서 시작해요. 펜은 1000원 × 3개예요.",
+          "매번 '지금 total + 가격 × 수량' 을 계산해요.",
+        ],
+        explanation: "펜: 0 + 1000 × 3 = 3000\n노트: 3000 + 2500 × 2 = 8000\n지우개: 8000 + 500 × 4 = 10000",
+        keyPoint: "누적: 이전 값에 더해 가기",
+      },
+      {
         id: "cart-predict",
         type: "predict_output",
         stage: "wrapup",
@@ -398,6 +455,24 @@ console.log(adults);`,
 7번째 줄에서 filter 로 20살 이상인 사용자만 골라 새 배열 adults 를 만들고,
 9번째 줄에서 출력해요. users 는 그대로예요.`,
         keyPoint: "데이터 → 고르기(filter) → 출력",
+      },
+      {
+        id: "adults-trace",
+        type: "trace",
+        stage: "trace",
+        skill: "analyze",
+        prompt: "7번째 줄이 실행된 직후 두 배열의 길이를 적어 보세요.",
+        watch: [{ line: 7, ask: ["adults.length", "users.length"] }],
+        rows: [
+          { line: 7, when: "after", context: "", expr: "adults.length", value: "2" },
+          { line: 7, when: "after", context: "", expr: "users.length", value: "3" },
+        ],
+        hints: [
+          "adults 에는 조건(age >= 20)을 통과한 사용자만 들어가요.",
+          "filter 는 원래 배열 users 를 바꾸지 않아요.",
+        ],
+        explanation: "adults: Kim(25), Park(31) 만 통과 → 2\nusers: 그대로 3명 → 3",
+        keyPoint: "filter 는 새 배열, 원본은 그대로",
       },
       {
         id: "adults-predict",
@@ -520,6 +595,24 @@ console.log(labels[1]);`,
         keyPoint: "map = 하나씩 바꿔 같은 개수의 새 배열",
       },
       {
+        id: "labels-trace",
+        type: "trace",
+        stage: "trace",
+        skill: "predict",
+        prompt: "3번째 줄이 실행된 직후 labels 의 길이와 첫 번째 요소를 적어 보세요.",
+        watch: [{ line: 3, ask: ["labels.length", "labels[0]"] }],
+        rows: [
+          { line: 3, when: "after", context: "", expr: "labels.length", value: "3" },
+          { line: 3, when: "after", context: "", expr: "labels[0]", value: "'1번 상품: 1000원'" },
+        ],
+        hints: [
+          "map 은 요소마다 하나씩 바꿔요. 요소가 3개면 결과도 3개예요.",
+          "첫 번째 요소는 i 가 0, price 가 1000 일 때 만든 문자열이에요.",
+        ],
+        explanation: "map 결과의 길이 = 원래 배열의 길이 3\nlabels[0] = `${0 + 1}번 상품: ${1000}원` → '1번 상품: 1000원'",
+        keyPoint: "map = 같은 개수의 새 배열",
+      },
+      {
         id: "labels-predict",
         type: "predict_output",
         stage: "wrapup",
@@ -634,6 +727,25 @@ console.log(average);`,
 5번째 줄: 모두 더해 개수로 나눠 평균(reduce)
 7~9번째 줄에서 결과를 출력해요.`,
         keyPoint: "고르기 → 바꾸기 → 합치기 파이프라인",
+      },
+      {
+        id: "pipeline-trace",
+        type: "trace",
+        stage: "trace",
+        skill: "analyze",
+        prompt: "3·4·5번째 줄이 실행된 직후 각 변수의 값을 적어 보세요.",
+        watch: [{ line: 3, ask: ["passed"] }, { line: 4, ask: ["curved"] }, { line: 5, ask: ["average"] }],
+        rows: [
+          { line: 3, when: "after", context: "", expr: "passed", value: "[72, 95, 88, 64]" },
+          { line: 4, when: "after", context: "", expr: "curved", value: "[77, 100, 93, 69]" },
+          { line: 5, when: "after", context: "", expr: "average", value: "84.75" },
+        ],
+        hints: [
+          "passed 는 60 이상인 점수만 남겨요 (58 은 빠져요).",
+          "curved 는 passed 의 점수마다 5를 더하되 100을 넘지 않아요. average 는 합을 개수로 나눠요.",
+        ],
+        explanation: "passed = [72, 95, 88, 64]\ncurved = [77, 100, 93, 69]\naverage = (77 + 100 + 93 + 69) / 4 = 84.75",
+        keyPoint: "고르기 → 바꾸기 → 합치기를 한 단계씩",
       },
       {
         id: "pipeline-key",

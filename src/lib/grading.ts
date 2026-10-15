@@ -21,6 +21,20 @@ export function sameOutput(a: string, b: string): boolean {
   return na.length === nb.length && na.every((line, i) => line === nb[i]);
 }
 
+/** 값 하나 비교 (추적표 칸): 출력 비교 규칙 + 바깥 따옴표는 써도 안 써도 같게 */
+export function sameValue(a: string, b: string): boolean {
+  const unquote = (v: string) => {
+    const t = v.trim();
+    return /^(['"`‘’“”]).*\1$/s.test(t) || /^['‘].*['’]$/s.test(t) || /^["“].*["”]$/s.test(t) ? t.slice(1, -1) : t;
+  };
+  return sameOutput(a, b) || sameOutput(unquote(a), unquote(b));
+}
+
+/** 추적표 칸마다 맞았는지 */
+export function gradeTrace(q: Extract<Question, { type: "trace" }>, values: string[]): boolean[] {
+  return q.rows.map((row, i) => sameValue(values[i] ?? "", row.value));
+}
+
 /**
  * 객관식·빈칸·결과 예측은 정답이 정해져 있으므로 규칙으로 채점한다 (AI 호출 없음).
  * 보기 번호는 원래 순서 기준이다 (화면에 섞어 보인 번호는 서버가 먼저 되돌린다: planner.unshuffleAnswer).
@@ -35,6 +49,10 @@ export function gradeObjective(q: Question, answer: Answer): boolean {
     case "predict_output": {
       const text = (answer as { text: string }).text;
       return [q.output, ...(q.accepted ?? [])].some((ok) => sameOutput(text, ok));
+    }
+    case "trace": {
+      const cells = gradeTrace(q, (answer as { values: string[] }).values);
+      return cells.length > 0 && cells.every(Boolean);
     }
     case "short_answer":
       return false;
@@ -102,7 +120,14 @@ export function describeAnswer(q: Question, answer: Answer): string {
     case "predict_output":
     case "short_answer":
       return answer.text.trim() || "(빈 답변)";
+    case "trace":
+      return q.type === "trace" ? q.rows.map((r, i) => `${traceLabel(r)} → ${answer.values[i]?.trim() || "(빈칸)"}`).join("\n") : "";
   }
+}
+
+/** 추적표 칸 이름: "10번째 줄 실행 후 · item = … · total" */
+export function traceLabel(r: { line: number; when: "before" | "after"; context: string; expr: string }): string {
+  return `${r.line}번째 줄 ${r.when === "before" ? "실행 전" : "실행 후"}${r.context ? ` (${r.context})` : ""} · ${r.expr}`;
 }
 
 /** 정답을 사람이 읽을 수 있는 문자열로 */
@@ -115,6 +140,8 @@ export function describeCorrect(q: Question): string {
       return q.output;
     case "short_answer":
       return q.modelAnswer;
+    case "trace":
+      return q.rows.map((r) => `${traceLabel(r)} = ${r.value}`).join("\n");
   }
 }
 

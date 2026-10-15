@@ -540,6 +540,7 @@ export const QUESTION_TYPE_LABEL: Record<import("./types").QuestionType, string>
   fill_blank: "빈칸 채우기",
   predict_output: "실행 결과 예측",
   short_answer: "주관식",
+  trace: "흐름 따라가기",
 };
 
 /** 코드 학습의 읽기 단계 이름 (화면 표시) */

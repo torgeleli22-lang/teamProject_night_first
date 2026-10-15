@@ -1,5 +1,5 @@
 import { evaluateShortAnswer as aiEvaluate } from "../ai/tutor";
-import { choiceMisconception, describeAnswer, describeCorrect, evaluateShortAnswer, gradeObjective } from "../grading";
+import { choiceMisconception, describeAnswer, describeCorrect, evaluateShortAnswer, gradeObjective, gradeTrace } from "../grading";
 import { getConcept } from "../curriculum";
 import { xpForAttempt } from "../learner/stats";
 import type { Answer, ConceptCheck, GradedBy } from "../types";
@@ -33,6 +33,8 @@ export interface AttemptResult {
   tutor: TutorNote;
   /** 화면 표시용 정답 보기 번호 (화면에 섞어 보인 순서 기준) */
   answerIndex?: number;
+  /** 흐름 따라가기: 칸마다 정답과 맞았는지 */
+  cells?: { expected: string; ok: boolean }[];
 }
 
 export async function gradeAttempt(
@@ -84,6 +86,24 @@ export async function gradeAttempt(
       correction: fb.correction,
       nextTip: fb.nextTip,
       source: fb.gradedBy === "ai" ? "ai" : "rule",
+    };
+  } else if (q.type === "trace" && answer.type === "trace") {
+    // 흐름 따라가기: 칸마다 실행 기록과 비교 (AI 호출 없음). 절반 이상 맞으면 부분 정답
+    const ok = gradeTrace(q, answer.values);
+    const right = ok.filter(Boolean).length;
+    correct = right === ok.length;
+    partial = !correct && right * 2 >= ok.length;
+    const firstWrong = ok.indexOf(false);
+    tutor = {
+      headline: correct ? "흐름을 정확히 따라갔어요!" : partial ? `${ok.length}칸 중 ${right}칸 맞았어요` : "같이 한 줄씩 따라가 봐요",
+      message: correct
+        ? "줄마다 값이 어떻게 바뀌는지 머릿속으로 실행해 냈어요."
+        : `${q.rows[firstWrong].line}번째 줄${q.rows[firstWrong].context ? ` (${q.rows[firstWrong].context})` : ""}부터 다시 따라가 보세요. 그 줄이 실행되기 전 값에서 무엇이 바뀌는지 보면 돼요.`,
+      checks: [],
+      misconception: null,
+      correction: null,
+      nextTip: q.keyPoint,
+      source: "stored",
     };
   } else {
     // 객관식·빈칸·결과 예측: 규칙 채점, 미리 저장된 오개념/해설 사용 (AI 호출 없음)
@@ -137,5 +157,6 @@ export async function gradeAttempt(
     output: item.output,
     tutor,
     ...(q.type === "multiple_choice" || q.type === "fill_blank" ? { answerIndex: displayChoiceIndex(q, q.answerIndex) } : {}),
+    ...(q.type === "trace" ? { cells: q.rows.map((r, i) => ({ expected: r.value, ok: answer?.type === "trace" ? gradeTrace(q, answer.values)[i] : false })) } : {}),
   };
 }

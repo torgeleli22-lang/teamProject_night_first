@@ -8,7 +8,7 @@ import { certSubject, conceptName, levelInfo, QUESTION_TYPE_LABEL as TYPE_LABEL,
 import type { AttemptResult } from "@/lib/server/grade";
 import type { PublicQuestion } from "@/lib/server/planner";
 import type { Answer } from "@/lib/types";
-import { ChoiceInput, TextAnswer } from "./AnswerInputs";
+import { ChoiceInput, TextAnswer, TraceInput } from "./AnswerInputs";
 import { ConceptSheet } from "./ConceptSheet";
 import { FeedbackPanel } from "./FeedbackPanel";
 import { HintList } from "./HintPanel";
@@ -31,6 +31,8 @@ interface Props {
 export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onNext, onSimilar, similarLoading }: Props) {
   const [choice, setChoice] = useState<number | null>(null);
   const [text, setText] = useState("");
+  /** 흐름 따라가기 칸에 적은 값 */
+  const [traceValues, setTraceValues] = useState<string[]>([]);
 
   const [hints, setHints] = useState<string[]>([]);
   const [hintLoading, setHintLoading] = useState(false);
@@ -54,13 +56,23 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
         return text.trim() ? { type: q.type, text } : null;
       case "short_answer":
         return text.trim().length >= 4 ? { type: q.type, text } : null;
+      case "trace": {
+        const rows = q.trace ?? [];
+        return rows.length && rows.every((_, i) => traceValues[i]?.trim()) ? { type: q.type, values: traceValues } : null;
+      }
     }
   }
 
   const answer = currentAnswer();
   const done = result !== null;
   /** 튜터에게 함께 보내는 지금까지의 답 (제출 전이라도, 주관식은 짧게 쓴 것도) */
-  const chatAnswer: Answer | null = answer ?? ((q.type === "predict_output" || q.type === "short_answer") && text.trim() ? { type: q.type, text } : null);
+  const chatAnswer: Answer | null =
+    answer ??
+    ((q.type === "predict_output" || q.type === "short_answer") && text.trim()
+      ? { type: q.type, text }
+      : q.type === "trace" && traceValues.some((v) => v?.trim())
+        ? { type: q.type, values: (q.trace ?? []).map((_, i) => traceValues[i] ?? "") }
+        : null);
   /** 이 문제의 힌트 수 (문제마다 1~4개) */
   const hintCount = q.hintCount;
 
@@ -163,6 +175,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
             mono={q.type === "fill_blank" || q.skill === "predict"}
           />
         )}
+        {q.type === "trace" && q.trace && <TraceInput rows={q.trace} values={traceValues} onChange={setTraceValues} cells={result?.cells} />}
         {(q.type === "predict_output" || q.type === "short_answer") && (
           <TextAnswer value={text} onChange={setText} locked={done} mode={q.type} onSubmit={() => send(false)} />
         )}

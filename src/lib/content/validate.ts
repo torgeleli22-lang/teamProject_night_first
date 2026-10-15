@@ -4,6 +4,7 @@ import type { DifficultyFactors, Level, QuestionDraft } from "../types";
 import { computeFactors, estimateLevel } from "./analyzer";
 import { locate } from "./code-utils";
 import { runJs } from "./runner";
+import { traceCode } from "./tracer";
 
 export interface ValidationCheck {
   name: string;
@@ -159,6 +160,22 @@ export async function validateItem(item: ItemDraft): Promise<ValidationReport> {
       case "predict_output":
         if (expected) check(`${tag} 정답 = 실제 실행 결과`, sameOutput(q.output, expected), `정답: ${JSON.stringify(q.output)}`);
         break;
+      case "trace": {
+        if (!item.runnable) {
+          check(`${tag} 흐름 따라가기는 실행할 수 있는 코드에만`, false);
+          break;
+        }
+        const t = await traceCode("javascript", item.code, q.watch);
+        check(`${tag} 따라갈 줄을 실행해 기록할 수 있음`, t.ok, t.problems.join(" / ") || undefined);
+        const same =
+          t.rows.length === q.rows.length &&
+          t.rows.every((r, i) => {
+            const w = q.rows[i];
+            return r.line === w.line && r.when === w.when && r.context === w.context && r.expr === w.expr && r.value === w.value;
+          });
+        check(`${tag} 추적표 정답 = 실제 실행 기록`, same, same ? undefined : `실제: ${JSON.stringify(t.rows)}`);
+        break;
+      }
       case "short_answer": {
         check(`${tag} 채점 기준 2개 이상`, q.rubric.length >= 2 && q.rubric.every((r) => r.keywords.length > 0));
         const self = evaluateShortAnswer({ ...q, codeItemId: "" }, q.modelAnswer);

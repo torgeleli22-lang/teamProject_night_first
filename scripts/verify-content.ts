@@ -35,7 +35,7 @@ async function main() {
 
     if (set.track === "code") {
       for (const q of set.questions) if (!q.stage) failures.push(`[${set.id}] ${q.id} 에 읽기 단계(stage)가 없습니다`);
-      for (const st of ["overview", "key", "wrapup"] as const) {
+      for (const st of ["overview", "trace", "key", "wrapup"] as const) {
         if (!set.questions.some((q) => q.stage === st)) failures.push(`[${set.id}] 읽기 단계 ${st} 문제가 없습니다`);
       }
     } else {
