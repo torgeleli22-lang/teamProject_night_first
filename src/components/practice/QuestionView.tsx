@@ -5,8 +5,8 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { DifficultyDots } from "@/components/ui";
 import { apiPost, notifyChanged } from "@/lib/api";
 import { certSubject, conceptName, levelInfo, QUESTION_TYPE_LABEL as TYPE_LABEL, SKILL_LABEL, STAGE_INFO } from "@/lib/curriculum";
-import type { AttemptResult } from "@/lib/server/grade";
-import type { PublicQuestion } from "@/lib/server/planner";
+import type { AttemptResult } from "@/lib/api-types";
+import type { PublicQuestion } from "@/lib/api-types";
 import type { Answer } from "@/lib/types";
 import { ChoiceInput, TextAnswer, TraceInput } from "./AnswerInputs";
 import { ConceptSheet } from "./ConceptSheet";
@@ -75,15 +75,15 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
       : q.type === "trace" && traceValues.some((v) => v?.trim())
         ? { type: q.type, values: (q.trace ?? []).map((_, i) => traceValues[i] ?? "") }
         : null);
-  /** 튜터 Lambda 에 보낼 '지금 내 답' (보기는 화면에 보이는 글 그대로) */
+  /** 튜터(tutor-chat Lambda)에 보낼 '지금 내 답' (보기는 화면에 보이는 번호와 글) */
   const answerText = !chatAnswer
     ? ""
     : chatAnswer.type === "multiple_choice" || chatAnswer.type === "fill_blank"
-      ? (q.choices?.[chatAnswer.index] ?? "")
+      ? `${chatAnswer.index + 1}번 보기 (${q.choices?.[chatAnswer.index] ?? ""})`
       : chatAnswer.type === "trace"
         ? (q.trace ?? []).map((r, i) => `${r.line}번째 줄 ${r.expr} = ${chatAnswer.values[i]?.trim() || "(빈칸)"}`).join(", ")
         : chatAnswer.text;
-  const tutorLambda = { codeItemId: q.codeItemId, answerText, chatId, setChatId };
+  const tutorChat = { answerText, chatId, setChatId };
   /** 이 문제의 힌트 수 (문제마다 1~4개) */
   const hintCount = q.hintCount;
 
@@ -220,7 +220,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
           </button>
         </div>
       )}
-      {!done && askOpen && <TutorChat questionId={q.id} solved={false} turns={chatTurns} setTurns={setChatTurns} answer={chatAnswer} lambda={tutorLambda} />}
+      {!done && askOpen && <TutorChat questionId={q.id} solved={false} turns={chatTurns} setTurns={setChatTurns} chat={tutorChat} />}
 
       <div ref={feedbackRef} className="scroll-mt-28">
         {result && (
@@ -234,7 +234,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
             onSimilar={onSimilar}
             similarLoading={similarLoading}
             onConcept={() => setShowConcept(true)}
-            chat={{ turns: chatTurns, setTurns: setChatTurns, answer: gaveUp ? null : chatAnswer, lambda: { ...tutorLambda, answerText: gaveUp ? "" : answerText } }}
+            chat={{ turns: chatTurns, setTurns: setChatTurns, tutor: { ...tutorChat, answerText: gaveUp ? "" : answerText } }}
           />
         )}
       </div>

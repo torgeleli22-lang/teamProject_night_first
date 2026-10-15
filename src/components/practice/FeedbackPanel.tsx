@@ -5,10 +5,9 @@ import { AIBadge } from "@/components/AIBadge";
 import { CodeSnippet } from "@/components/CodeBlock";
 import { Spinner, UnderstandingChip } from "@/components/ui";
 import { ApiError, apiPost } from "@/lib/api";
-import type { ShortAnswerFeedback } from "@/lib/ai/tutor";
-import type { Answer } from "@/lib/types";
-import type { AttemptResult, TutorNote } from "@/lib/server/grade";
-import type { PublicQuestion } from "@/lib/server/planner";
+import type { ShortAnswerFeedback } from "@/lib/api-types";
+import type { AttemptResult, TutorNote } from "@/lib/api-types";
+import type { PublicQuestion } from "@/lib/api-types";
 import { TutorChat, type Turn } from "./TutorChat";
 
 interface Props {
@@ -26,8 +25,7 @@ interface Props {
   chat: {
     turns: Turn[];
     setTurns: Dispatch<SetStateAction<Turn[]>>;
-    answer: Answer | null;
-    lambda: { codeItemId: string; answerText: string; chatId: string | null; setChatId: (id: string) => void };
+    tutor: { answerText: string; chatId: string | null; setChatId: (id: string) => void };
   };
 }
 
@@ -131,7 +129,7 @@ export function FeedbackPanel({ question, result, answerText, gaveUp, isLast, on
             </button>
           </div>
           {deepError && <p className="text-sm text-coral-600">{deepError}</p>}
-          {chatOpen && <TutorChat questionId={question.id} solved turns={chat.turns} setTurns={chat.setTurns} answer={chat.answer} lambda={chat.lambda} />}
+          {chatOpen && <TutorChat questionId={question.id} solved turns={chat.turns} setTurns={chat.setTurns} chat={chat.tutor} />}
         </div>
       </section>
 

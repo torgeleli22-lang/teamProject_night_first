@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useApi } from "@/lib/api";
-import type { MeView } from "@/api/views";
+import type { MeView } from "@/lib/api-types";
 import { MobileNav, NavLinks } from "./NavLinks";
 
 /** 상단 메뉴. 레벨·XP·연속 학습은 API(/me)에서 받아 온다 (요약 테이블만 읽음) */
@@ -12,10 +12,7 @@ export function AppHeader() {
     <>
       {me?.aiMode === "mock" && (
         <div className="relative z-40 bg-sun-100/80 px-4 py-1.5 text-center text-xs font-semibold text-sun-600 backdrop-blur">
-          🧪 목업 AI 모드 — AI 응답은 흉내 낸 결과예요.{" "}
-          <Link href="/demo" className="underline underline-offset-2">
-            데모 데이터 바꾸기
-          </Link>
+          🧪 목업 AI 모드 — AI 응답은 흉내 낸 결과예요.
         </div>
       )}
       <header className="sticky top-0 z-30 px-3 pt-3">

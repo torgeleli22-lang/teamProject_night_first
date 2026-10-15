@@ -6,7 +6,7 @@ import { ResetButton } from "@/components/ResetButton";
 import { SessionNotice } from "@/components/SessionNotice";
 import { TutorAnalysisCard } from "@/components/TutorAnalysisCard";
 import { LoadState, ProgressBar, SectionTitle, masteryTone } from "@/components/ui";
-import type { DashboardView } from "@/api/views";
+import type { DashboardView } from "@/lib/api-types";
 import { useApi } from "@/lib/api";
 import { QUESTION_TYPE_LABEL, conceptName, levelInfo } from "@/lib/curriculum";
 import { timeAgo } from "../review/ReviewClient";

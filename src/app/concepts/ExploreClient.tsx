@@ -7,8 +7,8 @@ import { DifficultyDots, ProgressBar, masteryTone } from "@/components/ui";
 import { CONCEPTS, LEVELS, QUESTION_TYPE_LABEL as TYPE_LABEL, STAGE_INFO, TRACK_LABEL, UNITS } from "@/lib/curriculum";
 import type { Level, Track } from "@/lib/types";
 
-export type { ExploreItem } from "@/api/views";
-import type { ExploreItem } from "@/api/views";
+export type { ExploreItem } from "@/lib/api-types";
+import type { ExploreItem } from "@/lib/api-types";
 
 
 export function ExploreClient({

@@ -1,7 +1,7 @@
 "use client";
 
 import { LoadState } from "@/components/ui";
-import type { ConceptsView } from "@/api/views";
+import type { ConceptsView } from "@/lib/api-types";
 import { useApi } from "@/lib/api";
 import { ExploreClient } from "./ExploreClient";
 

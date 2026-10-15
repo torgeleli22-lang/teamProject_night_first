@@ -1,0 +1,11 @@
+{
+  "path": "/attempts",
+  "method": "POST",
+  "questionId": "osi-routing",
+  "answer": {
+    "type": "multiple_choice",
+    "index": 0
+  },
+  "hintsUsed": 0,
+  "timeMs": 5000
+}

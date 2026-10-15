@@ -1,5 +1,6 @@
 {
-  "codeItemId": "set-cart",
+  "path": "/ask",
+  "method": "POST",
   "questionId": "cart-trace",
   "question": "total 이 왜 3000 이 되는지 모르겠어요",
   "solved": false,

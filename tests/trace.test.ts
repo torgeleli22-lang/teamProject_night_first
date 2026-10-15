@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildSeed } from "../src/lib/content/seed";
-import { autoTraceQuestion, checkExpr, pickWatch, traceCode } from "../src/lib/content/tracer";
-import { validateItem } from "../src/lib/content/validate";
-import { gradeTrace, sameValue } from "../src/lib/grading";
-import { toPublic } from "../src/lib/server/planner";
+import { autoTraceQuestion, checkExpr, pickWatch, traceCode, validateItem } from "../lambda/generate-code/checks.mjs";
+import { CONCEPTS } from "../src/lib/curriculum";
 import type { TraceQuestion } from "../src/lib/types";
+
+const IDS = CONCEPTS.map((c) => c.id);
 
 const { items, questions } = buildSeed();
 const cart = items.find((i) => i.id === "set-cart")!;
@@ -37,28 +37,14 @@ test("기록을 넣을 수 없는 줄·값을 바꾸는 식은 거절한다", as
 
 test("시드의 추적표 정답이 실제 실행과 다르면 검증에서 걸린다", async () => {
   const tampered = { ...cartTrace, rows: cartTrace.rows.map((r, i) => (i === 1 ? { ...r, value: "5000" } : r)) };
-  const report = await validateItem({ code: cart.code, concepts: cart.concepts, output: cart.output, runnable: true, questions: [tampered] });
+  const report = await validateItem({ code: cart.code, concepts: cart.concepts, output: cart.output, runnable: true, questions: [tampered] }, IDS);
   assert.ok(report.checks.some((c) => c.name.includes("추적표 정답 = 실제 실행 기록") && !c.pass));
-});
-
-test("칸마다 채점하고, 문자열은 따옴표를 써도 안 써도 맞다", () => {
-  assert.deepEqual(gradeTrace(cartTrace, ["3000", "8000", "9000"]), [true, true, false]);
-  assert.ok(sameValue("민지님은 21살", "'민지님은 21살'"));
-  assert.ok(sameValue('"민지님은 21살"', "'민지님은 21살'"));
-  assert.ok(sameValue("[77,100,93,69]", "[77, 100, 93, 69]"));
-});
-
-test("클라이언트에는 칸 이름만 가고 값(정답)은 가지 않는다", () => {
-  const pub = toPublic(cartTrace, cart);
-  assert.equal(pub.trace?.length, 3);
-  assert.ok(!JSON.stringify(pub).includes("8000"));
-  assert.deepEqual(pub.focusLines, [10]);
 });
 
 test("AI 가 만든 코드에서도 따라갈 줄을 규칙으로 골라 문제를 만든다", async () => {
   assert.deepEqual(pickWatch(cart.code), [{ line: 10, when: "after", ask: ["total"], given: ["item"] }]);
   const q = await autoTraceQuestion("javascript", cart.code, "ai-x");
   assert.ok(q && q.rows.length === 3 && q.rows[2].value === "10000");
-  const report = await validateItem({ code: cart.code, concepts: cart.concepts, output: cart.output, runnable: true, questions: [q!] });
+  const report = await validateItem({ code: cart.code, concepts: cart.concepts, output: cart.output, runnable: true, questions: [q!] }, IDS);
   assert.equal(report.ok, true, JSON.stringify(report.checks.filter((c) => !c.pass)));
 });

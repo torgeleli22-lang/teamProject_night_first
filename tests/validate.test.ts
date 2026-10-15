@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeFactors, estimateLevel } from "../src/lib/content/analyzer";
-import { runJs } from "../src/lib/content/runner";
-import { validateItem, type ItemDraft } from "../src/lib/content/validate";
+import { computeFactors, estimateLevel, runJs, validateItem } from "../lambda/generate-code/checks.mjs";
+import { CONCEPTS } from "../src/lib/curriculum";
+
+type ItemDraft = Parameters<typeof validateItem>[0];
+const IDS = CONCEPTS.map((c) => c.id);
 
 const hints: [string, string, string, string] = ["a", "b", "c", "d"];
 const base = { prompt: "?", skill: "predict" as const, hints, explanation: "e", keyPoint: "k" };
@@ -24,7 +26,7 @@ const good: ItemDraft = {
   ],
 };
 
-const failedNames = async (item: ItemDraft) => (await validateItem(item)).checks.filter((c) => !c.pass).map((c) => c.name);
+const failedNames = async (item: ItemDraft) => (await validateItem(item, IDS)).checks.filter((c) => !c.pass).map((c) => c.name);
 
 test("올바른 콘텐츠는 통과", async () => {
   assert.deepEqual(await failedNames(good), []);

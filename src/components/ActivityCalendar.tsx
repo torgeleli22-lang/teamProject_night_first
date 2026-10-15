@@ -1,4 +1,4 @@
-import type { DailyActivity } from "@/lib/server/session-repo";
+import type { DailyActivity } from "@/lib/api-types";
 
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 

@@ -3,21 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { CodeBlock } from "@/components/CodeBlock";
 import { SectionTitle, Spinner } from "@/components/ui";
-import { API_URL } from "@/lib/api";
+import { apiUrl } from "@/lib/api";
 import { CONCEPTS, LEVELS, UNITS, certSubject, conceptName, trackOf } from "@/lib/curriculum";
 import { explainCheck } from "@/lib/content/check-explain";
-import type { GenerateResult } from "@/lib/ai/generate";
-import type { POLICY as PolicyType, Trigger } from "@/lib/content/policy";
-import type { GeneratedItemRow } from "@/lib/server/content-repo";
+import type { GeneratedItemRow, Job, Policy, Trigger, UsageRow } from "@/lib/api-types";
 import type { Question } from "@/lib/types";
-import type { Job, UsageRow } from "@/lib/server/ops-repo";
 
 interface Overview {
   mode: "live" | "mock" | "off";
   autoGeneration: boolean;
   adminCode: { custom: boolean; recovery: boolean };
   models: { fast: string; smart: string };
-  policy: typeof PolicyType;
+  policy: Policy;
   triggerLabels: Record<Trigger, string>;
   generatable: Record<string, number[]>;
   coverage: Record<string, number>;
@@ -82,7 +79,7 @@ export default function AdminPage() {
   const headers = useCallback(() => ({ "Content-Type": "application/json", "x-admin-token": token }), [token]);
 
   const load = useCallback(async () => {
-    const res = await fetch(`${API_URL}/admin/overview`, { headers: headers() });
+    const res = await fetch(apiUrl(`/admin/overview`), { headers: headers() });
     if (!res.ok) {
       setError((await res.json().catch(() => ({}))).error ?? "불러오지 못했어요.");
       return;
@@ -106,34 +103,25 @@ export default function AdminPage() {
   async function generate() {
     setBusy("generate");
     setMessage(null);
-    // 생성은 끝날 때까지 기다리므로, 진행 중 표시(와 중지 버튼)가 바로 보이게 한 번 새로고침
-    setTimeout(load, 800);
     try {
-      const res = await fetch(`${API_URL}/admin/generate`, {
+      // 생성 Lambda(generate-code·generate-theory)는 뒤에서 실행된다. 진행 상황은 생성 작업 기록에서 (3초마다 새로고침)
+      const res = await fetch(apiUrl(`/admin/generate`), {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ concept, level, count, instructions: instructions.trim() || undefined }),
       });
-      const r = (await res.json()) as GenerateResult | { status: "started"; started: number } | { error: string };
+      const r = (await res.json()) as { status: "started"; started: number } | { error: string };
       if (!res.ok || !("status" in r)) {
         setMessage({ ok: false, text: `✕ ${"error" in r ? r.error : "만들지 못했어요."}` });
-      } else if (r.status === "started") {
-        setMessage({ ok: true, text: `${theory ? "문제 세트" : "코드"} ${r.started}개 만들기를 시작했어요. 아래 생성 작업 기록에서 진행 상황을 볼 수 있어요.` });
       } else {
         setMessage({
-          ok: r.status === "published" || r.status === "pending" || r.status === "cancelled",
-          text:
-            r.status === "published"
-              ? "✓ 검증을 통과해 공개되었어요."
-              : r.status === "pending"
-                ? "✓ 교차 검수를 통과해 승인 대기에 저장했어요. 아래 '승인 대기'에서 확인하고 승인해 주세요."
-              : r.status === "rejected"
-                ? "✕ 검증에 실패해 반려되었어요. 아래 보고서를 확인하세요."
-                : r.status === "cancelled"
-                  ? "생성을 중지했어요."
-                  : `✕ ${r.error}`,
+          ok: true,
+          text: theory
+            ? `문제 세트 ${r.started}개 만들기를 시작했어요. 교차 검수를 통과하면 아래 '승인 대기'에 나타나요.`
+            : `코드 ${r.started}개 만들기를 시작했어요. 아래 생성 작업 기록에서 진행 상황을 볼 수 있어요.`,
         });
       }
+      setTimeout(load, 1500);
       await load();
     } finally {
       setBusy(null);
@@ -144,7 +132,7 @@ export default function AdminPage() {
     setBusy("fill");
     setMessage(null);
     try {
-      const res = await fetch(`${API_URL}/admin/fill?limit=5`, { method: "POST", headers: headers() });
+      const res = await fetch(apiUrl(`/admin/fill?limit=5`), { method: "POST", headers: headers() });
       const r = await res.json();
       setMessage(res.ok ? { ok: true, text: `${r.started}개 칸 생성을 시작했어요. 아래 생성 작업에서 진행 상황을 볼 수 있어요.` } : { ok: false, text: r.error });
       await load();
@@ -159,7 +147,7 @@ export default function AdminPage() {
     setMessage(null);
     try {
       const enabled = !data.autoGeneration;
-      const res = await fetch(`${API_URL}/admin/auto`, { method: "POST", headers: headers(), body: JSON.stringify({ enabled }) });
+      const res = await fetch(apiUrl(`/admin/auto`), { method: "POST", headers: headers(), body: JSON.stringify({ enabled }) });
       setMessage(
         res.ok
           ? { ok: true, text: enabled ? "자동 생성을 켰어요. 문제가 부족한 칸은 AI가 알아서 만들어요." : "자동 생성을 껐어요. 이제 관리자가 직접 만들 때만 생성돼요." }
@@ -177,7 +165,7 @@ export default function AdminPage() {
     setBusy("stop");
     setMessage(null);
     try {
-      const res = await fetch(`${API_URL}/admin/stop`, { method: "POST", headers: headers(), body: JSON.stringify(jobId ? { jobId } : {}) });
+      const res = await fetch(apiUrl(`/admin/stop`), { method: "POST", headers: headers(), body: JSON.stringify(jobId ? { jobId } : {}) });
       const r = await res.json().catch(() => ({}));
       setMessage(res.ok ? { ok: true, text: r.stopped ? `생성 작업 ${r.stopped}개를 멈췄어요.` : "진행 중인 생성 작업이 없어요." } : { ok: false, text: r.error ?? "멈추지 못했어요." });
       await load();
@@ -559,23 +547,19 @@ export default function AdminPage() {
                       onRepair={async (instructions) => {
                         setBusy("generate");
                         setMessage(null);
-                        setTimeout(load, 800);
                         try {
-                          const res = await fetch(`${API_URL}/admin/repair`, {
+                          const res = await fetch(apiUrl(`/admin/repair`), {
                             method: "POST",
                             headers: headers(),
                             body: JSON.stringify({ itemId: g.id, instructions: instructions || undefined }),
                           });
-                          const r = (await res.json()) as GenerateResult | { error: string };
+                          const r = (await res.json()) as { status: "started" } | { error: string };
                           setMessage(
                             !res.ok || !("status" in r)
                               ? { ok: false, text: `✕ ${"error" in r ? r.error : "고치지 못했어요."}` }
-                              : r.status === "published"
-                                ? { ok: true, text: "✓ 고친 결과가 검증을 통과해 새 콘텐츠로 공개되었어요. (목록 맨 위)" }
-                                : r.status === "rejected"
-                                  ? { ok: false, text: "✕ 고친 결과도 검증을 통과하지 못했어요. 목록 맨 위의 새 보고서에서 이유를 확인하세요." }
-                                  : { ok: r.status === "cancelled", text: r.status === "cancelled" ? "생성을 중지했어요." : `✕ ${r.error}` },
+                              : { ok: true, text: "고쳐서 다시 만들기를 시작했어요. 끝나면 새 콘텐츠가 목록 맨 위에 나타나요." },
                           );
+                          setTimeout(load, 1500);
                           await load();
                         } finally {
                           setBusy(null);
@@ -659,7 +643,7 @@ function DataMoveCard({ headers, onImported }: { headers: () => Record<string, s
     setWorking("export");
     setResult(null);
     try {
-      const res = await fetch(`${API_URL}/admin/export`, { headers: headers() });
+      const res = await fetch(apiUrl(`/admin/export`), { headers: headers() });
       const data = await res.json();
       if (!res.ok) return setResult({ ok: false, text: data.error ?? "내보내지 못했어요." });
       const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
@@ -684,7 +668,7 @@ function DataMoveCard({ headers, onImported }: { headers: () => Record<string, s
       } catch {
         return setResult({ ok: false, text: "JSON 파일이 아니에요. 내보내기로 받은 파일을 골라 주세요." });
       }
-      const res = await fetch(`${API_URL}/admin/import`, { method: "POST", headers: headers(), body: JSON.stringify({ ...(data as object), includeUsage }) });
+      const res = await fetch(apiUrl(`/admin/import`), { method: "POST", headers: headers(), body: JSON.stringify({ ...(data as object), includeUsage }) });
       const r = await res.json().catch(() => ({}));
       if (!res.ok) return setResult({ ok: false, text: r.error ?? "가져오지 못했어요." });
       setResult({
@@ -763,7 +747,7 @@ function AdminCodeCard({
     setSaving(true);
     setResult(null);
     try {
-      const res = await fetch(`${API_URL}/admin/code`, { method: "POST", headers: headers(), body: JSON.stringify({ code }) });
+      const res = await fetch(apiUrl(`/admin/code`), { method: "POST", headers: headers(), body: JSON.stringify({ code }) });
       if (res.ok) {
         onChanged(code);
         setCode("");
@@ -909,7 +893,7 @@ function RejectedHelp({
 }
 
 /** 검증 결과: 실패·참고 항목만 펼쳐 보여주고, 통과한 항목은 개수로 요약 */
-function ValidationList({ checks }: { checks: { name: string; pass: boolean; detail?: string }[] }) {
+function ValidationList({ checks }: { checks: { name: string; pass: boolean; detail?: string | null }[] }) {
   const notable = checks.filter((c) => !c.pass || c.name.includes("재생성") || c.name.startsWith("AI 검수"));
   const passed = checks.filter((c) => c.pass).length;
   return (
@@ -956,7 +940,7 @@ function PendingReview({ items, headers, onDone }: { items: GeneratedItemRow[]; 
     setOpen(id);
     setQuestions(null);
     setRemoved(new Set());
-    const res = await fetch(`${API_URL}/admin/item?id=${encodeURIComponent(id)}`, { headers: headers() });
+    const res = await fetch(apiUrl(`/admin/item?id=${encodeURIComponent(id)}`), { headers: headers() });
     const r = await res.json().catch(() => ({}));
     setQuestions(res.ok ? (r.questions as Question[]) : []);
   }
@@ -965,7 +949,7 @@ function PendingReview({ items, headers, onDone }: { items: GeneratedItemRow[]; 
     setWorking(true);
     setResult(null);
     try {
-      const res = await fetch(`${API_URL}/admin/review`, {
+      const res = await fetch(apiUrl(`/admin/review`), {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ itemId: id, decision, removeQuestionIds: decision === "approve" ? [...removed] : [] }),

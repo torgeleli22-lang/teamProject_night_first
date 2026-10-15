@@ -1,6 +1,6 @@
 import { getConcept } from "../../curriculum";
 import type { CodeItem, Level, Question } from "../../types";
-import { computeFactors, estimateLevel } from "../analyzer";
+import { computeFactors, estimateLevel } from "../../../../lambda/generate-code/checks.mjs";
 import { CODE_LESSONS } from "./code-lessons";
 import { THEORY_SETS } from "./theory";
 import type { SeedSet } from "./types";

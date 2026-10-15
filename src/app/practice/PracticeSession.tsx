@@ -7,7 +7,7 @@ import { QuestionView, type QuestionOutcome } from "@/components/practice/Questi
 import { ProgressBar, Spinner } from "@/components/ui";
 import { apiPost } from "@/lib/api";
 import { conceptName, levelInfo } from "@/lib/curriculum";
-import type { PublicQuestion, SessionPlan } from "@/lib/server/planner";
+import type { PublicQuestion, SessionPlan } from "@/lib/api-types";
 import type { Level, Track } from "@/lib/types";
 
 type Plan = SessionPlan & { generating: boolean };

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { LoadState, SectionTitle } from "@/components/ui";
-import type { RankingView } from "@/api/views";
+import type { RankingView } from "@/lib/api-types";
 import { useApi } from "@/lib/api";
 import { NicknameEditor } from "./NicknameEditor";
 
