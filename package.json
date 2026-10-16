@@ -10,8 +10,7 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts && npm run test:lambda",
     "test:lambda": "node scripts/run-python.mjs -m unittest discover -s lambda/tests -q",
-    "verify": "tsx scripts/verify-content.ts",
-    "export:content": "tsx scripts/export-content.ts",
+    "verify": "node scripts/run-python.mjs scripts/verify_samples.py",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {

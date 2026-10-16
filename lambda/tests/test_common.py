@@ -1,32 +1,8 @@
-"""common.py: 보기 섞기·숫자 변환·AI 응답 형식 검사·통계 공식"""
+"""common.py: 숫자 변환·AI 응답 형식 검사·비용·읽을 코드 정리"""
 import unittest
 from decimal import Decimal
 
 from helpers import common
-
-
-def attempt(**kw):
-    base = {"questionId": "q", "concepts": ["map"], "level": 2, "correct": True, "partial": False, "hintsUsed": 0,
-            "timeMs": 1000, "misconception": None, "createdAt": 0, "questionType": "multiple_choice", "gradedBy": "rule"}
-    return {**base, **kw}
-
-
-class SeededPermutation(unittest.TestCase):
-    def test_same_as_previous_node_server(self):
-        # 예전 Node 서버(seededPermutation)가 만든 순서와 같아야 저장된 오답 노트·튜터의 보기 번호가 그대로 맞는다
-        self.assertEqual(common.seeded_permutation(4, "cart-overview:choices"), [1, 3, 0, 2])
-        self.assertEqual(common.seeded_permutation(4, "osi-routing:choices"), [3, 2, 0, 1])
-        self.assertEqual(common.seeded_permutation(5, "x"), [0, 2, 4, 1, 3])
-        self.assertEqual(common.seeded_permutation(3, "한글:choices"), [1, 0, 2])
-        self.assertEqual(common.seeded_permutation(2, "a"), [1, 0])
-
-    def test_unshuffle_round_trip(self):
-        q = {"id": "t", "type": "multiple_choice", "choices": [{"text": c} for c in "abcd"], "answerIndex": 2}
-        shown = common.displayed_choices(q)
-        picked = shown.index("c")
-        self.assertEqual(common.unshuffle_answer(q, {"type": "multiple_choice", "index": picked})["index"], 2)
-        self.assertEqual(common.display_choice_index(q, 2), picked)
-        self.assertEqual(common.unshuffle_answer(q, {"type": "multiple_choice", "index": 9})["index"], -1)
 
 
 class DynamoNumbers(unittest.TestCase):
@@ -69,36 +45,25 @@ class Cost(unittest.TestCase):
         self.assertAlmostEqual(cost, 1.5)
 
 
-class Stats(unittest.TestCase):
-    def test_xp_and_quality(self):
-        self.assertEqual(common.xp_for_attempt(attempt(level=3)), 19)
-        self.assertEqual(common.xp_for_attempt(attempt(hintsUsed=2, level=1)), 10)
-        self.assertEqual(common.xp_for_attempt(attempt(correct=False, partial=True)), 6)
-        self.assertEqual(common.xp_for_attempt(attempt(correct=False)), 2)
-        self.assertEqual(common.attempt_quality(attempt(hintsUsed=4)), 0.4)
+class Readings(unittest.TestCase):
+    CODE = "\n".join(f"line{i}" for i in range(1, 21))
 
-    def test_mastery_needs_three_attempts(self):
-        stats = common.concept_stats([attempt(), attempt()])
-        self.assertEqual(stats["map"]["mastery"], 67)
-        stats = common.concept_stats([attempt(), attempt(), attempt(correct=False)])
-        self.assertEqual(stats["map"]["mastery"], 67)
-        self.assertEqual(stats["map"]["recentWrong"], 1)
+    def test_clean_marks_sorts_clamps_and_drops_overlaps(self):
+        marks = common.clean_marks(self.CODE, [{"start": 10, "end": 30, "why": "b"}, {"start": 2, "end": 4, "why": "a"},
+                                               {"start": 3, "end": 6, "why": "겹침"}, {"start": 0, "end": 1}])
+        self.assertEqual([(m["id"], m["start"], m["end"]) for m in marks], [("m1", 1, 1), ("m2", 2, 4), ("m3", 10, 20)])
 
-    def test_levels_and_days(self):
-        self.assertEqual(common.learner_level(0)["level"], 1)
-        self.assertEqual(common.learner_level(100), {"level": 2, "current": 0, "needed": 200})
-        self.assertEqual(common.day_key(1_700_000_000_000), "2023-11-15")   # 한국 시간 기준
+    def test_public_reading_hides_model_explanation(self):
+        item = {"id": "x", "source": "practice", "language": "python", "level": 2, "code": self.CODE, "regenCount": 2,
+                "marks": [{"id": "m1", "start": 1, "end": 2, "why": "w", "explanation": "모범 설명", "keywords": ["k"]}]}
+        pub = common.public_reading(item)
+        self.assertEqual(pub["marks"], [{"id": "m1", "start": 1, "end": 2}])
+        self.assertNotIn("모범 설명", str(pub))
+        self.assertEqual(pub["regenLeft"], common.REGEN_LIMIT - 2)
+        self.assertEqual(pub["levelName"], "초급")
 
-    def test_suggest_level(self):
-        self.assertEqual(common.suggest_level([attempt(level=2)] * 8, 2)["direction"], "up")
-        self.assertEqual(common.suggest_level([attempt(level=2, correct=False)] * 8, 2)["direction"], "down")
-        self.assertEqual(common.suggest_level([attempt(level=2)] * 3, 2)["direction"], "stay")
-
-    def test_wrong_questions(self):
-        rows = common.wrong_questions([attempt(questionId="a", correct=False, createdAt=1), attempt(questionId="a", createdAt=2),
-                                       attempt(questionId="b", correct=False, createdAt=3, misconception="헷갈림")])
-        self.assertEqual([r["questionId"] for r in rows], ["b"])
-        self.assertEqual(rows[0]["misconception"], "헷갈림")
+    def test_day_key_is_korea_time(self):
+        self.assertEqual(common.day_key(1_700_000_000_000), "2023-11-15")
 
 
 if __name__ == "__main__":
