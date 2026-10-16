@@ -1,12 +1,12 @@
-"""각 Lambda 의 규칙 부분: 채점(submit-answer), 문제 내기(questions), 관리자 코드(admin), 튜터 질문(tutor-chat)"""
+"""jojo_api 기능 파일의 규칙 부분: 채점(submit_answer), 문제 내기(questions), 관리자 코드(admin), 튜터 질문(tutor_chat)"""
 import unittest
 
 from helpers import SEED_ITEMS, SEED_QUESTIONS, common, load_lambda, seed_content
 
-answers = load_lambda("submit-answer")
+answers = load_lambda("submit_answer")
 questions = load_lambda("questions")
 admin = load_lambda("admin")
-tutor = load_lambda("tutor-chat")
+tutor = load_lambda("tutor_chat")
 
 PRIVATE = {"answerIndex", "explanation", "keyPoint", "hints", "rows", "output", "accepted", "modelAnswer", "rubric", "misconceptions", "blankedCode", "watch"}
 
@@ -115,6 +115,15 @@ class TutorPrompt(unittest.TestCase):
         self.assertIn("1) " + common.displayed_choices(q)[0], prompt)
         later = tutor.build_prompt(q, SEED_ITEMS[q["codeItemId"]], True, "", "그럼요?", first=False)
         self.assertNotIn("<problem>", later)
+
+
+class Entry(unittest.TestCase):
+    def test_every_path_has_a_feature(self):
+        entry = load_lambda("lambda_function")
+        for path in ["POST /session", "POST /hint", "GET /concepts", "POST /attempts", "POST /explain", "POST /ask", "GET /me", "POST /me",
+                     "GET /learn", "GET /review", "GET /dashboard", "GET /ranking", "GET /health", "GET /admin/overview", "POST /admin/review"]:
+            self.assertIn(path, entry.ROUTES, path)
+        self.assertEqual(set(entry.TASKS), {"learner-analysis", "generate-theory", "load-content"})
 
 
 if __name__ == "__main__":

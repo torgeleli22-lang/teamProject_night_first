@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { startLocalApi } from "./local-api.mjs";
 
 const api = await startLocalApi({ port: 18000 + Math.floor(Math.random() * 1000), quiet: !process.env.SMOKE_LOG, env: { AI_MODE: "mock", MOCK_DELAY_SEC: "0", CONTENT_CHECK_SEC: "0" } });
-const content = JSON.parse(fs.readFileSync("lambda/load-content/content.json", "utf8"));
+const content = JSON.parse(fs.readFileSync("lambda/api/content.json", "utf8"));
 const seedQuestions = content.seed.flatMap((s) => s.questions);
 
 let sid = null;
@@ -39,7 +39,7 @@ function answerFor(q) {
 }
 
 try {
-  // ── 학습자·학습 화면 (my-page)
+  // ── 학습자·학습 화면 (my_page.py)
   const health = await call("GET", "/health");
   check(health.db === "dynamodb" && health.ai === "mock", "연결 확인");
   const me = await call("GET", "/me");
@@ -77,7 +77,7 @@ try {
   await call("POST", "/hint", { questionId: plan.questions[0].id, level: 4 }, {}, 400);
   check(true, "없는 힌트 단계는 400");
 
-  // ── 채점 (submit-answer)
+  // ── 채점 (submit_answer.py)
   const tq = theory.questions[0];
   const original = seedQuestions.find((x) => x.id === tq.id);
   const rightText = original.choices[original.answerIndex].text;
@@ -111,12 +111,12 @@ try {
   const concepts = await call("GET", "/concepts");
   check(concepts.items.length >= 20 && concepts.items.every((i) => i.questions.every((q) => !("answerIndex" in q))), `탐색 콘텐츠 ${concepts.items.length}개`);
 
-  // ── 학습자 분석: 새로 푼 문제가 10개 쌓이면 learner-analysis Lambda 가 뒤에서 실행
+  // ── 학습자 분석: 새로 푼 문제가 10개 쌓이면 학습자 분석이 뒤에서 실행
   await settle();
   const dash2 = await call("GET", "/dashboard");
   check(dash2.attemptCount >= 10 && dash2.analysis?.result?.summary, `학습자 분석 저장 (${dash2.analysis?.source}, ${dash2.attemptCount}문제)`);
 
-  // ── 튜터 대화 (tutor-chat)
+  // ── 튜터 대화 (tutor_chat.py)
   const ask1 = await call("POST", "/ask", { questionId: plan.questions[0].id, question: "어디부터 읽어야 할지 모르겠어요", solved: false });
   check(ask1.answer && ask1.chatId && ask1.source === "ai", "AI 튜터 질문(목업)");
   const ask2 = await call("POST", "/ask", { chatId: ask1.chatId, questionId: plan.questions[0].id, question: "다른 예시도 있어요?", solved: true, answerText: "1번" });

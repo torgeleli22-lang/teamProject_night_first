@@ -1,13 +1,11 @@
 """
-내 컴퓨터에서 Lambda 들을 한 번에 실행하는 개발용 서버 (npm run api 가 실행한다. AWS 에는 올리지 않음).
+내 컴퓨터에서 Lambda 를 실행하는 개발용 서버 (npm run api 가 실행한다. AWS 에는 올리지 않음).
 
-- 화면이 부르는 경로(/session, /attempts, /me ...)를 실제 Lambda 와 같은 이벤트(함수 URL 형식)로 바꿔
-  lambda/<기능>/lambda_function.py 의 lambda_handler 를 부른다.
-- Lambda 가 다른 Lambda 를 '기다리지 않고' 부르는 요청(boto3 lambda.invoke)도 받아서 뒤에서 실행한다
-  (generate-code 는 Node.js 라서 node 로 실행).
+- 화면의 요청을 실제 Lambda 와 같은 이벤트(함수 URL 형식)로 바꿔 lambda/api/lambda_function.py 의 lambda_handler 를 부른다.
+- Lambda 가 '기다리지 않고' 부르는 요청(boto3 lambda.invoke)도 받아서 뒤에서 실행한다
+  (jojo_api 자기 자신 → 같은 lambda_handler, jojo_generate_code → node 로 lambda/generate-code/index.mjs).
 - DynamoDB 는 npm run api 가 띄운 로컬 흉내 서버(dynalite)를 쓴다 (DYNAMODB_ENDPOINT).
 """
-import importlib.util
 import json
 import os
 import subprocess
@@ -18,60 +16,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LAMBDA_DIR = os.path.join(ROOT, "lambda")
-sys.path.insert(0, os.path.join(LAMBDA_DIR, "common"))
+API_DIR = os.path.join(ROOT, "lambda", "api")
+sys.path.insert(0, API_DIR)
 
-# 경로 → 그 경로를 처리하는 Lambda 폴더 (src/lib/api.ts 의 ROUTES 와 같게)
-ROUTES = {
-    "/session": "questions", "/hint": "questions", "/concepts": "questions",
-    "/attempts": "submit-answer", "/explain": "submit-answer",
-    "/ask": "tutor-chat",
-    "/health": "my-page", "/me": "my-page", "/learn": "my-page", "/review": "my-page", "/dashboard": "my-page", "/ranking": "my-page",
-}
+import lambda_function  # noqa: E402  (lambda/api 의 진입 파일)
+from common import GENERATE_CODE_FUNCTION  # noqa: E402
 
-_modules = {}
-_lock = threading.Lock()
+SELF = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "jojo_api")
+pending = {"n": 0}   # 뒤에서 실행 중인 일 수 (스모크 테스트가 끝날 때까지 기다릴 수 있게)
 
 
-def load(folder):
-    """lambda/<folder>/lambda_function.py 를 불러온다 (폴더마다 이름이 같아서 따로 등록)"""
-    with _lock:
-        if folder not in _modules:
-            path = os.path.join(LAMBDA_DIR, folder, "lambda_function.py")
-            spec = importlib.util.spec_from_file_location(f"lambda_{folder.replace('-', '_')}", path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            _modules[folder] = module
-        return _modules[folder]
-
-
-def function_folder(name):
-    """Lambda 함수 이름(common.FUNCTIONS 의 값) → 폴더"""
-    import common
-    for folder, fn in common.FUNCTIONS.items():
-        if fn == name:
-            return folder
-    return None
-
-
-# 뒤에서 실행 중인 작업 수 (스모크 테스트가 끝날 때까지 기다릴 수 있게)
-pending = {"n": 0}
-
-
-def run_background(folder, payload):
+def run_background(name, payload):
     pending["n"] += 1
     try:
-        if folder == "generate-code":
+        if name == GENERATE_CODE_FUNCTION:
             script = "import(process.argv[1]).then((m) => m.handler(JSON.parse(process.argv[2]))).then((r) => console.log(JSON.stringify(r)))"
-            entry = "file://" + os.path.join(LAMBDA_DIR, "generate-code", "index.mjs")
+            entry = "file://" + os.path.join(ROOT, "lambda", "generate-code", "index.mjs")
             done = subprocess.run(["node", "-e", script, entry, json.dumps(payload)], capture_output=True, text=True)
-            if done.returncode != 0:
-                print(f"[{folder}] 실패:\n{done.stderr}", flush=True)
-            else:
-                print(f"[{folder}] {done.stdout.strip()[:300]}", flush=True)
+            print(f"[generate-code] {done.stdout.strip()[:300] if done.returncode == 0 else '실패:' + chr(10) + done.stderr}", flush=True)
         else:
-            result = load(folder).lambda_handler(payload, None)
-            print(f"[{folder}] {json.dumps(result, ensure_ascii=False)[:300]}", flush=True)
+            result = lambda_function.lambda_handler(payload, None)
+            print(f"[{payload.get('task')}] {json.dumps(result, ensure_ascii=False)[:300]}", flush=True)
     except Exception:
         traceback.print_exc()
     finally:
@@ -90,38 +55,32 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length") or 0)
         raw = self.rfile.read(length).decode("utf-8") if length else ""
 
-        # 1. Lambda 가 다른 Lambda 를 부르는 요청 (boto3 → LAMBDA_ENDPOINT)
+        # 1. Lambda 가 다른 Lambda(또는 자기 자신)를 부르는 요청 (boto3 → LAMBDA_ENDPOINT)
         if url.path.startswith("/2015-03-31/functions/"):
             name = url.path.split("/")[3]
-            folder = function_folder(name)
-            if not folder:
+            if name not in (SELF, GENERATE_CODE_FUNCTION):
                 return self.send(404, {"error": f"없는 함수: {name}"})
-            threading.Thread(target=run_background, args=(folder, json.loads(raw or "{}")), daemon=True).start()
+            threading.Thread(target=run_background, args=(name, json.loads(raw or "{}")), daemon=True).start()
             return self.send(202, None)
 
-        # 2. 개발용: 뒤에서 실행 중인 작업 수
+        # 2. 개발용: 뒤에서 실행 중인 일 수
         if url.path == "/__local/pending":
             return self.send(200, {"pending": pending["n"]})
 
-        # 3. 화면의 요청 → 경로에 맞는 Lambda
-        path = url.path.rstrip("/") or "/"
-        folder = "admin" if path.startswith("/admin") else ROUTES.get(path)
-        if not folder:
-            return self.send(404, {"error": "없는 API 예요."})
+        # 3. 화면의 요청 → 함수 URL 과 같은 모양의 이벤트
         event = {
-            "rawPath": path,
+            "rawPath": url.path,
             "rawQueryString": url.query,
             "headers": {k.lower(): v for k, v in self.headers.items()},
             "body": raw,
             "isBase64Encoded": False,
             "requestContext": {"http": {"method": method, "sourceIp": self.client_address[0]}},
         }
-        res = load(folder).lambda_handler(event, None)
-        body = res.get("body") or ""
+        res = lambda_function.lambda_handler(event, None)
+        data = (res.get("body") or "").encode("utf-8")
         self.send_response(res["statusCode"])
         for k, v in (res.get("headers") or {}).items():
             self.send_header(k, v)
-        data = body.encode("utf-8")
         self.send_header("content-length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -146,8 +105,8 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8787"))
-    # 문제 데이터 넣기 (load-content Lambda 를 한 번 실행)
-    print("[load-content]", load("load-content").lambda_handler({}, None), flush=True)
+    # 기본 문제 넣기 (콘솔의 {"task": "load-content"} 테스트와 같음)
+    print("[load-content]", lambda_function.lambda_handler({"task": "load-content"}, None), flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"Lambda 개발 서버: http://localhost:{port} (AI_MODE={os.environ.get('AI_MODE', 'live')})", flush=True)
     server.serve_forever()

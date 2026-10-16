@@ -289,7 +289,7 @@ export function sameOutput(a, b) {
 
 const squashLower = (s) => s.toLowerCase().replace(/\s+/g, "");
 
-/** 주관식 규칙 평가 (채점 기준 표현이 들어 있는지, 오개념 표현이 있는지) — submit-answer Lambda 와 같은 규칙 */
+/** 주관식 규칙 평가 (채점 기준 표현이 들어 있는지, 오개념 표현이 있는지) — lambda/api/submit_answer.py 와 같은 규칙 */
 export function evaluateShortAnswer(q, text) {
   const length = squashLower(text).length;
   const mentions = (k) => squashLower(text).includes(squashLower(k));

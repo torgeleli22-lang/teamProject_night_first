@@ -33,20 +33,11 @@ test("화면은 시드 문제(정답 포함)를 가져오지 않는다", () => {
   assert.deepEqual(offenders, []);
 });
 
-test("Lambda 경로 표가 화면(api.ts)과 로컬 서버(local_lambdas.py)에서 같다", () => {
-  const ts = fs.readFileSync("src/lib/api.ts", "utf8");
-  const py = fs.readFileSync("scripts/local_lambdas.py", "utf8");
-  const names: Record<string, string> = { questions: "questions", submitAnswer: "submit-answer", tutorChat: "tutor-chat", admin: "admin" };
-  for (const [, prefix, lambda] of ts.matchAll(/\["(\/[a-z]+)", "([a-zA-Z]+)"\]/g)) {
-    if (prefix === "/admin") continue;
-    assert.match(py, new RegExp(`"${prefix}": "${names[lambda]}"`), `${prefix} → ${names[lambda]}`);
-  }
-});
-
-test("모든 Python Lambda 가 같은 common.py 를 쓴다 (폴더에 따로 복사하지 않음)", () => {
-  const folders = fs.readdirSync("lambda", { withFileTypes: true }).filter((e) => e.isDirectory() && fs.existsSync(path.join("lambda", e.name, "lambda_function.py")));
-  assert.ok(folders.length >= 8);
-  for (const f of folders) assert.equal(fs.existsSync(path.join("lambda", f.name, "common.py")), false, `lambda/${f.name}/common.py`);
+test("Lambda 는 함수 두 개: Python(lambda/api) 하나 + 코드 문제 생성 Node.js(lambda/generate-code)", () => {
+  const folders = fs.readdirSync("lambda", { withFileTypes: true }).filter((e) => e.isDirectory() && e.name !== "tests").map((e) => e.name);
+  assert.deepEqual(folders.sort(), ["api", "generate-code"]);
+  assert.ok(fs.existsSync("lambda/api/lambda_function.py") && fs.existsSync("lambda/api/common.py"));
+  assert.ok(fs.existsSync("lambda/generate-code/index.mjs"));
 });
 
 test("Next.js 서버 기능(API 라우트·미들웨어)을 쓰지 않는다 (정적 내보내기)", () => {

@@ -5,23 +5,23 @@ import os
 from common import (batch_delete, batch_put, bump_content_version, get_item, now_ms, put_item, query_all, update_item)
 
 # ─────────────────────────────────────────────────────────────
-# 문제 데이터 넣기 Lambda (load-content)
+# 문제 데이터 넣기 (load_content.py) — jojo_api 가 하는 일
 #   같은 폴더의 content.json(커리큘럼 + 시드 문제)을 DynamoDB 에 넣는다.
-#   처음 배포할 때, 그리고 content.json 을 새로 받았을 때 콘솔에서 '테스트' 버튼으로 한 번 실행하면 된다.
+#   처음 배포할 때, 그리고 content.json 을 새로 받았을 때 콘솔 '테스트' 버튼으로 한 번 실행하면 된다.
 #
 #   넣는 항목:
-#     META / curriculum      단원·개념·난이도·자격증 (다른 Lambda 가 읽음)
+#     META / curriculum      단원·개념·난이도·자격증 (generate-code 함수가 읽음)
 #     CONTENT / <코드 id>     시드 코드와 문제 (source = seed). AI 가 만든 콘텐츠(source = ai)는 건드리지 않는다
 #     META / seed_hash       넣은 내용의 지문 (같으면 다시 넣지 않음)
 #
-#   콘솔 테스트 이벤트: {}  (내용이 같아도 다시 넣으려면 {"force": true})
+#   콘솔 테스트 이벤트: {"task": "load-content"}  (내용이 같아도 다시 넣으려면 {"task": "load-content", "force": true})
 # ─────────────────────────────────────────────────────────────
 
 CONTENT_FILE = os.path.join(os.path.dirname(__file__), "content.json")
 CONTENT_MODEL = "2"   # 학습 구조 번호 ("개념 / 코드" 두 갈래). 구조가 바뀔 때만 올린다
 
 
-def lambda_handler(event, context):
+def run(event):
     force = bool((event or {}).get("force"))
 
     # 1. content.json 읽기
@@ -58,7 +58,7 @@ def lambda_handler(event, context):
         "createdAt": now,
     } for s in seed])
 
-    # 7. 지문 저장 + 다른 Lambda 들이 새 내용을 읽도록 버전 올리기
+    # 7. 지문 저장 + 문제 목록을 다시 읽도록 버전 올리기
     put_item({"pk": "META", "sk": "seed_hash", "value": fingerprint})
     bump_content_version()
     return {"ok": True, "changed": True, "reset": reset, "items": len(seed), "removed": len(stale),

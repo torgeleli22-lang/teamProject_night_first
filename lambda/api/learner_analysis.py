@@ -1,18 +1,18 @@
 import json
 
 from common import (POLICY, TTL_ATTR, AiUnavailable, ask_ai, coverage, concept_name, concept_stats, curriculum, generatable_levels,
-                    get_question, invoke_async, jobs_since, latest_analysis, list_attempts, load_content, misconception_counts,
-                    now_ms, pad, put_item, query_all, record_ttl, strong_concepts, suggest_level, time_id, weak_concepts)
+                    get_question, invoke_async, jobs_since, learner_records, load_content, misconception_counts,
+                    now_ms, pad, put_item, record_ttl, strong_concepts, suggest_level, time_id, weak_concepts)
 
 # ─────────────────────────────────────────────────────────────
-# 학습자 분석 Lambda (learner-analysis)
-#   submit-answer Lambda 가 새로 푼 문제가 10개 쌓일 때마다 부른다 (학습자는 기다리지 않음).
+# 학습자 분석 (learner_analysis.py) — jojo_api 가 뒤에서 하는 일
+#   답 제출(submit_answer.py)에서 새로 푼 문제가 10개 쌓이면, jojo_api 가 자기 자신을 다시 불러 뒤에서 실행한다 (학습자는 기다리지 않음).
 #   학습 기록 통계를 AI(Bedrock)에게 보여 주고 '무엇을 헷갈리는지' 분석을 받아 저장한다.
 #   AI 를 쓸 수 없으면 규칙으로 만든 요약을 저장한다.
 #
-#   받는 값 (이벤트): {"sessionId": "...", "level": 2}
+#   받는 값 (이벤트): {"task": "learner-analysis", "sessionId": "...", "level": 2}
 #   저장: S#<세션 id> / N#<번호>  (학습 탭·내 학습 화면이 가장 최근 것을 보여 줌)
-#   혼동이 보이고 복습할 문제가 부족하면 generate-code Lambda 를 불러 맞춤 복습 문제를 만든다
+#   혼동이 보이고 복습할 문제가 부족하면 generate-code Lambda(Node.js)를 불러 맞춤 복습 문제를 만든다
 # ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """당신은 개발을 처음 배우는 사람의 학습 기록을 보고 이해 상태를 분석하는 친절한 튜터입니다.
@@ -41,20 +41,21 @@ def analysis_schema():
     }
 
 
-def lambda_handler(event, context):
+def run(event):
     session_id = event["sessionId"]
     level = event.get("level")
 
     # 1. 학습 기록 읽기
-    attempts = list_attempts(session_id)
+    records = learner_records(session_id)
+    attempts = records["attempts"]
     if not attempts:
         return {"ok": False, "reason": "기록 없음"}
     stats = concept_stats(attempts)
     mistakes = misconception_counts(attempts)[:6]
-    previous = latest_analysis(session_id)
+    previous = records["analysis"]
 
     # 2. AI 에게 보여 줄 통계 만들기 (개념별 정답률·이해도·시간, 유형별, 반복 오답, 최근 주관식 답)
-    data = build_data(session_id, attempts, stats, mistakes, level, previous)
+    data = build_data(attempts, stats, mistakes, level, previous)
 
     # 3. AI 분석 (안 되면 규칙 요약)
     try:
@@ -88,8 +89,8 @@ def lambda_handler(event, context):
 # ───────────────────────── 도움 함수 ─────────────────────────
 
 
-def build_data(session_id, attempts, stats, mistakes, level, previous):
-    short = [r for r in query_all(f"S#{session_id}", prefix="A#", descending=True) if r.get("questionType") == "short_answer"][:5]
+def build_data(attempts, stats, mistakes, level, previous):
+    short = [a for a in reversed(attempts) if a["questionType"] == "short_answer"][:5]
     short_answers = []
     for r in short:
         q, _ = get_question(r["questionId"])

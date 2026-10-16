@@ -4,7 +4,7 @@
  *   읽기 단계(훑어보기·핵심 줄·정리)가 모두 있는지
  * - 개념 학습: 객관식 보기 4개·정답 번호·중복 보기, 자격증 과목 태그가 올바른지, 주제마다 문제가 있는지
  *
- * - lambda/load-content/content.json 이 지금 시드·커리큘럼과 같은지 (npm run export:content 를 잊지 않도록)
+ * - lambda/api/content.json 이 지금 시드·커리큘럼과 같은지 (npm run export:content 를 잊지 않도록)
  *
  * 실행: npm run verify
  */
@@ -59,11 +59,11 @@ async function main() {
   conceptsOf("theory").forEach((c) => covered.has(c.id) || failures.push(`[주제 ${c.id}] 문제가 없습니다`));
   const emptyCode = conceptsOf("code").filter((c) => !covered.has(c.id));
 
-  // load-content Lambda 가 넣는 파일이 최신인지
+  // lambda/api/content.json 이 최신인지
   try {
     execFileSync(process.execPath, ["--import", "tsx", "scripts/export-content.ts", "--check"], { stdio: "pipe" });
   } catch {
-    failures.push("lambda/load-content/content.json 이 최신이 아니에요. npm run export:content 를 실행해 주세요.");
+    failures.push("lambda/api/content.json 이 최신이 아니에요. npm run export:content 를 실행해 주세요.");
   }
 
   if (failures.length) {

@@ -1,12 +1,12 @@
 import re
 
 from common import (AI_LIMIT_MESSAGE, ANALYSIS_EVERY, TTL_ATTR, ApiError, AiUnavailable, ai_allowed, ai_enabled, ask_ai, attempt_quality, concept,
-                    day_key, display_choice_index, field, get_item, get_learner, get_question, invoke_async, latest_analysis,
-                    level_info, now_ms, put_item, query_all, read_request, record_ttl, run_route, time_id, pad, unshuffle_answer,
+                    day_key, display_choice_index, field, get_item, get_learner, get_question, invoke_async, learner_records,
+                    level_info, now_ms, put_item, record_ttl, time_id, pad, unshuffle_answer,
                     update_item, xp_for_attempt, concept_name)
 
 # ─────────────────────────────────────────────────────────────
-# 답 제출 Lambda (submit-answer)
+# 답 제출 (submit_answer.py) — jojo_api 의 기능 파일
 #   채점은 서버에서만 한다 (정답은 화면으로 보내지 않음).
 #
 #   POST /attempts  답 제출   {"questionId": "...", "answer": {"type": "multiple_choice", "index": 2}, "hintsUsed": 1, "timeMs": 30000}
@@ -16,17 +16,10 @@ from common import (AI_LIMIT_MESSAGE, ANALYSIS_EVERY, TTL_ATTR, ApiError, AiUnav
 #   - 객관식·빈칸·실행 결과 예측·흐름 따라가기: 규칙으로 채점 (AI 없음)
 #   - 주관식: 먼저 규칙(핵심 표현이 들어 있는지)으로 보고, 애매할 때만 AI(Bedrock)로 평가
 #   - 기록: S#<세션 id> / A#(풀이) · D#(하루 요약) · C#(개념 요약), LEARNER(총 XP), STATS(채점 주체)
-#   - 새로 푼 문제가 10개 쌓이면 learner-analysis Lambda 를 부른다 (기다리지 않음)
+#   - 새로 푼 문제가 10개 쌓이면 학습자 분석(learner_analysis.py)을 뒤에서 실행한다 (기다리지 않음)
 # ─────────────────────────────────────────────────────────────
 
 ANSWER_TYPES = ["multiple_choice", "fill_blank", "predict_output", "short_answer", "trace"]
-
-
-def lambda_handler(event, context):
-    # 1. 요청 꺼내기
-    req = read_request(event)
-    # 2. 경로에 맞는 처리 → 응답
-    return run_route(req, ROUTES)
 
 
 # ───────────────────────── 경로별 처리 ─────────────────────────
@@ -64,8 +57,8 @@ def submit_attempt(req):
     attempt_id = save_attempt(learner["id"], attempt)
 
     # 6. 새로 푼 문제가 ANALYSIS_EVERY 개 쌓였으면 학습자 분석을 부른다 (응답은 기다리지 않음)
-    count = len(query_all(f"S#{learner['id']}", prefix="A#"))
-    analyzing = count - ((latest_analysis(learner["id"]) or {}).get("attemptCount", 0)) >= ANALYSIS_EVERY
+    records = learner_records(learner["id"])
+    analyzing = len(records["attempts"]) - (records["analysis"] or {}).get("attemptCount", 0) >= ANALYSIS_EVERY
     if analyzing:
         analyzing = invoke_async("learner-analysis", {"sessionId": learner["id"], "level": learner["preferredLevel"]})
 

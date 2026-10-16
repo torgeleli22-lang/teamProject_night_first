@@ -3,11 +3,11 @@ import re
 
 from common import (POLICY, ApiError, WEAK, ai_enabled, auto_generation_enabled, choice_order, concept,
                     concept_stats, coverage, curriculum, demand_count, field, generatable_levels, get_learner, get_question,
-                    invoke_async, list_attempts, load_content, misconception_counts, now_ms, read_request, recommend_code_concept,
-                    record_demand, run_route, running_job, track_of, unread_lessons, units_of, update_item, wrong_questions, is_weak)
+                    invoke_async, list_attempts, load_content, misconception_counts, now_ms, recommend_code_concept,
+                    record_demand, running_job, track_of, unread_lessons, units_of, update_item, wrong_questions, is_weak)
 
 # ─────────────────────────────────────────────────────────────
-# 문제 내기 Lambda (questions)
+# 문제 내기 (questions.py) — jojo_api 의 기능 파일
 #   저장된 문제 중에서 학습자에게 낼 문제를 고른다 (AI 호출 없음). 정답·해설은 보내지 않는다.
 #
 #   POST /session   문제 세트 시작   {"level": 2, "track": "code"|"theory", "concept": "map"|"all", "unit": 11, "cert": "정보처리기사",
@@ -15,19 +15,12 @@ from common import (POLICY, ApiError, WEAK, ai_enabled, auto_generation_enabled,
 #   POST /hint      힌트 한 단계     {"questionId": "...", "level": 1}
 #   GET  /concepts  탐색 화면: 코드·문제 목록 (문제 글만)
 #
-#   문제가 부족한 칸이면 응답을 기다리게 하지 않고 generate-code Lambda 를 불러 새 문제를 만든다 (생성 기준: common.POLICY)
+#   문제가 부족한 칸이면 응답을 기다리게 하지 않고 generate-code Lambda(Node.js)를 불러 새 문제를 만든다 (생성 기준: common.POLICY)
 # ─────────────────────────────────────────────────────────────
 
 THEORY_SIZE = 10    # 개념 학습 한 세트의 문제 수
 CODE_LESSONS = 2    # 코드 학습 한 세트의 코드 수 (코드마다 단계 문제를 모두 푼다)
 REVIEW_SIZE = 8     # 복습 한 세트의 문제 수
-
-
-def lambda_handler(event, context):
-    # 1. 요청 꺼내기
-    req = read_request(event)
-    # 2. 경로에 맞는 처리 → 응답
-    return run_route(req, ROUTES)
 
 
 # ───────────────────────── 경로별 처리 ─────────────────────────

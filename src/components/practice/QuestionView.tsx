@@ -75,7 +75,7 @@ export function QuestionView({ question: q, sameCodeIndex, isLast, onResult, onN
       : q.type === "trace" && traceValues.some((v) => v?.trim())
         ? { type: q.type, values: (q.trace ?? []).map((_, i) => traceValues[i] ?? "") }
         : null);
-  /** 튜터(tutor-chat Lambda)에 보낼 '지금 내 답' (보기는 화면에 보이는 번호와 글) */
+  /** 튜터(tutor_chat.py)에 보낼 '지금 내 답' (보기는 화면에 보이는 번호와 글) */
   const answerText = !chatAnswer
     ? ""
     : chatAnswer.type === "multiple_choice" || chatAnswer.type === "fill_blank"

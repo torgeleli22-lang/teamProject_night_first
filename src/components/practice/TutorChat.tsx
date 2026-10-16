@@ -17,7 +17,7 @@ const SUGGESTIONS_AFTER = ["왜 다른 답은 틀린 건가요?", "이 개념을
 /**
  * 한 문제에 대한 튜터 대화. 대화 내용(turns)은 문제 화면(QuestionView)이 들고 있어서
  * 제출 전후·창을 닫았다 열어도 이어지고, 다음 문제로 넘어가면 사라진다.
- * 질문은 tutor-chat Lambda(POST /ask)로 보낸다. 이전 대화는 Lambda 가 chatId 로 기억한다.
+ * 질문은 API(POST /ask, lambda/api/tutor_chat.py)로 보낸다. 이전 대화는 Lambda 가 chatId 로 기억한다.
  */
 export function TutorChat({
   questionId,
@@ -72,7 +72,7 @@ export function TutorChat({
     setInput("");
     setLoading(true);
     try {
-      // tutor-chat Lambda: 대화 기록은 Lambda 가 chatId 로 DynamoDB 에 보관한다 (화면은 chatId 만 들고 있음)
+      // tutor_chat.py: 대화 기록은 Lambda 가 chatId 로 DynamoDB 에 보관한다 (화면은 chatId 만 들고 있음)
       const res = await apiPost<{ answer: string; chatId: string; source: "ai" | "offline" }>("/ask", {
         ...(chat.chatId ? { chatId: chat.chatId } : {}),
         questionId,

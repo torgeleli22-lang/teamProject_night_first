@@ -5,16 +5,16 @@ import re
 
 from common import (AI_MODE, MODEL_ID, POLICY, TRIGGER_LABEL, ApiError, bump_content_version, bump_counter, concept, concepts_of,
                     coverage, curriculum, estimate_cost, field, generatable_levels, get_item, get_meta, invoke_async, month_cost_usd,
-                    month_key, now_ms, pad, put_item, query_all, read_counter, read_request, reply, run_route, set_meta, track_of,
+                    month_key, now_ms, pad, put_item, query_all, read_counter, set_meta, track_of,
                     update_item, usage_summary)
 
 # ─────────────────────────────────────────────────────────────
-# 관리자 Lambda (admin)
+# 관리자 (admin.py) — jojo_api 의 기능 파일
 #   관리자 화면(/admin)이 부른다. 모든 요청에 x-admin-token 헤더(관리자 코드)가 필요하다.
 #
 #   GET  /admin/overview   현황: AI 모드·비용·문제 재고·생성 작업·AI 콘텐츠
 #   POST /admin/generate   AI 문제 만들기 {"concept": "map", "level": 3, "count": 1, "instructions": "..."}
-#                          → 코드 주제는 generate-code, 개념 주제는 generate-theory Lambda 를 부른다 (기다리지 않음)
+#                          → 코드 주제는 generate-code(Node.js 함수), 개념 주제는 generate_theory.py 를 뒤에서 실행 (기다리지 않음)
 #   GET  /admin/fill       출시 전 채우기 계획 (문제가 모자란 칸)
 #   POST /admin/fill       출시 전 채우기 시작 (?limit=5)
 #   POST /admin/auto       자동 생성 켜기/끄기 {"enabled": true}
@@ -35,20 +35,6 @@ MAX_FAILURES, LOCK_WINDOW_SEC = 10, 15 * 60
 EXPORT_FORMAT, OLD_EXPORT_FORMAT = "codereading-export/2", "codereading-export/1"
 EXPORT_META_KEYS = ["admin_code_hash", "auto_generation"]
 NOT_VERIFIABLE = "이 주제는 아직 AI로 만들 수 없어요."
-
-
-def lambda_handler(event, context):
-    # 1. 요청 꺼내기
-    req = read_request(event)
-    if req["method"] == "OPTIONS":
-        return reply(204, None, req)
-    # 2. 관리자 코드 확인 (틀리면 401, 여러 번 틀리면 429)
-    try:
-        require_admin(req)
-    except ApiError as e:
-        return reply(e.status, {"error": e.message}, req)
-    # 3. 경로에 맞는 처리 → 응답
-    return run_route(req, ROUTES)
 
 
 # ───────────────────────── 관리자 확인 ─────────────────────────
@@ -245,7 +231,7 @@ def review(req):
     if decision == "approve" and not questions:
         raise ApiError(400, "남는 문제가 없어요. 반려를 눌러 주세요.")
     put_item({**row, "status": status, "item": {**row["item"], "status": status}, "questions": questions})
-    # 3. 다른 Lambda 들이 새 문제 목록을 읽도록 버전 올리기
+    # 3. 문제 목록을 다시 읽도록 버전 올리기
     bump_content_version()
     return {"status": status, "questions": len(questions) if decision == "approve" else 0}
 

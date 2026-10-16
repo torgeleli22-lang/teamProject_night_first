@@ -1,8 +1,8 @@
 /**
  * 코드 문제 만들기 Lambda (generate-code) — Node.js 22.x, 핸들러: index.handler
  *
- * 문제가 부족할 때(questions Lambda), 학습자 분석에서 혼동이 보일 때(learner-analysis Lambda),
- * 관리자가 만들 때(admin Lambda) 불린다. 부른 쪽은 기다리지 않는다.
+ * jojo_api(lambda/api)가 문제가 부족할 때(questions.py), 학습자 분석에서 혼동이 보일 때(learner_analysis.py),
+ * 관리자가 만들 때(admin.py) 부른다. 부른 쪽은 기다리지 않는다.
  * AI 가 만든 코드를 '실제로 실행해서' 정답을 확인해야 해서, 이 기능만 Node.js 로 만들었다.
  *
  *   ① AI 가 코드만 만든다 → 실제로 실행해 검사 (최대 3번)
@@ -34,7 +34,7 @@ const AI_MODE = process.env.AI_MODE || "live"; // live: 실제 AI, mock: 예시 
 const DAILY_LIMIT = Number(process.env.AI_GENERATION_DAILY_LIMIT || 30); // 하루 전체 생성 상한
 const MONTHLY_BUDGET_USD = Number(process.env.AI_MONTHLY_BUDGET_USD || 10); // 한 달 AI 예산
 const PRICE = { "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1 } }; // USD / 100만 토큰 (추정)
-// 단원별로 AI 생성을 허용하는 난이도 (common.py 의 LEVELS_BY_UNIT 과 같게)
+// 단원별로 AI 생성을 허용하는 난이도 (lambda/api/common.py 의 LEVELS_BY_UNIT 과 같게)
 const LEVELS_BY_UNIT = { 1: [1, 2, 3], 2: [1, 2, 3], 3: [2, 3, 4], 4: [2, 3, 4], 5: [3, 4, 5], 7: [4, 5] };
 const AUTO_TRIGGERS = ["stock_floor", "demand", "personal_review"];
 
@@ -561,7 +561,7 @@ async function logUsage(task, model, input, output, cacheRead, ok) {
 
 async function loadCurriculum() {
   const item = await getItem("META", "curriculum");
-  if (!item) throw new Error("META / curriculum 이 없어요. load-content Lambda 를 먼저 실행해 주세요.");
+  if (!item) throw new Error("META / curriculum 이 없어요. jojo_api 에서 {\"task\": \"load-content\"} 를 먼저 실행해 주세요.");
   return item.data;
 }
 

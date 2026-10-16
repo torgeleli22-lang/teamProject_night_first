@@ -1,26 +1,21 @@
 """
 Python Lambda 단위 테스트 도우미 (npm run test:lambda). AWS 에 연결하지 않는다.
-- common.py 를 불러오고, 커리큘럼은 DynamoDB 대신 lambda/load-content/content.json 에서 채운다.
-- 각 Lambda 의 lambda_function.py 를 폴더 이름으로 불러온다.
+- lambda/api 의 파일들을 불러온다 (커리큘럼은 같은 폴더의 content.json 에서 읽음).
 """
-import importlib.util
+import importlib
 import json
 import os
 import sys
 
 LAMBDA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(LAMBDA_DIR, "common"))
+API_DIR = os.path.join(LAMBDA_DIR, "api")
+sys.path.insert(0, API_DIR)
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 import common  # noqa: E402
 
-with open(os.path.join(LAMBDA_DIR, "load-content", "content.json"), encoding="utf-8") as f:
+with open(os.path.join(API_DIR, "content.json"), encoding="utf-8") as f:
     CONTENT = json.load(f)
-
-_curriculum = dict(CONTENT["curriculum"])
-_curriculum["conceptMap"] = {c["id"]: c for c in _curriculum["concepts"]}
-_curriculum["unitMap"] = {u["id"]: u for u in _curriculum["units"]}
-common._cache["curriculum"] = _curriculum
 
 SEED_ITEMS = {s["item"]["id"]: s["item"] for s in CONTENT["seed"]}
 SEED_QUESTIONS = {q["id"]: q for s in CONTENT["seed"] for q in s["questions"]}
@@ -32,9 +27,6 @@ def seed_content():
             "byItem": {s["item"]["id"]: s["questions"] for s in CONTENT["seed"]}}
 
 
-def load_lambda(folder):
-    path = os.path.join(LAMBDA_DIR, folder, "lambda_function.py")
-    spec = importlib.util.spec_from_file_location(f"test_{folder.replace('-', '_')}", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def load_lambda(name):
+    """lambda/api 의 기능 파일 (예: "submit_answer")"""
+    return importlib.import_module(name)

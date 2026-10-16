@@ -1,6 +1,6 @@
 # AI 문제 생성 기준 (초안 — 팀 논의용)
 
-> 코드: `lambda/common/common.py` 의 `POLICY`·`LEVELS_BY_UNIT` (숫자는 한 곳에서 바꿀 수 있음), 판단은 `lambda/questions` 의 `decide_on_session`·`lambda/learner-analysis` 의 `decide_personal`, 생성은 `lambda/generate-code`·`lambda/generate-theory` · 테스트: `lambda/tests/test_lambdas.py`
+> 코드: `lambda/api/common.py` 의 `POLICY`·`LEVELS_BY_UNIT` (숫자는 한 곳에서 바꿀 수 있음), 판단은 `lambda/api/questions.py` 의 `decide_on_session`·`learner_analysis.py` 의 `decide_personal`, 생성은 `lambda/generate-code`(코드)·`lambda/api/generate_theory.py`(개념) · 테스트: `lambda/tests/test_lambdas.py`
 > 관리자 화면 `/admin` 에서 칸별 재고·수요·생성 기록을 확인할 수 있습니다.
 
 ## 기본 원칙

@@ -1,6 +1,6 @@
 # generate-code — 코드 문제 만들기 Lambda (Node.js 22.x)
 
-문제가 부족할 때(**questions**), 학습자 분석에서 혼동이 보일 때(**learner-analysis**), 관리자가 만들 때(**admin**) 불려요. 부른 쪽은 기다리지 않아요.
+`jojo_api` 가 문제가 부족할 때(`questions.py`), 학습자 분석에서 혼동이 보일 때(`learner_analysis.py`), 관리자가 만들 때(`admin.py`) 불러요. 부른 쪽은 기다리지 않아요.
 AI 가 만든 코드를 **실제로 실행해서** 정답을 확인해야 해서 이 함수만 Node.js 예요 (JavaScript 코드를 그대로 실행).
 
 1. AI 가 코드만 만들어요 → 격리된 곳에서 실제로 실행해 검사 (최대 3번)
@@ -21,7 +21,7 @@ AI 가 만든 코드를 **실제로 실행해서** 정답을 확인해야 해서
 코드 탭의 `index.mjs` 를 바꾸고, **파일 → 새 파일**로 나머지 두 파일을 만들어 붙여넣은 뒤 **Deploy**. AWS SDK 는 Lambda 런타임에 들어 있어요.
 
 ## 설정
-- 런타임 **Node.js 22.x** · 핸들러 `index.handler` · 제한 시간 **5분** · 메모리 **1024MB** (코드 실행 검사) · 함수 URL 없음
+- 런타임 **Node.js 22.x** · 아키텍처 arm64 · 핸들러 `index.handler` · 제한 시간 **5분** · 메모리 **1024MB** (코드 실행 검사) · 함수 URL 없음
 - 실행 역할: `SafeRole-sgu-202688`
 - 환경 변수: `TABLE_NAME`, `TTL_ATTR`, `AI_MODE`, `AI_MONTHLY_BUDGET_USD`, `AI_GENERATION_DAILY_LIMIT` (값은 [`docs/DEPLOY_LAMBDA.md`](../../docs/DEPLOY_LAMBDA.md) 의 표)
 
@@ -34,4 +34,4 @@ AI 가 만든 코드를 **실제로 실행해서** 정답을 확인해야 해서
 | 코드 규칙·문제 구성 지시문 | `index.mjs` 의 `CODE_RULES`, `GENERATOR_SYSTEM` |
 | 검증 항목 | `checks.mjs` 의 `validateCode`, `validateItem` |
 | 난이도별로 막는 문법 | `checks.mjs` 의 `TOO_ADVANCED` |
-| 생성을 허용하는 칸 | `index.mjs` 의 `LEVELS_BY_UNIT` (`common.py` 와 같게) |
+| 생성을 허용하는 칸 | `index.mjs` 의 `LEVELS_BY_UNIT` (`api/common.py` 와 같게) |

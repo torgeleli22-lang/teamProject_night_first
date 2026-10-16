@@ -6,15 +6,15 @@ from common import (AI_MODE, POLICY, TTL_ATTR, AiUnavailable, ask_ai, bump_conte
                     put_item, running_job, time_id, track_of, ttl_after, unit, update_item)
 
 # ─────────────────────────────────────────────────────────────
-# 개념 문제 만들기 Lambda (generate-theory)
-#   관리자 화면의 'AI 문제 만들기'(개념 주제)가 admin Lambda 를 거쳐 부른다 (관리자는 기다리지 않음).
+# 개념 문제 만들기 (generate_theory.py) — jojo_api 가 뒤에서 하는 일
+#   관리자 화면의 'AI 문제 만들기'(개념 주제) → admin.py 가 jojo_api 를 다시 불러 뒤에서 실행한다 (관리자는 기다리지 않음).
 #   실행으로 정답을 확인할 수 없는 개념 문제라서 세 겹으로 확인한다.
 #     ① AI 가 4지선다 5문제를 만든다
 #     ② 규칙 검사 (보기 4개·중복 없음·정답 번호)
 #     ③ 다른 AI 호출이 정답을 모르는 채로 풀어 본다 → 고른 답이 다르거나 문제가 있다고 하면 그 문제는 뺀다
 #     → 3문제 이상 남으면 '승인 대기(pending)'로 저장 → ④ 관리자가 승인해야 학습자에게 나간다
 #
-#   받는 값 (이벤트): {"concept": "net-osi", "level": 2, "count": 1, "reason": "...", "instructions": "관리자 요청(선택)"}
+#   받는 값 (이벤트): {"task": "generate-theory", "concept": "net-osi", "level": 2, "count": 1, "reason": "...", "instructions": "관리자 요청(선택)"}
 #   기록: JOB / <번호> (진행 상황, 관리자 화면의 '생성 작업'),  CONTENT / ai-<개념>-<8자리> (만든 문제)
 # ─────────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ SOLVE_SCHEMA = {
 }
 
 
-def lambda_handler(event, context):
+def run(event):
     count = int(event.get("count") or 1)
     started_at = now_ms()
     results = []

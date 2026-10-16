@@ -1,12 +1,12 @@
 import math
 
 from common import (AI_MODE, ANALYSIS_EVERY, MASTERED, SESSION_HOURS, ApiError, alive, batch_delete, concept_stats, curriculum, day_key,
-                    field, get_learner, get_question, latest_analysis, learner_level, list_attempts, load_content,
-                    misconception_counts, now_ms, query_all, read_request, recommend_code_concept, run_route, suggest_level,
+                    field, get_learner, get_question, learner_level, learner_records, load_content,
+                    misconception_counts, now_ms, query_all, recommend_code_concept, suggest_level,
                     track_of, unit, units_of, update_item, weak_concepts, wrong_questions, xp_for_attempt)
 
 # ─────────────────────────────────────────────────────────────
-# 내 학습 정보 Lambda (my-page)
+# 내 학습 정보 (my_page.py) — jojo_api 의 기능 파일
 #   화면마다 필요한 데이터를 한 번에 돌려준다 (정답·해설은 넣지 않음)
 #
 #   GET  /health     연결 확인
@@ -21,13 +21,6 @@ from common import (AI_MODE, ANALYSIS_EVERY, MASTERED, SESSION_HOURS, ApiError, 
 # ─────────────────────────────────────────────────────────────
 
 
-def lambda_handler(event, context):
-    # 1. 요청 꺼내기
-    req = read_request(event)
-    # 2. 경로에 맞는 처리 → 응답 (요청 수 제한·오류 처리는 run_route 가 함께 한다)
-    return run_route(req, ROUTES)
-
-
 # ───────────────────────── 경로별 처리 ─────────────────────────
 
 
@@ -38,8 +31,8 @@ def health(req):
 def me(req):
     # 1. 학습자 확인 (없으면 새로 만듦)
     learner = get_learner(req)
-    # 2. 하루 요약(D#)으로 XP·연속 학습 계산
-    p = load_progress(learner["id"])
+    # 2. 기록을 한 번에 읽어 XP·연속 학습 계산
+    p = load_progress(learner_records(learner["id"]))
     return {
         "nickname": learner["nickname"],
         "preferredLevel": learner["preferredLevel"],
@@ -79,9 +72,9 @@ def update_me(req):
 def learn(req):
     # 1. 학습자 + 기록 읽기
     learner = get_learner(req)
-    attempts = list_attempts(learner["id"])
-    progress = load_progress(learner["id"])
-    analysis = latest_analysis(learner["id"])
+    records = learner_records(learner["id"])   # 풀이·하루 요약·개념 요약·분석을 조회 한 번으로
+    attempts, analysis = records["attempts"], records["analysis"]
+    progress = load_progress(records)
     level = learner["preferredLevel"] or 1
     # 2. 추천 난이도 (최근 정답률) · 추천 개념 (안 익힌 개념 중 새 코드가 있는 것)
     suggestion = suggest_level(attempts, level)
@@ -110,8 +103,9 @@ def learn(req):
 def review(req):
     # 1. 학습자 + 기록 읽기
     learner = get_learner(req)
-    attempts = list_attempts(learner["id"])
-    progress = load_progress(learner["id"])
+    records = learner_records(learner["id"])
+    attempts = records["attempts"]
+    progress = load_progress(records)
     # 2. 마지막 풀이가 오답인 문제 (문제 글은 문제 데이터에서)
     wrong = []
     for w in wrong_questions(attempts):
@@ -157,11 +151,11 @@ def ranking(req):
 def dashboard(req):
     # 1. 학습자 + 기록 읽기
     learner = get_learner(req)
-    attempts = list_attempts(learner["id"])
+    records = learner_records(learner["id"])
+    attempts, analysis = records["attempts"], records["analysis"]
     if not attempts:
         return {"empty": True}
-    progress = load_progress(learner["id"])
-    analysis = latest_analysis(learner["id"])
+    progress = load_progress(records)
     stats = progress["stats"]
     u = unit(current_unit_id(stats))
     # 2. 최근 풀이 10개 (문제 글 포함)
@@ -213,11 +207,11 @@ ROUTES = {
 # ───────────────────────── 도움 함수 ─────────────────────────
 
 
-def load_progress(session_id):
-    """하루 요약(D#)·개념 요약(C#)으로 XP·연속 학습·개념별 이해도를 만든다 (풀이 기록 전체를 다시 읽지 않음)"""
-    rows = query_all(f"S#{session_id}", prefix="D#")
-    days = [{"day": r["day"], "solved": r.get("solved", 0), "correct": r.get("correct", 0), "timeMs": r.get("timeMs", 0), "xp": r.get("xp", 0)} for r in rows]
-    by = {r["concept"]: r for r in query_all(f"S#{session_id}", prefix="C#")}
+def load_progress(records):
+    """하루 요약(D#)·개념 요약(C#)으로 XP·연속 학습·개념별 이해도를 만든다 (풀이를 처음부터 다시 계산하지 않음)"""
+    days = [{"day": r["day"], "solved": r.get("solved", 0), "correct": r.get("correct", 0), "timeMs": r.get("timeMs", 0), "xp": r.get("xp", 0)}
+            for r in records["days"]]
+    by = {r["concept"]: r for r in records["concepts"]}
     stats = {}
     for c in curriculum()["concepts"]:
         r = by.get(c["id"], {})

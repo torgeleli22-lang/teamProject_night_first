@@ -1,0 +1,11 @@
+{
+  "설명": "콘솔 테스트 탭 → 새 이벤트에 아래 중 하나의 { ... } 부분만 붙여넣으세요. path·method 로 경로를 고르고, 나머지 값은 요청 본문이에요.",
+  "기본 문제 넣기 (처음 한 번)": { "task": "load-content" },
+  "연결 확인": { "path": "/health", "method": "GET" },
+  "내 정보": { "path": "/me", "method": "GET" },
+  "개념 문제 세트 (네트워크)": { "path": "/session", "method": "POST", "level": 2, "track": "theory", "unit": 11 },
+  "코드 문제 세트 (filter)": { "path": "/session", "method": "POST", "level": 2, "track": "code", "concept": "filter" },
+  "답 제출": { "path": "/attempts", "method": "POST", "questionId": "osi-routing", "answer": { "type": "multiple_choice", "index": 0 }, "hintsUsed": 0, "timeMs": 5000 },
+  "튜터 질문": { "path": "/ask", "method": "POST", "questionId": "cart-trace", "question": "total 이 왜 3000 이 되는지 모르겠어요", "solved": false },
+  "관리자 현황": { "path": "/admin/overview", "method": "GET", "headers": { "x-admin-token": "관리자 코드" } }
+}

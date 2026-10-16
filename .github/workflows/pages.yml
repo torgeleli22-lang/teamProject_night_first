@@ -1,8 +1,7 @@
 # 화면(정적 페이지)을 GitHub Pages 에 배포한다. main 에 push 하면 자동 실행.
 # 준비 (한 번만): 저장소 Settings → Pages → Source: GitHub Actions
-#                 Settings → Secrets and variables → Actions → Variables 탭에 기능별 Lambda 함수 URL (docs/DEPLOY_LAMBDA.md)
-#                 QUESTIONS_URL · SUBMIT_ANSWER_URL · TUTOR_CHAT_URL · MY_PAGE_URL · ADMIN_URL
-#                 (없으면 화면만 배포된다 — 미리보기용)
+#                 Settings → Secrets and variables → Actions → Variables 탭 → API_URL = jojo_api 함수 URL (docs/DEPLOY_LAMBDA.md)
+#                 (API_URL 이 없으면 화면만 배포된다 — 미리보기용)
 name: Deploy web (GitHub Pages)
 
 on:
@@ -23,10 +22,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Lambda 주소 확인
+      - name: API 주소 확인
         run: |
-          if [ -z "${{ vars.MY_PAGE_URL }}${{ vars.API_URL }}" ]; then
-            echo "::warning::저장소 변수(MY_PAGE_URL 등 Lambda 함수 URL)가 아직 없어요. 화면만 배포하고, 데이터가 필요한 곳에는 '서버 연결 전' 안내가 보여요."
+          if [ -z "${{ vars.API_URL }}" ]; then
+            echo "::warning::저장소 변수 API_URL(jojo_api 함수 URL)이 아직 없어요. 화면만 배포하고, 데이터가 필요한 곳에는 '서버 연결 전' 안내가 보여요."
           fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,12 +35,6 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          # 기능별 Lambda 함수 URL (lambda/ 폴더 이름과 같은 기능). 비어 있는 기능은 API_URL 로 보낸다
-          NEXT_PUBLIC_QUESTIONS_URL: ${{ vars.QUESTIONS_URL }}
-          NEXT_PUBLIC_SUBMIT_ANSWER_URL: ${{ vars.SUBMIT_ANSWER_URL }}
-          NEXT_PUBLIC_TUTOR_CHAT_URL: ${{ vars.TUTOR_CHAT_URL }}
-          NEXT_PUBLIC_MY_PAGE_URL: ${{ vars.MY_PAGE_URL }}
-          NEXT_PUBLIC_ADMIN_URL: ${{ vars.ADMIN_URL }}
           NEXT_PUBLIC_API_URL: ${{ vars.API_URL }}
           NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
       - run: touch out/.nojekyll

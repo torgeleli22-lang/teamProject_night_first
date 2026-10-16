@@ -4,7 +4,7 @@
  */
 import type { ConceptCheck, ConceptId, GradedBy, Level, Question, QuestionType, Skill, Stage, Track } from "./types";
 
-// ───────────────────────── 문제 (questions Lambda) ─────────────────────────
+// ───────────────────────── 문제 (questions.py) ─────────────────────────
 
 /** 화면으로 보내는 문제 (정답·해설·채점 기준은 빼고) */
 export interface PublicQuestion {
@@ -41,7 +41,7 @@ export interface SessionPlan {
   generating?: boolean;
 }
 
-// ───────────────────────── 채점 (submit-answer Lambda) ─────────────────────────
+// ───────────────────────── 채점 (submit_answer.py) ─────────────────────────
 
 export interface TutorNote {
   headline: string;
@@ -85,7 +85,7 @@ export interface ShortAnswerFeedback {
   gradedBy: "rule" | "ai";
 }
 
-// ───────────────────────── 학습 기록 (my-page Lambda) ─────────────────────────
+// ───────────────────────── 학습 기록 (my_page.py) ─────────────────────────
 
 export interface ConceptStat {
   conceptId: ConceptId;
@@ -251,7 +251,7 @@ export interface ConceptsView {
   items: ExploreItem[];
 }
 
-// ───────────────────────── 관리자 (admin Lambda) ─────────────────────────
+// ───────────────────────── 관리자 (admin.py) ─────────────────────────
 
 export type Trigger = "launch_fill" | "stock_floor" | "demand" | "personal_review" | "manual";
 

@@ -1,9 +1,9 @@
 /**
- * 내 컴퓨터에서 Lambda 들을 실행:  npm run api  →  http://localhost:8787
+ * 내 컴퓨터에서 Lambda 실행:  npm run api  →  http://localhost:8787
  *
  * 1. DynamoDB 흉내 서버(dynalite)를 메모리에 띄우고 테이블을 만든다 (끄면 데이터는 사라짐)
- * 2. Python 개발 서버(scripts/local_lambdas.py)가 lambda/ 폴더의 Lambda 들을 실제와 같은 이벤트로 부른다
- *    (처음에 load-content 를 실행해서 문제 데이터를 넣는다)
+ * 2. Python 개발 서버(scripts/local_lambdas.py)가 lambda/api 함수를 실제와 같은 이벤트로 부른다
+ *    (처음에 load-content 를 실행해서 문제 데이터를 넣는다. 코드 문제 생성은 node 로 lambda/generate-code)
  *
  * 필요한 것: Python 3.10 이상 + boto3 (pip install boto3). AWS 계정·키는 필요 없다.
  * AI 는 기본으로 목업(AI_MODE=mock, 비용 없음). .env 에 AI_MODE 를 적으면 그 값을 쓴다.
@@ -58,7 +58,7 @@ export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {
     }),
   );
 
-  // 2. Python 개발 서버 (Lambda 들)
+  // 2. Python 개발 서버 (jojo_api)
   const url = `http://127.0.0.1:${port}`;
   const child = spawn(PYTHON, [path.join(ROOT, "scripts", "local_lambdas.py")], {
     cwd: ROOT,
@@ -72,6 +72,7 @@ export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {
       DYNAMODB_ENDPOINT: dbUrl,
       LAMBDA_ENDPOINT: url,
       LOCAL_DEV: "1",
+      AWS_LAMBDA_FUNCTION_NAME: "jojo_api", // 뒤에서 할 일은 자기 자신을 다시 부른다 (common.invoke_async)
       AWS_ACCESS_KEY_ID: "local",
       AWS_SECRET_ACCESS_KEY: "local",
       AWS_REGION: "ap-northeast-2",

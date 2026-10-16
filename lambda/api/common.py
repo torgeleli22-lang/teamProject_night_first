@@ -1,17 +1,16 @@
 """
-코드리딩 Lambda 공통 도구 (common.py)
+코드리딩 API 공통 도구 (common.py) — jojo_api 함수 안의 파일
 
-모든 Python Lambda 에 같은 내용으로 넣는 파일이에요.
-각 Lambda 의 lambda_function.py 는 '무엇을 하는지'만 쓰고, 여러 Lambda 가 함께 쓰는 일은 여기에 모았어요.
+기능 파일(questions.py, submit_answer.py …)은 '무엇을 하는지'만 쓰고, 여러 기능이 함께 쓰는 일은 여기에 모았어요.
 
-  1. 설정 (환경 변수·정책 숫자)          7. 커리큘럼·문제 데이터 (DynamoDB 에서 읽고 잠깐 보관)
+  1. 설정 (환경 변수·정책 숫자)          7. 커리큘럼·문제 데이터 (메모리에 보관)
   2. AWS 연결 (DynamoDB·Bedrock·Lambda)  8. 학습 기록 통계 (XP·이해도·난이도 추천)
   3. 요청 읽기·응답 만들기 (CORS 포함)     9. 보기 섞기 (화면 순서 ↔ 원래 순서)
   4. DynamoDB 읽기·쓰기 도구             10. AI 호출 (Bedrock, 월 예산·사용량 기록·목업)
-  5. 요청 수 제한                        11. 다른 Lambda 부르기 (응답을 기다리지 않음)
+  5. 요청 수 제한                        11. 뒤에서 할 일 부르기 (응답을 기다리지 않음)
   6. 학습자(세션)                        12. 설정 값·생성 작업 기록
 
-콘솔에서 이 파일을 고쳤다면, 다른 Lambda 의 common.py 와 GitHub(lambda/common/common.py)에도 같이 반영해 주세요.
+콘솔에서 이 파일을 고쳤다면 GitHub(lambda/api/common.py)에도 같이 반영해 주세요.
 """
 import base64
 import json
@@ -88,12 +87,9 @@ TRIGGER_LABEL = {
     "manual": "관리자 수동",
 }
 
-# 응답을 기다리지 않고 부르는 다른 Lambda 의 이름 (콘솔에서 만든 함수 이름과 같아야 함)
-FUNCTIONS = {
-    "generate-code": os.environ.get("GENERATE_CODE_FUNCTION", "jojo_generate_code"),
-    "generate-theory": os.environ.get("GENERATE_THEORY_FUNCTION", "jojo_generate_theory"),
-    "learner-analysis": os.environ.get("LEARNER_ANALYSIS_FUNCTION", "jojo_learner_analysis"),
-}
+# 코드 문제를 만드는 Node.js Lambda 의 이름 (콘솔에서 만든 함수 이름과 같아야 함)
+GENERATE_CODE_FUNCTION = os.environ.get("GENERATE_CODE_FUNCTION", "jojo_generate_code")
+SESSION_REFRESH_SEC = 15 * 60   # 학습자의 '마지막 사용 시각'은 이 간격마다만 고쳐 쓴다 (요청마다 쓰지 않아 빠르고 쌈)
 
 # AI 가격표 (USD / 100만 토큰) — 예산 판단·관리자 화면 표시용 추정치
 PRICE = {
@@ -419,7 +415,9 @@ def get_learner(req):
     if SESSION_ID.match(sid):
         found = get_item("LEARNER", sid)
         if found and alive(found):
-            update_item("LEARNER", sid, set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(session_ttl)})
+            # 마지막 사용 시각(=자동 삭제 기한)은 15분마다만 늘린다 (요청마다 쓰기를 하지 않아 빠르고 쌈)
+            if now_ms() - found.get("lastSeen", 0) > SESSION_REFRESH_SEC * 1000:
+                update_item("LEARNER", sid, set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(session_ttl)})
             req["learner"] = learner_from_item(found)
             return req["learner"]
     if not hit_limit(f"new:{req['ip']}", LIMITS["new_sessions_per_ip_hour"], 3600):
@@ -439,20 +437,28 @@ def record_ttl():
 
 # ─────────────────────────────────────────────────────────────
 # 7. 커리큘럼·문제 데이터
-#    META / curriculum : 단원·개념·난이도·자격증 (load-content Lambda 가 넣음)
+#    커리큘럼: 같은 폴더의 content.json (generate-code 함수를 위해 META / curriculum 에도 넣어 둠)
 #    CONTENT / <코드 id> : 코드(또는 개념 문제 묶음) 하나와 그 문제들
-#    같은 Lambda 가 다시 불리면 메모리에 둔 것을 쓰고, 30초(CONTENT_CHECK_SEC)마다 META / content_version 이 바뀌었는지만 확인한다
+#    같은 함수가 다시 불리면 메모리에 둔 것을 쓰고, 30초(CONTENT_CHECK_SEC)마다 META / content_version 이 바뀌었는지만 확인한다
 # ─────────────────────────────────────────────────────────────
 
 _cache = {"curriculum": None, "content": None, "version": None, "checked": 0}
 
 
+CONTENT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "content.json")
+
+
 def curriculum():
+    """단원·개념·난이도·자격증. 같은 함수 안의 content.json 에서 읽는다 (DynamoDB 를 거치지 않아 빠름)"""
     if _cache["curriculum"] is None:
-        item = get_item("META", "curriculum")
-        if not item:
-            raise ApiError(503, "문제 데이터가 아직 준비되지 않았어요. 관리자가 load-content 를 실행해야 해요.")
-        data = item["data"]
+        if os.path.exists(CONTENT_FILE):
+            with open(CONTENT_FILE, encoding="utf-8") as f:
+                data = json.load(f)["curriculum"]
+        else:
+            item = get_item("META", "curriculum")
+            if not item:
+                raise ApiError(503, "문제 데이터가 아직 준비되지 않았어요. 관리자가 load-content 를 실행해야 해요.")
+            data = item["data"]
         data["conceptMap"] = {c["id"]: c for c in data["concepts"]}
         data["unitMap"] = {u["id"]: u for u in data["units"]}
         _cache["curriculum"] = data
@@ -518,7 +524,6 @@ def load_content():
             questions[q["id"]] = q
     _cache["content"] = {"items": items, "questions": questions, "byItem": by_item}
     _cache["version"] = version
-    _cache["curriculum"] = None   # 커리큘럼도 함께 바뀌었을 수 있다
     return _cache["content"]
 
 
@@ -555,12 +560,35 @@ WEAK = 60       # 2번 이상 풀었는데 이해도가 이보다 낮으면 '다
 
 
 def list_attempts(session_id):
-    rows = query_all(f"S#{session_id}", prefix="A#")
-    return [{"id": r["id"], "questionId": r["questionId"], "codeItemId": r.get("codeItemId"), "questionType": r["questionType"],
-             "concepts": r.get("concepts", []), "level": r.get("level", 1), "correct": bool(r.get("correct")),
-             "partial": bool(r.get("partial")), "hintsUsed": r.get("hintsUsed", 0), "timeMs": r.get("timeMs", 0),
-             "misconception": r.get("misconception"), "gradedBy": r.get("gradedBy", "rule"), "createdAt": r.get("createdAt", 0),
-             "answer": r.get("answer")} for r in rows]
+    return [attempt_from_row(r) for r in query_all(f"S#{session_id}", prefix="A#")]
+
+
+def attempt_from_row(r):
+    return {"id": r["id"], "questionId": r["questionId"], "codeItemId": r.get("codeItemId"), "questionType": r["questionType"],
+            "concepts": r.get("concepts", []), "level": r.get("level", 1), "correct": bool(r.get("correct")),
+            "partial": bool(r.get("partial")), "hintsUsed": r.get("hintsUsed", 0), "timeMs": r.get("timeMs", 0),
+            "misconception": r.get("misconception"), "gradedBy": r.get("gradedBy", "rule"), "createdAt": r.get("createdAt", 0),
+            "answer": r.get("answer")}
+
+
+def learner_records(session_id):
+    """
+    학습자 한 명의 기록 전부를 DynamoDB 조회 한 번으로 읽는다 (S#<세션 id> 파티션을 통째로).
+    → {"attempts": 풀이(A#), "days": 하루 요약(D#), "concepts": 개념 요약(C#), "analysis": 최근 분석(N#)}
+    화면 하나에 필요한 기록을 따로따로 4번 읽지 않아서 빠르다.
+    """
+    out = {"attempts": [], "days": [], "concepts": [], "analysis": None}
+    for r in query_all(f"S#{session_id}"):
+        kind = r["sk"][:2]
+        if kind == "A#":
+            out["attempts"].append(attempt_from_row(r))
+        elif kind == "D#":
+            out["days"].append(r)
+        elif kind == "C#":
+            out["concepts"].append(r)
+        elif kind == "N#":   # 정렬 키가 시간순이라 마지막이 가장 최근
+            out["analysis"] = {"id": r["id"], "attemptCount": r["attemptCount"], "result": r["result"], "source": r["source"], "createdAt": r["createdAt"]}
+    return out
 
 
 def attempt_quality(a):
@@ -991,19 +1019,25 @@ def check_schema(value, schema, path="(전체)"):
 
 
 # ─────────────────────────────────────────────────────────────
-# 11. 다른 Lambda 부르기 (InvocationType=Event: 응답을 기다리지 않음)
+# 11. 뒤에서 할 일 부르기 (InvocationType=Event: 응답을 기다리지 않음)
+#     - learner-analysis, generate-theory: 이 함수(jojo_api)를 {"task": ...} 로 다시 부른다
+#     - generate-code: 코드 문제를 만드는 Node.js 함수
 #     실행 역할에 lambda:InvokeFunction 권한이 필요하다
 # ─────────────────────────────────────────────────────────────
 
 
-def invoke_async(name, payload):
-    """FUNCTIONS 의 이름(generate-code 등)으로 다른 Lambda 를 부른다. 실패하면 False (학습은 계속)"""
+def invoke_async(task, payload):
+    """task 이름으로 뒤에서 할 일을 시작한다. 실패하면 False (학습은 계속)"""
+    if task == "generate-code":
+        target, event = GENERATE_CODE_FUNCTION, payload
+    else:
+        target, event = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "jojo_api"), {"task": task, **payload}
     try:
-        lambda_client().invoke(FunctionName=FUNCTIONS[name], InvocationType="Event",
-                               Payload=json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        lambda_client().invoke(FunctionName=target, InvocationType="Event",
+                               Payload=json.dumps(event, ensure_ascii=False).encode("utf-8"))
         return True
     except Exception as e:
-        print("[invoke]", name, repr(e))
+        print("[invoke]", task, repr(e))
         return False
 
 
