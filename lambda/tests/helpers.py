@@ -17,3 +17,5 @@ import common  # noqa: E402
 def load_lambda(name):
     """lambda/api 의 기능 파일 (예: "review")"""
     return importlib.import_module(name)
+
+__all__ = ["common", "load_lambda"]

@@ -1,4 +1,4 @@
-# 자동 검사 (push · PR 마다): 타입 · 테스트(TS + Python) · 콘텐츠 실행 검증 · Lambda 전체 흐름 · 정적 빌드
+# 자동 검사 (push · PR 마다): 타입 · 테스트(TS + Python) · 예시 코드 실행 검증 · Lambda 전체 흐름 · 정적 빌드
 name: CI
 
 on:

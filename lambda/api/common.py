@@ -93,7 +93,7 @@ _clients = {}
 def bedrock():
     if "bedrock" not in _clients:
         _clients["bedrock"] = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION,
-                                           config=Config(read_timeout=170, retries={"max_attempts": 2}))
+                                           config=Config(read_timeout=45, retries={"max_attempts": 2}))   # 코드 만들기 한 번이 20초 안팎
     return _clients["bedrock"]
 
 
