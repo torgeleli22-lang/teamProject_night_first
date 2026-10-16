@@ -1,90 +1,91 @@
-import Link from 'next/link';
+import Link from "next/link";
+import { CodeView } from "@/components/CodeView";
+import { Page, PenMark, Sticky } from "@/components/ui";
 
-export default function HomePage() {
+const HERO_CODE = `def sell(item, qty):
+    status = check_stock(item)
+    if status in ("품절",):
+        return False
+    inventory[item] -= qty`;
+
+/** 01 · 첫 화면 */
+export default function Home() {
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      {/* 1. 히어로 섹션 (Hero Banner) */}
-      <section className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white py-20 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-12">
-          <div className="max-w-xl">
-            <span className="bg-indigo-600 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider">
-              실무형 인프라 & 트러블슈팅 플랫폼
-            </span>
-            <h1 className="text-4xl md:text-5xl font-extrabold mt-4 leading-tight">
-              이론부터 장애 해결까지,<br />엔지니어링 실전 역량 강화
-            </h1>
-            <p className="text-gray-300 mt-4 text-lg">
-              네트워크 오류 수정, CI/CD 파이프라인 설정, 빈칸 코드 완성 등 실제 현업에서 마주하는 시나리오를 직접 해결해 보세요.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-4">
-              <Link
-                href="/practice"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-6 py-3 rounded-lg shadow-lg transition"
-              >
-                실전 챌린지 시작하기 💻
-              </Link>
-              <Link
-                href="/concepts"
-                className="bg-gray-800 hover:bg-gray-700 text-gray-200 font-medium px-6 py-3 rounded-lg border border-gray-700 transition"
-              >
-                핵심 개념 공부하기 📚
-              </Link>
-            </div>
-          </div>
-          
-          {/* 우측 시각적 터미널/에디터 목업 카드 */}
-          <div className="w-full md:w-1/2 bg-gray-950 p-6 rounded-xl border border-gray-800 shadow-2xl font-mono text-sm">
-            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-800">
-              <span className="w-3 h-3 bg-red-500 rounded-full inline-block"></span>
-              <span className="w-3 h-3 bg-yellow-500 rounded-full inline-block"></span>
-              <span className="w-3 h-3 bg-green-500 rounded-full inline-block"></span>
-              <span className="text-gray-500 text-xs ml-2">troubleshooting-terminal ~ bash</span>
-            </div>
-            <p className="text-red-400">$ [ERROR] 502 Bad Gateway detected on Nginx upstream.</p>
-            <p className="text-yellow-300 mt-2">&gt; Task: Fix upstream port in nginx.conf</p>
-            <p className="text-green-400 mt-2">✔ Status: Ready for user challenge [Lv.3]</p>
-          </div>
-        </div>
-      </section>
-
-      {/* 2. 핵심 투 트랙 안내 섹션 */}
-      <section className="max-w-6xl mx-auto py-16 px-6">
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* 실전 문제 챌린지 카드 */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition">
-            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-bold text-xl mb-6">
-              💻
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900">실전 트러블슈팅 챌린지</h3>
-            <p className="text-gray-600 mt-3 leading-relaxed">
-              AWS EC2 설정 오류, MySQL 슬로우 쿼리 튜닝, GitHub Actions 빌드 실패 등 현업 밀착형 문제의 빈칸을 채우고 시뮬레이션을 통과하세요.
-            </p>
-            <Link
-              href="/practice"
-              className="inline-block mt-6 text-indigo-600 font-semibold hover:text-indigo-800 transition"
-            >
-              챌린지 목록 보기 &rarr;
+    <Page className="mt-0">
+      {/* 머리말 + 맛보기 코드 */}
+      <section className="grid gap-10 md:grid-cols-[1fr_1.05fr] md:items-center">
+        <div>
+          <p className="hand text-pen-red">오늘의 공부: 코드 흐름 따라가기</p>
+          <h1 className="mt-3 text-4xl leading-tight sm:text-5xl">
+            AI가 짜 준 코드,
+            <br />
+            정말 <span className="marker">읽을 수</span> 있나요?
+          </h1>
+          <p className="mt-5 max-w-md text-sm leading-relaxed text-ink-700">
+            코드 옆에 메모로 흐름을 적어 보세요. 내가 어디까지 제대로 읽었는지, 빨간펜으로 메모마다 첨삭해 드려요.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <Link href="/practice" className="btn-ink">
+              연습 문제 받기
             </Link>
-          </div>
-
-          {/* 공부하기 (개념 학습) 카드 */}
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition">
-            <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold text-xl mb-6">
-              📚
-            </div>
-            <h3 className="text-2xl font-bold text-gray-900">핵심 기술 공부하기</h3>
-            <p className="text-gray-600 mt-3 leading-relaxed">
-              네트워크 프로토콜, 데이터베이스 인덱싱, 스프링 부트 구조 등 실전 문제 풀이에 꼭 필요한 탄탄한 이론 베이스를 학습하세요.
-            </p>
-            <Link
-              href="/concepts"
-              className="inline-block mt-6 text-emerald-600 font-semibold hover:text-emerald-800 transition"
-            >
-              학습 노트 보기 &rarr;
+            <Link href="/check" className="btn-line">
+              내 코드 가져오기
             </Link>
           </div>
         </div>
+        <div className="relative md:pt-10">
+          <Sticky tilt={2} className="z-10 mb-4 ml-auto w-60 p-3 md:absolute md:-top-1 md:right-0 md:mb-0" tape>
+            <p className="hand text-pen-blue">2~4줄: 먼저 check_stock으로 상태를 보고, 품절이면 여기서 끝!</p>
+          </Sticky>
+          <CodeView code={HERO_CODE} highlights={[{ start: 2, end: 4 }]} from={1} />
+          <p className="mt-3 flex items-center gap-2">
+            <PenMark kind="partial" size={30} />
+            <span className="hand text-pen-red">끝나면서 무엇을 돌려주는지도 적어 볼까요?</span>
+          </p>
+        </div>
       </section>
-    </div>
+
+      {/* 두 가지 공부 */}
+      <section className="mt-14">
+        <h2 className="text-2xl">어떤 코드로 공부할까요?</h2>
+        <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <Sticky color="yellow" tape tilt={-0.6} className="p-6">
+            <h3 className="text-lg">연습 모드</h3>
+            <p className="mt-2 text-sm leading-relaxed text-ink-700">난이도와 주제를 정하면 읽기 연습용 코드를 받아요. 주제는 랜덤으로 뽑거나 직접 적을 수 있어요.</p>
+            <p className="hand mt-2 text-pen-blue">너무 어려우면 &lsquo;더 쉽게&rsquo;로 다시 받기</p>
+            <Link href="/practice" className="btn-ink mt-4">
+              연습 시작
+            </Link>
+          </Sticky>
+          <Sticky color="mint" tape tilt={0.5} className="p-6">
+            <h3 className="text-lg">내 코드 점검</h3>
+            <p className="mt-2 text-sm leading-relaxed text-ink-700">갖고 있는 코드를 붙여넣거나 파일로 올려요. 꼭 짚어야 할 곳을 표시해 줄 테니 메모로 설명해 보세요.</p>
+            <p className="hand mt-2 text-pen-blue">API 키 같은 값은 올리기 전에 가려 줘요</p>
+            <Link href="/check" className="btn-line mt-4">
+              코드 가져오기
+            </Link>
+          </Sticky>
+        </div>
+      </section>
+
+      {/* 공부하는 순서 */}
+      <section className="mt-14">
+        <h2 className="text-2xl">공부하는 순서</h2>
+        <ol className="mt-4 space-y-2 text-sm">
+          {[
+            ["코드를 받는다", "연습 문제를 받거나 내 코드를 가져와요."],
+            ["형광펜으로 범위를 긋고 메모한다", "※ 표시된 줄은 꼭 설명해요."],
+            ["빨간펜 첨삭을 받는다", "메모마다 ○ △ ✕ 로 채점하고 다시 볼 곳을 알려줘요."],
+          ].map(([head, rest], i) => (
+            <li key={head} className="flex gap-3">
+              <span className="hand w-5 text-pen-red">{i + 1}.</span>
+              <span>
+                <b>{head}</b> <span className="text-ink-500">· {rest}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+    </Page>
   );
 }

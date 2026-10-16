@@ -1,12 +1,7 @@
-import { Suspense } from "react";
-import { PracticeSession } from "./PracticeSession";
+import { PracticeStart } from "./PracticeStart";
 
-export const metadata = { title: "문제 풀기 — 코드리딩" };
+export const metadata = { title: "연습 모드 — 코드 리딩 노트" };
 
 export default function PracticePage() {
-  return (
-    <Suspense fallback={<div className="mx-auto max-w-2xl px-4 py-10" />}>
-      <PracticeSession />
-    </Suspense>
-  );
+  return <PracticeStart />;
 }

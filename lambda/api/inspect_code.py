@@ -7,11 +7,12 @@ from common import (LANGUAGES, LEVELS, MAX_CODE_LINES, UPLOAD_KEEP_DAYS, AiUnava
 # 내 코드 점검 (inspect_code.py) — jojo_api 의 기능 파일
 #
 #   POST /inspect         코드 훑어보기 (AI 없음)   {"code": "...", "filename": "inventory.py"}
-#        → {"language", "lines", "code": 가린 코드, "masked": [{"line", "kind"}], "functions": [{"name", "signature", "start", "end"}]}
+#        → {"language", "lines", "code": 가린 코드, "masked": [{"line", "kind"}], "functions": [{"name", "signature", "start", "end"}],
+#           "levelGuess": 훑어본 난이도 (규칙, AI 없음)}
 #   POST /inspect/start   점검 시작                 {"code": "...", "filename": "...", "functions": ["check_stock", "sell"]}
 #        → AI 가 고른 함수 범위에서 난이도를 추정하고 ※ 꼭 설명할 곳을 정한다 → 연습 모드와 같은 '읽을 코드'
 #
-#   민감 정보(API 키·토큰·비밀번호)는 화면에서 먼저 가리고, 여기서도 한 번 더 가린다 (AI·DB 에는 가린 코드만)
+#   민감 정보(API 키·토큰·비밀번호)는 화면에서 먼저 가린 뒤 보내고(src/lib/secrets.ts), 여기서도 한 번 더 가린다 (AI·DB 에는 가린 코드만)
 #   올린 코드는 UPLOAD_KEEP_DAYS(1일) 뒤 자동으로 지워진다
 # ─────────────────────────────────────────────────────────────
 
@@ -58,8 +59,11 @@ def look(req):
     get_learner(req)
     code, language = read_code(req["body"])
     masked_code, masked = mask_secrets(code)
+    functions = find_functions(masked_code)
+    guess = rule_analysis(masked_code, functions)   # 훑어본 난이도 (규칙). 점검을 시작하면 AI 가 다시 정한다
     return {"language": language, "languageName": LANGUAGES[language], "lines": len(masked_code.split("\n")),
-            "code": masked_code, "masked": masked, "functions": find_functions(masked_code)}
+            "code": masked_code, "masked": masked, "functions": functions,
+            "levelGuess": guess["level"], "levelGuessName": LEVELS[guess["level"]]["name"]}
 
 
 def start(req):
@@ -98,7 +102,7 @@ def start(req):
     item = save_reading(learner, source="inspect", level=int(analysis["level"]), topic=filename, title=filename, code=code,
                         marks=marks, origin="upload", note=note, levelReason=analysis.get("levelReason", ""),
                         functions=[f["name"] for f in picked], keepDays=UPLOAD_KEEP_DAYS)
-    return {**public_reading(item), "levelReason": analysis.get("levelReason", ""), "masked": masked}
+    return {**public_reading(item), "masked": masked}
 
 
 ROUTES = {

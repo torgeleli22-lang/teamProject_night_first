@@ -716,5 +716,5 @@ def public_reading(item):
         "topic": item.get("topic", ""), "title": item.get("title", ""), "code": item["code"],
         "marks": [{"id": m["id"], "start": m["start"], "end": m["end"]} for m in item.get("marks", [])],
         "regenLeft": max(0, REGEN_LIMIT - item.get("regenCount", 0)), "note": item.get("note"),
-        "functions": item.get("functions"),
+        "functions": item.get("functions"), "levelReason": item.get("levelReason"),
     }

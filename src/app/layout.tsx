@@ -1,14 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { AppHeader } from "@/components/AppHeader";
+import { NoteHeader } from "@/components/NoteHeader";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "코드리딩 — 매일 하나씩 이해하는 코딩",
-  description: "코드를 외우지 마세요. 읽고 이해하는 것부터 시작하세요. 하나의 코드를 여러 질문으로 읽고, AI 튜터가 내가 무엇을 헷갈리는지 찾아주는 JavaScript 코드 읽기 학습.",
+  title: "코드 리딩 노트",
+  description: "AI 가 짜 준 코드, 정말 읽을 수 있나요? 코드 옆에 메모로 흐름을 적으면 빨간펜으로 첨삭해 드려요.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#5a48e3",
+  themeColor: "#ece8de",
   width: "device-width",
   initialScale: 1,
 };
@@ -17,14 +17,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko">
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Nanum+Gothic+Coding&family=Nanum+Pen+Script&display=swap"
+        />
         <link
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
         />
       </head>
       <body className="min-h-screen">
-        <AppHeader />
-        <main>{children}</main>
+        <div className="mx-auto max-w-5xl px-3 pb-16 pt-4 sm:px-6">
+          <NoteHeader />
+          <main>{children}</main>
+        </div>
       </body>
     </html>
   );
