@@ -1,11 +1,9 @@
 {
-  "설명": "콘솔 테스트 탭 → 새 이벤트에 아래 중 하나의 { ... } 부분만 붙여넣으세요. path·method 로 경로를 고르고, 나머지 값은 요청 본문이에요.",
-  "기본 문제 넣기 (처음 한 번)": { "task": "load-content" },
+  "_설명": "콘솔 테스트 탭 → 새 이벤트에 아래 예시 하나를 붙여넣고 '테스트'. 응답의 body 가 화면이 받는 JSON 이에요. 콘솔 테스트는 요청마다 새 학습자라서 /review 처럼 내 코드가 필요한 경로는 화면에서 시험해 주세요.",
   "연결 확인": { "path": "/health", "method": "GET" },
-  "내 정보": { "path": "/me", "method": "GET" },
-  "개념 문제 세트 (네트워크)": { "path": "/session", "method": "POST", "level": 2, "track": "theory", "unit": 11 },
-  "코드 문제 세트 (filter)": { "path": "/session", "method": "POST", "level": 2, "track": "code", "concept": "filter" },
-  "답 제출": { "path": "/attempts", "method": "POST", "questionId": "osi-routing", "answer": { "type": "multiple_choice", "index": 0 }, "hintsUsed": 0, "timeMs": 5000 },
-  "튜터 질문": { "path": "/ask", "method": "POST", "questionId": "cart-trace", "question": "total 이 왜 3000 이 되는지 모르겠어요", "solved": false },
-  "관리자 현황": { "path": "/admin/overview", "method": "GET", "headers": { "x-admin-token": "관리자 코드" } }
+  "랜덤 주제": { "path": "/topic/random", "method": "GET" },
+  "주제 판정 (AI)": { "path": "/topic/check", "method": "POST", "level": 2, "text": "쇼핑몰 만들기" },
+  "연습 코드 만들기 (AI)": { "path": "/practice", "method": "POST", "level": 1, "topic": "카페 주문" },
+  "내 코드 훑어보기 (AI 없음)": { "path": "/inspect", "method": "POST", "filename": "shop.py", "code": "API_KEY = \"abcd1234efgh\"\n\ndef sell(stock, qty):\n    if qty > stock:\n        return stock\n    return stock - qty\n" },
+  "관리자 현황": { "path": "/admin/overview", "method": "GET", "headers": { "x-admin-token": "<관리자 코드 — 여기에 적고 저장하지 마세요>" } }
 }

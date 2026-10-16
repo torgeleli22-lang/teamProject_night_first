@@ -1,14 +1,12 @@
 """
-코드리딩 API 공통 도구 (common.py) — jojo_api 함수 안의 파일
+코드 리딩 노트 API 공통 도구 (common.py) — jojo_api 함수 안의 파일
 
-기능 파일(questions.py, submit_answer.py …)은 '무엇을 하는지'만 쓰고, 여러 기능이 함께 쓰는 일은 여기에 모았어요.
+기능 파일(practice.py, review.py …)은 '무엇을 하는지'만 쓰고, 여러 기능이 함께 쓰는 일은 여기에 모았어요.
 
-  1. 설정 (환경 변수·정책 숫자)          7. 커리큘럼·문제 데이터 (메모리에 보관)
-  2. AWS 연결 (DynamoDB·Bedrock·Lambda)  8. 학습 기록 통계 (XP·이해도·난이도 추천)
-  3. 요청 읽기·응답 만들기 (CORS 포함)     9. 보기 섞기 (화면 순서 ↔ 원래 순서)
-  4. DynamoDB 읽기·쓰기 도구             10. AI 호출 (Bedrock, 월 예산·사용량 기록·목업)
-  5. 요청 수 제한                        11. 뒤에서 할 일 부르기 (응답을 기다리지 않음)
-  6. 학습자(세션)                        12. 설정 값·생성 작업 기록
+  1. 설정 (환경 변수·숫자)               5. 요청 수 제한
+  2. AWS 연결 (DynamoDB·Bedrock)          6. 학습자(세션)
+  3. 요청 읽기·응답 만들기 (CORS 포함)     7. AI 호출 (Bedrock, 월 예산·사용량 기록·목업·AI 끄기)
+  4. DynamoDB 읽기·쓰기 도구              8. 설정 값 (META)
 
 콘솔에서 이 파일을 고쳤다면 GitHub(lambda/api/common.py)에도 같이 반영해 주세요.
 """
@@ -34,19 +32,32 @@ from botocore.config import Config
 
 TABLE_NAME = os.environ.get("TABLE_NAME", "jojo_table")            # 모든 데이터를 담는 테이블 (파티션 키 pk, 정렬 키 sk)
 TTL_ATTR = os.environ.get("TTL_ATTR", "jojo_ttl")                  # 테이블의 TTL(자동 삭제) 속성 이름
-DB_REGION = os.environ.get("DB_REGION", "ap-northeast-2")          # DynamoDB·Lambda 가 있는 곳 (서울)
+DB_REGION = os.environ.get("DB_REGION", "ap-northeast-2")          # DynamoDB 가 있는 곳 (서울)
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")     # Bedrock 모델을 부르는 곳
 MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
-SESSION_HOURS = 12            # 마지막 사용 후 이 시간이 지나면 학습자와 기록이 사라진다 (로그인 없는 임시 학습자)
-RECORD_EXTRA_DAYS = 7         # 학습 기록은 학습자보다 조금 더 남긴다
+SESSION_HOURS = 12            # 마지막 사용 후 이 시간이 지나면 학습자가 사라진다 (로그인 없는 임시 학습자)
+SESSION_REFRESH_SEC = 15 * 60  # 학습자의 '마지막 사용 시각'은 이 간격마다만 고쳐 쓴다 (요청마다 쓰지 않아 빠르고 쌈)
 MOCK_DELAY_SEC = float(os.environ.get("MOCK_DELAY_SEC", "0.8"))   # 목업 응답을 기다리는 시간 (화면 확인용)
-CONTENT_CHECK_SEC = float(os.environ.get("CONTENT_CHECK_SEC", "30"))  # 문제 데이터가 바뀌었는지 확인하는 간격 (초)
+MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (300줄 코드 + 메모 → 수십 KB)
 
+# 서비스 숫자 (바꾸면 바로 반영)
+MAX_CODE_LINES = 300          # 내 코드 점검: 올릴 수 있는 최대 줄 수
+REGEN_LIMIT = 5               # 같은 코드에서 '더 쉽게·더 어렵게'로 다시 만들 수 있는 횟수
+READING_KEEP_DAYS = 7         # 연습 코드·첨삭 기록 보관 기간 (지나면 DynamoDB 가 자동 삭제)
+UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (짧게)
+MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
+MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
+LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
 
-MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (가장 큰 정상 요청은 관리자 가져오기·주관식 답 → 수십 KB)
+# 난이도 3단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
+LEVELS = {
+    1: {"name": "입문", "description": "짧은 코드, 변수·조건문·반복문이 위에서 아래로 흘러가요."},
+    2: {"name": "초급", "description": "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요."},
+    3: {"name": "중급", "description": "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요."},
+}
 
 
 def _num(name, default):
@@ -56,40 +67,14 @@ def _num(name, default):
 
 # 요청 수 제한 (0 이면 끔). 학교 교실처럼 여러 명이 같은 IP 를 쓰는 경우를 막지 않도록 IP 기준은 넉넉하게
 LIMITS = {
-    "per_ip_per_minute": _num("RATE_LIMIT_PER_MINUTE", 600),         # IP 하나의 전체 요청 (1분)
-    "ai_per_session_hour": _num("RATE_LIMIT_AI_PER_SESSION_HOUR", 30),  # 학습자 한 명의 AI 요청 (1시간)
-    "ai_per_ip_hour": _num("RATE_LIMIT_AI_PER_IP_HOUR", 300),         # IP 하나의 AI 요청 (1시간)
-    "ai_total_hour": _num("RATE_LIMIT_AI_TOTAL_HOUR", 400),           # 서비스 전체 AI 요청 (1시간)
+    "per_ip_per_minute": _num("RATE_LIMIT_PER_MINUTE", 600),           # IP 하나의 전체 요청 (1분)
+    "ai_per_session_hour": _num("RATE_LIMIT_AI_PER_SESSION_HOUR", 30),  # 학습자 한 명의 AI 요청 (1시간: 코드 받기·주제 판정·첨삭)
+    "ai_per_ip_hour": _num("RATE_LIMIT_AI_PER_IP_HOUR", 300),           # IP 하나의 AI 요청 (1시간)
+    "ai_total_hour": _num("RATE_LIMIT_AI_TOTAL_HOUR", 400),             # 서비스 전체 AI 요청 (1시간)
     "new_sessions_per_ip_hour": _num("RATE_LIMIT_NEW_SESSIONS_PER_HOUR", 120),  # IP 하나가 새로 만드는 학습자 (1시간)
 }
 
-# AI 문제 생성 기준 (docs/ai-generation-policy.md). 숫자만 바꾸면 된다
-POLICY = {
-    "minStock": 8,                 # 칸(개념 × 난이도)마다 최소 문제 수
-    "maxStock": 28,                # 칸마다 최대 문제 수
-    "learnerLow": 4,               # 한 학습자가 안 푼 문제가 이보다 적으면 '소진'
-    "demandLearners": 2,           # 최근 demandWindowDays 동안 이만큼의 학습자가 소진하면 생성
-    "demandWindowDays": 7,
-    "personalPerLearnerPerDay": 1,  # 맞춤 복습 생성: 학습자당 하루 최대
-    "dailyLimit": int(_num("AI_GENERATION_DAILY_LIMIT", 30)),         # 하루 전체 생성 상한
-    "monthlyBudgetUsd": _num("AI_MONTHLY_BUDGET_USD", 10),            # 한 달 AI 예산 (USD)
-}
-
-# 단원별로 AI 생성을 허용하는 난이도 (1~7: JavaScript 단원, 11~14: 개념 분야 — 관리자 승인 필요)
-LEVELS_BY_UNIT = {1: [1, 2, 3], 2: [1, 2, 3], 3: [2, 3, 4], 4: [2, 3, 4], 5: [3, 4, 5], 7: [4, 5],
-                  11: [1, 2, 3, 4], 12: [1, 2, 3, 4], 13: [1, 2, 3, 4], 14: [1, 2, 3, 4]}
-
-TRIGGER_LABEL = {
-    "launch_fill": "출시 전 채우기",
-    "stock_floor": "재고 하한 미달",
-    "demand": "여러 학습자 소진",
-    "personal_review": "맞춤 복습 (혼동 발견)",
-    "manual": "관리자 수동",
-}
-
-# 코드 문제를 만드는 Node.js Lambda 의 이름 (콘솔에서 만든 함수 이름과 같아야 함)
-GENERATE_CODE_FUNCTION = os.environ.get("GENERATE_CODE_FUNCTION", "jojo_generate_code")
-SESSION_REFRESH_SEC = 15 * 60   # 학습자의 '마지막 사용 시각'은 이 간격마다만 고쳐 쓴다 (요청마다 쓰지 않아 빠르고 쌈)
+MONTHLY_BUDGET_USD = _num("AI_MONTHLY_BUDGET_USD", 10)   # 한 달 AI 예산 (USD). 넘을 수 있는 호출은 하지 않고 예시 코드·규칙 첨삭으로
 
 # AI 가격표 (USD / 100만 토큰) — 예산 판단·관리자 화면 표시용 추정치
 PRICE = {
@@ -97,8 +82,8 @@ PRICE = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 2. AWS 연결 (처음 쓸 때 한 번 만들고, 같은 Lambda 가 다시 불리면 그대로 다시 쓴다)
-#    DYNAMODB_ENDPOINT·LAMBDA_ENDPOINT 는 내 컴퓨터에서 실행할 때만 쓴다 (npm run api)
+# 2. AWS 연결 (처음 쓸 때 한 번 만들고, 같은 함수가 다시 불리면 그대로 다시 쓴다)
+#    DYNAMODB_ENDPOINT 는 내 컴퓨터에서 실행할 때만 쓴다 (npm run api)
 # ─────────────────────────────────────────────────────────────
 
 table = boto3.resource("dynamodb", region_name=DB_REGION, endpoint_url=os.environ.get("DYNAMODB_ENDPOINT") or None).Table(TABLE_NAME)
@@ -108,15 +93,8 @@ _clients = {}
 def bedrock():
     if "bedrock" not in _clients:
         _clients["bedrock"] = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION,
-                                           config=Config(read_timeout=170, retries={"max_attempts": 2}))
+                                           config=Config(read_timeout=45, retries={"max_attempts": 2}))   # 코드 만들기 한 번이 20초 안팎
     return _clients["bedrock"]
-
-
-def lambda_client():
-    if "lambda" not in _clients:
-        _clients["lambda"] = boto3.client("lambda", region_name=DB_REGION, endpoint_url=os.environ.get("LAMBDA_ENDPOINT") or None,
-                                          config=Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1}))
-    return _clients["lambda"]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -356,7 +334,7 @@ def batch_put(items):
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. 요청 수 제한 (여러 Lambda 가 함께 세도록 DynamoDB 의 RL / 키#구간 항목에 센다)
+# 5. 요청 수 제한 (함수가 여러 개 떠도 함께 세도록 DynamoDB 의 RL / 키#구간 항목에 센다)
 # ─────────────────────────────────────────────────────────────
 
 
@@ -385,25 +363,19 @@ def ai_allowed(req):
     return hit_limit(f"ai-ip:{req['ip']}", LIMITS["ai_per_ip_hour"], 3600) and hit_limit("ai-all", LIMITS["ai_total_hour"], 3600)
 
 
-AI_LIMIT_MESSAGE = "AI 튜터를 잠깐 너무 많이 썼어요. 조금 쉬었다가(최대 1시간) 다시 물어봐 주세요. 그동안 힌트와 해설은 그대로 볼 수 있어요."
+AI_LIMIT_MESSAGE = "AI 를 잠깐 너무 많이 썼어요. 조금 쉬었다가(최대 1시간) 다시 해 주세요."
 
 # ─────────────────────────────────────────────────────────────
 # 6. 학습자 (세션) — 로그인 없이 브라우저 탭마다 한 명. 세션 id 는 x-session-id 헤더로 주고받는다
-#    LEARNER / <세션 id> : 닉네임, 고른 난이도, 총 XP·푼 수(랭킹)
+#    LEARNER / <세션 id> : 고른 난이도, 최근 주제
 # ─────────────────────────────────────────────────────────────
 
 SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-ADJECTIVES = ["성실한", "호기심 많은", "차분한", "부지런한", "용감한", "꼼꼼한", "즐거운", "끈기 있는", "반짝이는", "느긋한"]
-ANIMALS = ["고양이", "판다", "수달", "펭귄", "다람쥐", "고래", "여우", "부엉이", "코알라", "햄스터"]
-
-
-def random_nickname():
-    return f"{random.choice(ADJECTIVES)} {random.choice(ANIMALS)} {random.randint(10, 99)}"
+RECENT_TOPICS = 10   # 랜덤 주제에서 빼는 최근 주제 수
 
 
 def learner_from_item(item):
-    return {"id": item["sk"], "nickname": item["nickname"], "preferredLevel": item.get("preferredLevel"),
-            "dailyGoal": item.get("dailyGoal", 5), "createdAt": item.get("createdAt", 0)}
+    return {"id": item["sk"], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0)}
 
 
 def get_learner(req):
@@ -423,368 +395,22 @@ def get_learner(req):
     if not hit_limit(f"new:{req['ip']}", LIMITS["new_sessions_per_ip_hour"], 3600):
         raise ApiError(429, "새로 시작하는 요청이 너무 많아요. 잠시 뒤(최대 1시간)에 다시 시도해 주세요.")
     now = now_ms()
-    item = {"pk": "LEARNER", "sk": str(uuid.uuid4()), "nickname": random_nickname(), "preferredLevel": None, "dailyGoal": 5,
-            "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(session_ttl), "xp": 0, "solved": 0}
+    item = {"pk": "LEARNER", "sk": str(uuid.uuid4()), "level": None, "recentTopics": [],
+            "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(session_ttl)}
     put_item(item)
     req["learner"] = learner_from_item(item)
     return req["learner"]
 
 
-def record_ttl():
-    """학습 기록(S#<세션 id> 파티션)의 TTL 값"""
-    return ttl_after(SESSION_HOURS * 3600 + RECORD_EXTRA_DAYS * 86400)
+def remember_topic(learner, topic, level):
+    """최근 주제(랜덤에서 빼기)와 고른 난이도를 기억한다"""
+    recent = [t for t in learner["recentTopics"] if t != topic][-(RECENT_TOPICS - 1):] + [topic]
+    update_item("LEARNER", learner["id"], set_values={"recentTopics": recent, "level": level})
+    learner["recentTopics"], learner["level"] = recent, level
 
 
 # ─────────────────────────────────────────────────────────────
-# 7. 커리큘럼·문제 데이터
-#    커리큘럼: 같은 폴더의 content.json (generate-code 함수를 위해 META / curriculum 에도 넣어 둠)
-#    CONTENT / <코드 id> : 코드(또는 개념 문제 묶음) 하나와 그 문제들
-#    같은 함수가 다시 불리면 메모리에 둔 것을 쓰고, 30초(CONTENT_CHECK_SEC)마다 META / content_version 이 바뀌었는지만 확인한다
-# ─────────────────────────────────────────────────────────────
-
-_cache = {"curriculum": None, "content": None, "version": None, "checked": 0}
-
-
-CONTENT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "content.json")
-
-
-def curriculum():
-    """단원·개념·난이도·자격증. 같은 함수 안의 content.json 에서 읽는다 (DynamoDB 를 거치지 않아 빠름)"""
-    if _cache["curriculum"] is None:
-        if os.path.exists(CONTENT_FILE):
-            with open(CONTENT_FILE, encoding="utf-8") as f:
-                data = json.load(f)["curriculum"]
-        else:
-            item = get_item("META", "curriculum")
-            if not item:
-                raise ApiError(503, "문제 데이터가 아직 준비되지 않았어요. 관리자가 load-content 를 실행해야 해요.")
-            data = item["data"]
-        data["conceptMap"] = {c["id"]: c for c in data["concepts"]}
-        data["unitMap"] = {u["id"]: u for u in data["units"]}
-        _cache["curriculum"] = data
-    return _cache["curriculum"]
-
-
-def concept(concept_id):
-    return curriculum()["conceptMap"].get(concept_id)
-
-
-def concept_name(concept_id):
-    c = concept(concept_id)
-    return c["name"] if c else concept_id
-
-
-def unit(unit_id):
-    return curriculum()["unitMap"].get(unit_id)
-
-
-def units_of(track):
-    return [u for u in curriculum()["units"] if u["track"] == track]
-
-
-def concepts_of(track):
-    ids = {u["id"] for u in units_of(track)}
-    return [c for c in curriculum()["concepts"] if c["unitId"] in ids]
-
-
-def track_of(concept_id):
-    c = concept(concept_id)
-    u = unit(c["unitId"]) if c else None
-    return u["track"] if u else "code"
-
-
-def level_info(level):
-    return curriculum()["levels"][min(max(int(level), 1), 5) - 1]
-
-
-def generatable_levels(concept_id):
-    c = concept(concept_id)
-    return LEVELS_BY_UNIT.get(c["unitId"], []) if c else []
-
-
-def content_version():
-    return (get_item("META", "content_version") or {}).get("value", "0")
-
-
-def load_content():
-    """공개(published)된 코드와 문제 전부: {"items": {id: 코드}, "questions": {id: 문제}, "byItem": {코드 id: [문제]}}"""
-    if _cache["content"] and time.time() - _cache["checked"] < CONTENT_CHECK_SEC:
-        return _cache["content"]
-    version = content_version()
-    _cache["checked"] = time.time()
-    if _cache["content"] and _cache["version"] == version:
-        return _cache["content"]
-    items, questions, by_item = {}, {}, {}
-    for row in query_all("CONTENT"):
-        if row.get("status") != "published":
-            continue
-        items[row["sk"]] = row["item"]
-        by_item[row["sk"]] = row.get("questions", [])
-        for q in by_item[row["sk"]]:
-            questions[q["id"]] = q
-    _cache["content"] = {"items": items, "questions": questions, "byItem": by_item}
-    _cache["version"] = version
-    return _cache["content"]
-
-
-def get_question(question_id):
-    """문제 id → (문제, 그 문제의 코드). 없으면 (None, None)"""
-    content = load_content()
-    q = content["questions"].get(question_id)
-    item = content["items"].get(q["codeItemId"]) if q else None
-    return (q, item) if q and item else (None, None)
-
-
-def bump_content_version():
-    put_item({"pk": "META", "sk": "content_version", "value": f"{now_ms()}-{uuid.uuid4().hex[:6]}"})
-
-
-def coverage():
-    """개념 × 난이도('개념:난이도')별 공개 문제 수"""
-    content = load_content()
-    out = {}
-    for item in content["items"].values():
-        for c in item["concepts"]:
-            key = f"{c}:{item['level']}"
-            out[key] = out.get(key, 0) + len(content["byItem"].get(item["id"], []))
-    return out
-
-
-# ─────────────────────────────────────────────────────────────
-# 8. 학습 기록 통계 (AI 없이 규칙으로 계산)
-#    S#<세션 id> / A#<번호> : 풀이 한 번 (문제, 맞았는지, 힌트, 시간, 오개념)
-# ─────────────────────────────────────────────────────────────
-
-MASTERED = 80   # 이해도가 이 이상이면 '익힘'
-WEAK = 60       # 2번 이상 풀었는데 이해도가 이보다 낮으면 '다질 개념'
-
-
-def list_attempts(session_id):
-    return [attempt_from_row(r) for r in query_all(f"S#{session_id}", prefix="A#")]
-
-
-def attempt_from_row(r):
-    return {"id": r["id"], "questionId": r["questionId"], "codeItemId": r.get("codeItemId"), "questionType": r["questionType"],
-            "concepts": r.get("concepts", []), "level": r.get("level", 1), "correct": bool(r.get("correct")),
-            "partial": bool(r.get("partial")), "hintsUsed": r.get("hintsUsed", 0), "timeMs": r.get("timeMs", 0),
-            "misconception": r.get("misconception"), "gradedBy": r.get("gradedBy", "rule"), "createdAt": r.get("createdAt", 0),
-            "answer": r.get("answer")}
-
-
-def learner_records(session_id):
-    """
-    학습자 한 명의 기록 전부를 DynamoDB 조회 한 번으로 읽는다 (S#<세션 id> 파티션을 통째로).
-    → {"attempts": 풀이(A#), "days": 하루 요약(D#), "concepts": 개념 요약(C#), "analysis": 최근 분석(N#)}
-    화면 하나에 필요한 기록을 따로따로 4번 읽지 않아서 빠르다.
-    """
-    out = {"attempts": [], "days": [], "concepts": [], "analysis": None}
-    for r in query_all(f"S#{session_id}"):
-        kind = r["sk"][:2]
-        if kind == "A#":
-            out["attempts"].append(attempt_from_row(r))
-        elif kind == "D#":
-            out["days"].append(r)
-        elif kind == "C#":
-            out["concepts"].append(r)
-        elif kind == "N#":   # 정렬 키가 시간순이라 마지막이 가장 최근
-            out["analysis"] = {"id": r["id"], "attemptCount": r["attemptCount"], "result": r["result"], "source": r["source"], "createdAt": r["createdAt"]}
-    return out
-
-
-def attempt_quality(a):
-    """풀이 한 번이 이해도에 주는 점수 (0~1). 힌트를 많이 볼수록 낮다"""
-    if a["correct"]:
-        return max(0.4, 1 - 0.15 * min(a["hintsUsed"], 4))
-    return 0.5 if a["partial"] else 0
-
-
-def xp_for_attempt(a):
-    base = (15 if a["hintsUsed"] == 0 else 10) if a["correct"] else (6 if a["partial"] else 2)
-    return base + ((a["level"] - 1) * 2 if a["correct"] else 0)
-
-
-def concept_stats(attempts):
-    """개념별 통계 {개념 id: {attempts, correct, accuracy, mastery, avgTimeMs, recentWrong}} — 모든 개념이 들어 있다"""
-    by = {}
-    for a in attempts:
-        for c in a["concepts"]:
-            by.setdefault(c, []).append(a)
-    out = {}
-    for c in curriculum()["concepts"]:
-        lst = by.get(c["id"], [])
-        recent = lst[-5:]
-        quality = sum(attempt_quality(a) for a in recent) / len(recent) if recent else 0
-        correct = sum(1 for a in lst if a["correct"])
-        n = len(lst)
-        out[c["id"]] = {"conceptId": c["id"], "attempts": n, "correct": correct,
-                        "accuracy": round(correct / n * 100) if n else 0,
-                        "mastery": round(quality * min(n / 3, 1) * 100),
-                        "avgTimeMs": round(sum(a["timeMs"] for a in lst) / n) if n else 0,
-                        "recentWrong": sum(1 for a in lst[-10:] if not a["correct"])}
-    return out
-
-
-def is_weak(s):
-    return bool(s) and s["attempts"] >= 2 and s["mastery"] < WEAK
-
-
-def weak_concepts(stats):
-    return sorted([s for s in stats.values() if is_weak(s)], key=lambda s: s["mastery"])
-
-
-def strong_concepts(stats):
-    return sorted([s for s in stats.values() if s["mastery"] >= MASTERED], key=lambda s: -s["mastery"])
-
-
-def misconception_counts(attempts):
-    counts = {}
-    for a in attempts:
-        if a.get("misconception"):
-            counts[a["misconception"]] = counts.get(a["misconception"], 0) + 1
-    return sorted([{"text": t, "count": n} for t, n in counts.items()], key=lambda m: -m["count"])
-
-
-def suggest_level(attempts, current):
-    """최근 8번(같은 난이도)의 정답률·힌트로 추천 난이도. 추천만 하고 바꾸지는 않는다"""
-    recent = [a for a in attempts if a["level"] == current][-8:]
-    if len(recent) < 5:
-        return {"level": current, "direction": "stay", "message": "조금 더 풀어보면 알맞은 난이도를 추천해 드릴게요."}
-    accuracy = sum(1 for a in recent if a["correct"]) / len(recent)
-    hints = sum(min(a["hintsUsed"], 4) for a in recent) / len(recent)
-    if accuracy >= 0.8 and hints < 1 and current < 5:
-        return {"level": current + 1, "direction": "up", "message": "지금 난이도를 안정적으로 해결하고 있어요. 조금 더 어려운 문제에 도전해 보세요."}
-    if accuracy < 0.4 and current > 1:
-        return {"level": current - 1, "direction": "down", "message": "한 단계 낮은 난이도로 개념을 다지고 다시 올라와도 좋아요."}
-    return {"level": current, "direction": "stay", "message": "지금 난이도가 딱 알맞아요. 이대로 꾸준히 가 봐요."}
-
-
-def day_key(ms):
-    """날짜 (한국 시간 기준 yyyy-mm-dd)"""
-    return datetime.fromtimestamp(ms / 1000 + 9 * 3600, tz=timezone.utc).strftime("%Y-%m-%d")
-
-
-def learner_level(xp):
-    level = 1
-    while 50 * (level + 1) * level <= xp:
-        level += 1
-    base = 50 * level * (level - 1)
-    nxt = 50 * (level + 1) * level
-    return {"level": level, "current": xp - base, "needed": nxt - base}
-
-
-ANALYSIS_EVERY = 10   # 학습자 분석은 새로 푼 문제가 이만큼 쌓일 때마다 한 번 (AI 비용 관리)
-
-
-def latest_analysis(session_id):
-    """가장 최근 학습자 분석 (S#<세션 id> / N#<번호>)"""
-    rows = query_all(f"S#{session_id}", prefix="N#", descending=True, limit=1)
-    if not rows:
-        return None
-    r = rows[0]
-    return {"id": r["id"], "attemptCount": r["attemptCount"], "result": r["result"], "source": r["source"], "createdAt": r["createdAt"]}
-
-
-def unread_lessons(content, seen, level, max_gap, keep=lambda item: True, question_ok=lambda q: True):
-    """아직 다 읽지 않은 코드 (난이도 차이 max_gap 안, 가까운 난이도부터)"""
-    out = [i for i in content["items"].values()
-           if i["track"] == "code" and keep(i) and abs(i["level"] - level) <= max_gap
-           and any(question_ok(q) and q["id"] not in seen for q in content["byItem"].get(i["id"], []))]
-    return sorted(out, key=lambda i: abs(i["level"] - level))
-
-
-def recommend_code_concept(content, attempts, stats, level, question_ok=lambda q: True):
-    """코드 학습의 추천 개념: 하던 개념 → 아직 익히지 않은 다음 개념 → 새 코드가 남은 개념. (개념, 이유)"""
-    seen = {a["questionId"] for a in attempts}
-    order = [cid for u in units_of("code") for cid in u["conceptIds"]]
-    first = order[0] if order else curriculum()["concepts"][0]["id"]
-
-    def unmastered(cid):
-        return stats.get(cid, {}).get("mastery", 0) < MASTERED
-
-    def fresh(cid, gap):
-        return unread_lessons(content, seen, level, gap, lambda i: cid in i["concepts"], question_ok)
-
-    last = attempts[-1]["concepts"][0] if attempts and attempts[-1]["concepts"] else None
-    if last and track_of(last) == "code" and unmastered(last) and fresh(last, 0):
-        return last, "continue"
-    nxt = next((c for c in order if unmastered(c) and fresh(c, 0)), None) or next((c for c in order if unmastered(c) and fresh(c, 1)), None)
-    if nxt:
-        return nxt, "next"
-    return next((c for c in order if fresh(c, 4)), first), "polish"
-
-
-def wrong_questions(attempts):
-    """마지막 풀이가 오답인 문제 (최근에 틀린 순서)"""
-    last = {}
-    for a in attempts:
-        prev = last.get(a["questionId"])
-        last[a["questionId"]] = {"correct": a["correct"], "at": a["createdAt"],
-                                 "misconception": a.get("misconception") or (prev or {}).get("misconception"),
-                                 "tries": (prev or {}).get("tries", 0) + 1}
-    out = [{"questionId": qid, "lastAt": v["at"], "misconception": v["misconception"], "tries": v["tries"]}
-           for qid, v in last.items() if not v["correct"]]
-    return sorted(out, key=lambda w: -w["lastAt"])
-
-
-# ─────────────────────────────────────────────────────────────
-# 9. 보기 섞기: 객관식 보기는 문제 id 로 정한 순서로 섞어서 보여 준다 (항상 같은 순서)
-#    화면에서 고른 번호 → 원래 번호로 되돌려서 채점한다
-# ─────────────────────────────────────────────────────────────
-
-
-def _imul(a, b):
-    return (a * b) & 0xFFFFFFFF
-
-
-def seeded_permutation(n, seed):
-    """seed 로 정해지는 섞인 순서 (원래 순서와 같으면 한 칸 돌림). 예전 Node 서버와 같은 결과"""
-    h = 2166136261
-    for ch in seed:
-        h = _imul(h ^ (ord(ch) & 0xFFFF), 16777619)
-
-    def rand():
-        nonlocal h
-        h = (_imul(h ^ (h >> 15), 2246822507) ^ _imul(h ^ (h >> 13), 3266489909)) & 0xFFFFFFFF
-        return h / 4294967296
-
-    arr = list(range(n))
-    for i in range(n - 1, 0, -1):
-        j = int(rand() * (i + 1))
-        arr[i], arr[j] = arr[j], arr[i]
-    if n > 1 and arr == list(range(n)):
-        arr = arr[1:] + arr[:1]
-    return arr
-
-
-def has_choices(q):
-    return q.get("type") in ("multiple_choice", "fill_blank")
-
-
-def choice_order(q):
-    return seeded_permutation(len(q["choices"]), f"{q['id']}:choices") if has_choices(q) else []
-
-
-def displayed_choices(q):
-    """화면에 보이는 순서의 보기 글"""
-    return [q["choices"][i]["text"] for i in choice_order(q)]
-
-
-def unshuffle_answer(q, answer):
-    """화면 번호로 온 답 → 원래 보기 번호"""
-    if answer and has_choices(q) and answer.get("type") == q["type"]:
-        order = choice_order(q)
-        idx = answer.get("index", -1)
-        return {**answer, "index": order[idx] if 0 <= idx < len(order) else -1}
-    return answer
-
-
-def display_choice_index(q, original_index):
-    order = choice_order(q)
-    return order.index(original_index) if original_index in order else -1
-
-
-# ─────────────────────────────────────────────────────────────
-# 10. AI 호출 (Bedrock Converse)
+# 7. AI 호출 (Bedrock Converse)
 #     - 구조화 응답(ask_ai): 'answer' 도구 하나를 주고 반드시 그 도구로 답하게 해서, 도구 입력(JSON)을 결과로 쓴다
 #     - 이번 달 추정 비용 + 이번 호출의 최대 비용이 예산을 넘으면 부르지 않는다 (AiUnavailable → 규칙 기반 대체)
 #     - 호출마다 USAGE / <연-월>#<작업>#<모델> 에 토큰 수를 더한다 (관리자 화면의 비용)
@@ -796,8 +422,20 @@ class AiUnavailable(Exception):
     """AI 를 쓸 수 없음 (꺼짐·예산·형식 오류) → 부른 쪽에서 규칙 기반 결과를 쓴다"""
 
 
+_switch = {"value": None, "checked": 0}
+
+
+def ai_switch_on():
+    """관리자 화면의 'AI 끄기' 스위치 (META / ai_switch). 30초마다만 다시 읽는다"""
+    if time.time() - _switch["checked"] > 30:
+        _switch["value"] = get_meta("ai_switch") != "off"
+        _switch["checked"] = time.time()
+    return _switch["value"]
+
+
 def ai_enabled():
-    return AI_MODE in ("live", "mock")
+    """AI 를 쓸 수 있는지: 환경 변수 AI_MODE 가 live·mock 이고, 관리자가 끄지 않았을 때"""
+    return AI_MODE in ("live", "mock") and ai_switch_on()
 
 
 def month_key(ms=None):
@@ -848,7 +486,7 @@ def check_budget(input_chars, max_tokens):
     """이번 호출이 쓸 수 있는 최대 비용까지 더해도 월 예산 안인지 (넘으면 AiUnavailable)"""
     p = PRICE.get(normalize_model(MODEL_ID)) or max(PRICE.values(), key=lambda x: x["output"])
     worst = (input_chars * p["input"] + max_tokens * p["output"]) / 1e6
-    if month_cost_usd() + worst > POLICY["monthlyBudgetUsd"]:
+    if month_cost_usd() + worst > MONTHLY_BUDGET_USD:
         raise AiUnavailable("monthly AI budget reached")
 
 
@@ -866,33 +504,10 @@ def build_messages(history, prompt):
     return out
 
 
-def ask_text(task, system, prompt, history=None, max_tokens=1000, mock=None):
-    """AI 에게 묻고 글로 답을 받는다 (튜터 대화). 돌려주는 값: (답, 사용량)"""
-    if AI_MODE == "mock":
-        if not mock:
-            raise AiUnavailable("no mock")
-        time.sleep(MOCK_DELAY_SEC)
-        answer = mock()
-        log_usage(task, f"mock:{MODEL_ID}", (len(system) + len(prompt)) // 2, len(answer) // 2, 0, True)
-        return answer, {"inputTokens": 0, "outputTokens": 0}
-    if AI_MODE != "live":
-        raise AiUnavailable("AI is off")
-    messages = build_messages(history, prompt)
-    check_budget(len(system) + sum(len(m["content"][0]["text"]) for m in messages), max_tokens)
-    ok, usage = False, {}
-    try:
-        response = bedrock().converse(modelId=MODEL_ID, system=[{"text": system}], messages=messages,
-                                      inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3})
-        usage = response.get("usage", {})
-        answer = response["output"]["message"]["content"][0]["text"]
-        ok = True
-        return answer, {"inputTokens": usage.get("inputTokens", 0), "outputTokens": usage.get("outputTokens", 0)}
-    finally:
-        log_usage(task, MODEL_ID, usage.get("inputTokens", 0), usage.get("outputTokens", 0), usage.get("cacheReadInputTokens", 0), ok)
-
-
 def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=None, salvage=None, mock_delay=None):
     """AI 에게 정해진 형식(schema, JSON Schema)의 답을 받는다. 형식이 어긋나면 흔한 실수를 고치고, 그래도 틀리면 AiUnavailable"""
+    if not ai_enabled():
+        raise AiUnavailable("AI is off")
     if AI_MODE == "mock":
         if not mock:
             raise AiUnavailable("no mock for this task")
@@ -1018,31 +633,9 @@ def check_schema(value, schema, path="(전체)"):
     return issues
 
 
-# ─────────────────────────────────────────────────────────────
-# 11. 뒤에서 할 일 부르기 (InvocationType=Event: 응답을 기다리지 않음)
-#     - learner-analysis, generate-theory: 이 함수(jojo_api)를 {"task": ...} 로 다시 부른다
-#     - generate-code: 코드 문제를 만드는 Node.js 함수
-#     실행 역할에 lambda:InvokeFunction 권한이 필요하다
-# ─────────────────────────────────────────────────────────────
-
-
-def invoke_async(task, payload):
-    """task 이름으로 뒤에서 할 일을 시작한다. 실패하면 False (학습은 계속)"""
-    if task == "generate-code":
-        target, event = GENERATE_CODE_FUNCTION, payload
-    else:
-        target, event = os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "jojo_api"), {"task": task, **payload}
-    try:
-        lambda_client().invoke(FunctionName=target, InvocationType="Event",
-                               Payload=json.dumps(event, ensure_ascii=False).encode("utf-8"))
-        return True
-    except Exception as e:
-        print("[invoke]", task, repr(e))
-        return False
-
 
 # ─────────────────────────────────────────────────────────────
-# 12. 설정 값(META)·생성 작업 기록(JOB)·수요 신호(DEMAND)
+# 8. 설정 값 (META / <키>)
 # ─────────────────────────────────────────────────────────────
 
 
@@ -1054,25 +647,74 @@ def set_meta(key, value):
     put_item({"pk": "META", "sk": key, "value": value})
 
 
-def auto_generation_enabled():
-    return get_meta("auto_generation") != "off"
+# ─────────────────────────────────────────────────────────────
+# 9. 읽을 코드 (READ#<id> / CODE) — 연습 모드·내 코드 점검이 함께 쓴다
+#    코드, 언어, 난이도, 주제, ※ 꼭 설명할 곳(marks: 줄 범위 + 모범 설명 + 핵심 표현)
+#    화면에는 public_reading() 만 보낸다 (모범 설명·핵심 표현은 첨삭 뒤에만)
+# ─────────────────────────────────────────────────────────────
 
 
-def jobs_since(since_ms):
-    """since_ms 이후에 만든 생성 작업들 (작업 번호가 시각 기반이라 정렬 키 범위로 읽는다)"""
-    return query_all("JOB", start=pad(since_ms * 1000))
+def day_key(ms=None):
+    """날짜 (한국 시간 기준 yyyy-mm-dd)"""
+    return datetime.fromtimestamp((ms or now_ms()) / 1000 + 9 * 3600, tz=timezone.utc).strftime("%Y-%m-%d")
 
 
-def running_job(concept_id, level):
-    """같은 개념·난이도로 10분 안에 시작해 아직 진행 중인 작업"""
-    return next((j for j in jobs_since(now_ms() - 600_000)
-                 if j["concept"] == concept_id and j["level"] == level and j["status"] == "running"), None)
+def count_event(name):
+    """관리자 화면의 하루 사용 수 (STATS / DAY#날짜 에 더하기). 실패해도 학습은 계속"""
+    try:
+        update_item("STATS", f"DAY#{day_key()}", set_values={TTL_ATTR: ttl_after(90 * 86400)}, add_values={name: 1})
+    except Exception as e:
+        print("[stats]", repr(e))
 
 
-def record_demand(concept_id, level, session_id):
-    put_item({"pk": "DEMAND", "sk": f"{concept_id}#{level}#{session_id}", "concept": concept_id, "level": level,
-              "sessionId": session_id, "lastAt": now_ms(), TTL_ATTR: ttl_after(POLICY["demandWindowDays"] * 86400)})
+def numbered(code):
+    """AI 에게 보여 줄 줄 번호 붙인 코드"""
+    return "\n".join(f"{i + 1:3}| {line}" for i, line in enumerate(code.split("\n")))
 
 
-def demand_count(concept_id, level, since_ms):
-    return sum(1 for d in query_all("DEMAND", prefix=f"{concept_id}#{level}#") if d.get("lastAt", 0) >= since_ms)
+def clean_marks(code, marks, limit=4):
+    """※ 지점 정리: 코드 줄 범위 안으로, 시작 순서대로, 겹치면 빼고, 최대 limit 곳. id 는 m1, m2 …"""
+    total = len(code.split("\n"))
+    out = []
+    for m in sorted(marks, key=lambda m: m["start"]):
+        start, end = max(1, int(m["start"])), min(total, int(m["end"]))
+        if start > end or (out and start <= out[-1]["end"]):
+            continue
+        out.append({"id": f"m{len(out) + 1}", "start": start, "end": end, "why": str(m.get("why", ""))[:80],
+                    "explanation": str(m.get("explanation", ""))[:600], "keywords": [str(k)[:30] for k in m.get("keywords", [])][:8]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def save_reading(learner, **fields):
+    """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keepDays"""
+    reading_id = str(uuid.uuid4())
+    keep_days = fields.pop("keepDays", READING_KEEP_DAYS)
+    item = {"pk": f"READ#{reading_id}", "sk": "CODE", "id": reading_id, "owner": learner["id"], "language": "python",
+            "createdAt": now_ms(), "rootId": fields.pop("rootId", None) or reading_id, "regenCount": fields.pop("regenCount", 0),
+            TTL_ATTR: ttl_after(keep_days * 86400), **fields}
+    put_item(item)
+    return item
+
+
+def load_reading(reading_id, learner):
+    """내 코드만 꺼낼 수 있다 (다른 사람의 id 를 알아도 못 봄)"""
+    if not isinstance(reading_id, str) or not re.fullmatch(r"[0-9a-f-]{36}", reading_id):
+        raise ApiError(400, "요청 값을 확인해 주세요.")
+    item = get_item(f"READ#{reading_id}", "CODE")
+    if not item or not alive(item) or item.get("owner") != learner["id"]:
+        raise ApiError(404, "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요.")
+    return item
+
+
+def public_reading(item):
+    """화면으로 보낼 모양 (※ 지점은 줄 범위만)"""
+    level = item.get("level") or 1
+    return {
+        "id": item["id"], "source": item["source"], "language": item["language"], "level": level, "levelName": LEVELS[level]["name"],
+        "topic": item.get("topic", ""), "title": item.get("title", ""), "code": item["code"],
+        "marks": [{"id": m["id"], "start": m["start"], "end": m["end"]} for m in item.get("marks", [])],
+        "regenLeft": max(0, REGEN_LIMIT - item.get("regenCount", 0)), "note": item.get("note"),
+        "functions": item.get("functions"), "levelReason": item.get("levelReason"),
+    }

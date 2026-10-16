@@ -3,216 +3,112 @@
 @tailwind utilities;
 
 /*
- * Liquid Glass 디자인 (참고: dashersw/liquid-glass-js README)
- * README 의 개념을 CSS 로 옮겼다. WebGL·html2canvas 는 쓰지 않는다
- * (요소마다 WebGL 캔버스 + 페이지 캡처는 모바일에서 무겁고, 화면 내용이 자주 바뀌는 학습 앱에 맞지 않음).
- *
- *   README 매개변수        → 여기서
- *   Blur Radius            → --glass-blur (backdrop-filter blur)
- *   Tint Opacity           → --glass-tint (유리 바탕의 흰색 농도)
- *   Rim Intensity          → 안쪽 테두리 빛 (inset 1px 흰 선)
- *   Edge Intensity         → 가장자리 굴절 그림자 (inset 아래쪽 그늘)
- *   Corner Boost / 반사광  → ::before 위쪽 하이라이트 그라디언트
- *   Shape: rounded / pill / circle → .glass / .glass-bar·.glass-pill / .glass-orb
- *   Nested Glass           → 유리 안의 유리(.glass-soft, 칩·버튼)는 더 옅게
+ * 공부 노트 디자인
+ *   책상(desk) 위에 줄 공책 한 장(.page) — 가로줄 + 왼쪽 빨간 여백선
+ *   형광펜(.marker) · 포스트잇(.sticky + .tape 마스킹테이프) · 빨간펜 손글씨(.hand) · 도장(.stamp) · 인덱스 탭
+ *   그라데이션·둥근 카드·이모지·파란 버튼은 쓰지 않는다
  */
-:root {
-  --glass-blur: 18px;
-  --glass-tint: 0.62;
-  --glass-rim: rgba(255, 255, 255, 0.75);
-  --glass-edge: rgba(90, 72, 227, 0.1);
-}
-
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
   }
   body {
-    @apply bg-ink-50 text-ink-900 antialiased;
+    @apply bg-desk text-ink-900 antialiased;
     word-break: keep-all;
   }
-  /* 유리가 비칠 배경: 은은하게 움직이는 색 번짐 */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: -20vmax;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(38vmax 32vmax at 12% 18%, rgba(139, 128, 249, 0.34), transparent 60%),
-      radial-gradient(34vmax 30vmax at 88% 12%, rgba(32, 178, 122, 0.2), transparent 60%),
-      radial-gradient(40vmax 34vmax at 78% 88%, rgba(245, 176, 20, 0.16), transparent 60%),
-      radial-gradient(36vmax 30vmax at 20% 92%, rgba(242, 105, 75, 0.12), transparent 60%);
-    animation: ambient 28s ease-in-out infinite alternate;
+  h1,
+  h2,
+  h3 {
+    @apply font-serif font-bold;
   }
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-400 ring-offset-2 ring-offset-white;
-  }
-}
-
-@keyframes ambient {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  100% {
-    transform: translate3d(-3vmax, 2vmax, 0) scale(1.06);
+    outline: 2px dashed #c0392b;
+    outline-offset: 2px;
   }
 }
 
 @layer components {
-  /* ── 유리 기본형 (rounded) ── */
-  .glass {
-    position: relative;
-    isolation: isolate;
-    border-radius: 1.5rem;
-    background: linear-gradient(160deg, rgba(255, 255, 255, calc(var(--glass-tint) + 0.14)), rgba(255, 255, 255, var(--glass-tint)));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(180%);
-    box-shadow:
-      inset 0 1px 0 var(--glass-rim),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.35),
-      inset 0 -10px 22px -16px var(--glass-edge),
-      0 1px 2px rgba(29, 27, 47, 0.04),
-      0 10px 30px -8px rgba(52, 46, 124, 0.14);
+  /* 공책 한 장: 28px 간격 가로줄, 왼쪽 여백선 */
+  .page {
+    @apply relative border border-paper-edge bg-paper shadow-page;
+    background-image:
+      linear-gradient(to right, transparent 47px, #e8a1a1 47px, #e8a1a1 48px, transparent 48px),
+      repeating-linear-gradient(to bottom, transparent 0, transparent 27px, #e9ecf3 27px, #e9ecf3 28px);
   }
-  /* 위쪽 반사광 (corner boost) */
-  .glass::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    pointer-events: none;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 38%);
-    opacity: 0.6;
+  @media (max-width: 640px) {
+    .page {
+      background-image:
+        linear-gradient(to right, transparent 19px, #e8a1a1 19px, #e8a1a1 20px, transparent 20px),
+        repeating-linear-gradient(to bottom, transparent 0, transparent 27px, #e9ecf3 27px, #e9ecf3 28px);
+    }
   }
-  /* 유리 안의 유리 (nested): 더 옅고 얇게 */
-  .glass-soft {
-    border-radius: 1.125rem;
-    background: rgba(255, 255, 255, 0.5);
-    -webkit-backdrop-filter: blur(10px) saturate(160%);
-    backdrop-filter: blur(10px) saturate(160%);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.7),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.4);
-  }
-  /* 캡슐 (pill): 상단 메뉴, 하단 메뉴 */
-  .glass-bar {
-    @apply glass;
-    border-radius: 9999px;
-    --glass-tint: 0.58;
-  }
-  .glass-pill {
-    @apply glass-soft;
-    border-radius: 9999px;
-  }
-  /* 원형 (circle): 로고 */
-  .glass-orb {
-    background: radial-gradient(120% 120% at 30% 20%, #8b80f9, #5a48e3 55%, #3d329d);
-    box-shadow:
-      inset 0 1px 1px rgba(255, 255, 255, 0.6),
-      inset 0 -4px 8px rgba(29, 27, 47, 0.25),
-      0 4px 12px -2px rgba(90, 72, 227, 0.45);
-  }
-  /* 색이 들어간 유리 (진한 tint): 랭킹 배너 등 */
-  .glass-hero {
-    position: relative;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 45%),
-      linear-gradient(135deg, rgba(90, 72, 227, 0.95), rgba(108, 95, 242, 0.88) 55%, rgba(32, 178, 122, 0.75));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-  }
-  .glass-input {
-    @apply rounded-xl outline-none transition;
-    background: rgba(255, 255, 255, 0.7);
-    box-shadow:
-      inset 0 1px 2px rgba(29, 27, 47, 0.08),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.6),
-      0 0 0 1px rgba(196, 194, 212, 0.7);
-  }
-  .glass-input:focus {
-    box-shadow:
-      inset 0 1px 2px rgba(29, 27, 47, 0.08),
-      0 0 0 2px rgba(139, 128, 249, 0.7);
+  .page-body {
+    @apply py-8 pl-8 pr-5 sm:pl-16 sm:pr-10;
   }
 
-  /* 기존 카드는 모두 유리로 */
-  .card {
-    @apply glass;
+  /* 형광펜 (글자 아래쪽 절반만 칠한 느낌) */
+  .marker {
+    background: linear-gradient(transparent 45%, #fde68a 45%, #fde68a 92%, transparent 92%);
+    padding: 0 2px;
   }
 
-  /* ── 버튼: 유리 위의 물방울처럼 (warp: 누르면 살짝 눌림) ── */
+  /* 손글씨 (나눔펜체) */
+  .hand {
+    @apply font-hand leading-snug;
+    font-size: 1.3em;
+  }
+
+  /* 포스트잇 + 마스킹테이프 */
+  .sticky-note {
+    @apply relative shadow-note;
+  }
+  .tape {
+    @apply absolute left-1/2 top-0 h-5 w-20 -translate-x-1/2 -translate-y-1/2 bg-sticky-tape/80;
+  }
+
+  /* 버튼: 네모난 잉크 버튼 + 노란 그림자 / 테두리 버튼 + 검은 그림자 */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[15px] font-semibold transition duration-200
-      disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.97];
+    @apply inline-flex items-center justify-center gap-1.5 border border-ink-900 px-4 py-2 text-sm font-semibold transition-transform active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-x-0 disabled:active:translate-y-0;
   }
-  .btn-primary {
-    @apply btn text-white;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 50%),
-      linear-gradient(135deg, #6c5ff2, #5a48e3 60%, #4b3ac4);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.45),
-      inset 0 -2px 6px rgba(29, 27, 47, 0.2),
-      0 6px 18px -6px rgba(90, 72, 227, 0.6);
+  .btn-ink {
+    @apply btn bg-ink-900 text-paper shadow-btnMarker;
   }
-  .btn-primary:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.5),
-      inset 0 -2px 6px rgba(29, 27, 47, 0.2),
-      0 10px 24px -6px rgba(90, 72, 227, 0.65);
+  .btn-line {
+    @apply btn bg-paper text-ink-900 shadow-btn;
   }
-  .btn-soft {
-    @apply btn glass-soft text-brand-700 hover:bg-white/80;
-  }
-  .btn-ghost {
-    @apply btn bg-transparent text-ink-700 hover:bg-white/60;
-  }
-  .chip {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold;
-  }
-  .skeleton {
-    @apply glass-soft animate-pulse;
+  .btn-small {
+    @apply btn border-ink-500 bg-paper px-2.5 py-1 text-xs font-medium text-ink-700;
   }
 
-  .tok-kw { color: #b9a6ff; }
-  .tok-str { color: #9be3b8; }
-  .tok-num { color: #ffc98a; }
-  .tok-com { color: #7d7aa3; font-style: italic; }
-  .tok-fn { color: #8fd3ff; }
-  .tok-blank { @apply rounded bg-sun-500/25 px-1 text-sun-100; }
-}
-
-/* 유리 효과를 지원하지 않는 브라우저: 읽기 쉬운 불투명 바탕 */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .glass,
-  .glass-bar {
-    background: rgba(255, 255, 255, 0.96);
+  /* 빨간 도장 (난이도) */
+  .stamp {
+    @apply inline-block -rotate-3 border-2 border-pen-red px-2 py-0.5 font-hand text-xl leading-none text-pen-red;
+    border-radius: 6px;
   }
-  .glass-soft,
-  .glass-pill {
-    background: rgba(255, 255, 255, 0.9);
+
+  /* 단계 표시 (1장 · 주제 고르기 → 2장 · 메모 → 3장 · 첨삭) */
+  .crumb {
+    @apply font-hand text-lg text-ink-500;
+  }
+
+  /* 탭 (랜덤으로 뽑기 / 직접 적기) */
+  .tab {
+    @apply -mb-px border border-ink-300 bg-ink-100 px-3 py-1.5 text-sm text-ink-700;
+  }
+  .tab-on {
+    @apply tab border-ink-900 border-b-paper bg-paper font-semibold text-ink-900;
+  }
+
+  .field {
+    @apply w-full border border-ink-300 bg-paper px-3 py-2 text-sm outline-none focus:border-ink-900;
   }
 }
 
-/* 투명도 줄이기 설정을 켠 사용자 */
-@media (prefers-reduced-transparency: reduce) {
-  .glass,
-  .glass-bar,
-  .glass-soft,
-  .glass-pill {
-    background: #fff;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+/* 코드 줄 */
+.code-line {
+  @apply grid cursor-pointer select-none font-mono text-[13px] leading-7;
+  grid-template-columns: 28px 40px 1fr 28px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
+.code-line:hover .code-text {
+  background-color: rgba(253, 230, 138, 0.25);
 }

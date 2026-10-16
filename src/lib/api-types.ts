@@ -1,313 +1,156 @@
 /**
- * Lambda 들이 화면으로 돌려주는 JSON 의 모양 (lambda/ 폴더의 Python·Node.js 코드와 같게 유지한다).
- * 정답·해설·채점 기준은 문제를 낼 때(PublicQuestion) 들어 있지 않고, 제출한 뒤(AttemptResult)에만 온다.
+ * Lambda(jojo_api)가 화면으로 돌려주는 JSON 의 모양 (lambda/api 의 Python 코드와 같게 유지한다).
+ * ※ 꼭 설명할 곳의 모범 설명·핵심 표현은 읽는 동안(Reading)에는 오지 않고, 첨삭(ReviewResult) 뒤에만 온다.
  */
-import type { ConceptCheck, ConceptId, GradedBy, Level, Question, QuestionType, Skill, Stage, Track } from "./types";
 
-// ───────────────────────── 문제 (questions.py) ─────────────────────────
+export type Level = 1 | 2 | 3;
+export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급" };
+export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
+  1: "짧은 코드. 변수, 조건문, 반복문이 위에서 아래로 흘러가요.",
+  2: "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요.",
+  3: "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요.",
+};
 
-/** 화면으로 보내는 문제 (정답·해설·채점 기준은 빼고) */
-export interface PublicQuestion {
+// ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────
+
+export interface Health {
+  ok: boolean;
+  mode: "live" | "mock" | "off";
+  ai: boolean;
+  languages: string[];
+  maxCodeLines: number;
+  regenLimit: number;
+}
+
+// ───────────────────────── 주제 (topics.py) ─────────────────────────
+
+export interface RandomTopic {
+  topic: string;
+}
+
+export type TopicVerdict = "ok" | "vague" | "too_big" | "inappropriate";
+
+export interface TopicCheck {
+  verdict: TopicVerdict;
+  /** ok 일 때 다듬은 주제 */
+  topic: string;
+  suggestions: string[];
+  message: string;
+}
+
+// ───────────────────────── 읽을 코드 (practice.py · inspect_code.py, common.public_reading) ─────────────────────────
+
+/** ※ 꼭 설명할 곳 (줄 범위만) */
+export interface MarkRange {
   id: string;
-  codeItemId: string;
-  codeTitle: string;
-  track: Track;
-  type: QuestionType;
-  skill: Skill;
-  prompt: string;
-  /** 화면에 보여 줄 코드 (빈칸 문제는 빈칸이 들어간 코드). 개념 학습은 빈 문자열 */
+  start: number;
+  end: number;
+}
+
+export interface Reading {
+  id: string;
+  source: "practice" | "inspect";
+  language: "python";
+  level: Level;
+  levelName: string;
+  topic: string;
+  title: string;
   code: string;
-  concepts: ConceptId[];
-  level: Level;
-  focusLines: number[];
-  /** 섞인 순서의 보기 (답은 이 배열의 번호로 제출 → 서버가 원래 번호로 되돌린다) */
-  choices?: string[];
-  stage?: Stage;
-  certs?: string[];
-  hintCount: number;
-  /** 흐름 따라가기: 채울 칸 (값은 빼고) */
-  trace?: { line: number; when: "before" | "after"; context: string; expr: string }[];
+  marks: MarkRange[];
+  /** 같은 코드에서 '더 쉽게·더 어렵게'로 다시 만들 수 있는 남은 횟수 */
+  regenLeft: number;
+  /** 예시 코드로 대신했을 때 등 안내 */
+  note: string | null;
+  /** 내 코드 점검: 고른 함수 이름 */
+  functions?: string[] | null;
+  /** 내 코드 점검: AI 가 그 난이도로 본 이유 */
+  levelReason?: string | null;
 }
 
-export interface SessionPlan {
-  mode: "learn" | "review";
-  track: Track;
-  focusConcept: ConceptId;
-  level: Level;
-  reason: "continue" | "next" | "chosen" | "polish" | "wrong" | "weak" | "picked" | "all" | "empty";
-  questions: PublicQuestion[];
-  unsolvedAtLevel: number;
-  /** 새 문제를 만드는 중 (generate-code Lambda) */
-  generating?: boolean;
+/** POST /inspect/start 의 응답 */
+export interface InspectStarted extends Reading {
+  masked: MaskedLine[];
 }
 
-// ───────────────────────── 채점 (submit_answer.py) ─────────────────────────
+export type AdjustReason = "too_long" | "unknown_concept" | "complex_flow";
+export const ADJUST_REASONS: Record<AdjustReason, string> = {
+  too_long: "코드가 너무 길어요",
+  unknown_concept: "모르는 개념이 있어요",
+  complex_flow: "흐름이 복잡해요",
+};
 
-export interface TutorNote {
-  headline: string;
-  message: string;
-  checks: ConceptCheck[];
-  misconception: string | null;
-  correction: string | null;
-  nextTip: string;
-  /** ai: 이번에 AI 가 분석함, rule: 규칙 기반, stored: 미리 저장된 해설·오개념 */
-  source: "ai" | "rule" | "stored";
+/** GET /reading?id= */
+export interface ReadingWithReview {
+  reading: Reading;
+  review: ReviewResult | null;
 }
 
-export interface AttemptResult {
-  attemptId: number;
-  correct: boolean;
-  partial: boolean;
-  xp: number;
-  gradedBy: GradedBy;
-  myAnswer: string;
-  correctAnswer: string;
-  steps: string[];
-  keyPoint: string;
-  output: string | null;
-  tutor: TutorNote;
-  /** 화면 순서 기준의 정답 보기 번호 */
-  answerIndex?: number;
-  cells?: { expected: string; ok: boolean }[];
-  /** 학습자 분석을 시작했는지 */
-  analyzing?: boolean;
+// ───────────────────────── 내 코드 점검 (inspect_code.py) ─────────────────────────
+
+export interface MaskedLine {
+  line: number;
+  kind: string;
 }
 
-/** 주관식 AI 분석 (POST /explain) */
-export interface ShortAnswerFeedback {
-  verdict: "correct" | "partial" | "incorrect";
-  headline: string;
-  explanation: string;
-  checks: ConceptCheck[];
-  misconception: string | null;
-  correction: string | null;
-  nextTip: string;
-  gradedBy: "rule" | "ai";
+export interface FoundFunction {
+  name: string;
+  signature: string;
+  start: number;
+  end: number;
 }
 
-// ───────────────────────── 학습 기록 (my_page.py) ─────────────────────────
-
-export interface ConceptStat {
-  conceptId: ConceptId;
-  attempts: number;
-  correct: number;
-  accuracy: number;
-  mastery: number;
-  avgTimeMs: number;
-  recentWrong: number;
-}
-
-export interface DailyActivity {
-  day: string;
-  solved: number;
-  correct: number;
-  timeMs: number;
-  xp: number;
-}
-
-export interface LearnerAnalysis {
-  summary: string;
-  strengths: string[];
-  confusions: { concepts: ConceptId[]; description: string }[];
-  focusConcepts: ConceptId[];
-  recommendedLevel: Level | null;
-  levelMessage: string;
-  studyTip: string;
-}
-
-export interface StoredAnalysis<T = LearnerAnalysis> {
-  id: number;
-  attemptCount: number;
-  result: T;
-  source: "ai" | "rule";
-  createdAt: number;
-}
-
-export interface LevelSuggestion {
-  level: Level;
-  direction: "up" | "stay" | "down";
-  message: string;
-}
-
-export interface MeView {
-  nickname: string;
-  preferredLevel: Level | null;
-  dailyGoal: number;
-  xp: number;
-  level: number;
-  streak: number;
-  solvedToday: number;
-  totalSolved: number;
-  aiMode: "live" | "mock" | "off";
-}
-
-export interface LearnView {
-  attemptCount: number;
-  level: Level;
-  suggestion: LevelSuggestion;
-  suggestedLevel: Level | null;
-  recommendedConcept: ConceptId;
-  lastTrack: Track;
-  unit: { emoji: string; title: string };
-  solvedToday: number;
-  dailyGoal: number;
-  streak: number;
-  overall: number;
-  wrongCount: number;
-  weakCount: number;
-  analysis: StoredAnalysis | null;
-  analysisEvery: number;
-  sinceLastAnalysis: number;
-}
-
-export interface ReviewView {
-  level: Level;
-  wrong: {
-    questionId: string;
-    lastAt: number;
-    misconception: string | null;
-    tries: number;
-    prompt: string;
-    type: QuestionType;
-    stage: Stage | null;
-    track: Track;
-    concept: ConceptId;
-    level: Level;
-  }[];
-  weak: ConceptStat[];
-  misconceptions: { text: string; count: number }[];
-}
-
-export interface RankingView {
-  nickname: string;
-  top: { nickname: string; xp: number; solved: number; rank: number; isMe: boolean; level: number }[];
-  total: number;
-  mine: { rank: number; xp: number; nextXp: number | null; level: number; topPercent: number } | null;
-  ttlHours: number;
-}
-
-export interface Badge {
-  id: string;
-  emoji: string;
-  title: string;
-  description: string;
-  earned: boolean;
-}
-
-export type DashboardView =
-  | { empty: true }
-  | {
-      empty: false;
-      unit: { emoji: string; title: string };
-      preferredLevel: Level | null;
-      xp: number;
-      level: { level: number; current: number; needed: number };
-      streak: number;
-      totalSolved: number;
-      accuracy: number;
-      avgTimeMs: number;
-      hints: number;
-      overall: number;
-      started: ConceptStat[];
-      days: DailyActivity[];
-      types: { type: QuestionType; attempts: number; accuracy: number; avgTimeMs: number }[];
-      repeated: ConceptStat[];
-      misconceptions: { text: string; count: number }[];
-      badges: Badge[];
-      analysis: StoredAnalysis | null;
-      analysisEvery: number;
-      sinceLastAnalysis: number;
-      attemptCount: number;
-      aiGraded: number;
-      recent: {
-        id: number;
-        correct: boolean;
-        partial: boolean;
-        concept: ConceptId;
-        prompt: string;
-        type: QuestionType;
-        timeMs: number;
-        gradedBy: GradedBy;
-        xp: number;
-        createdAt: number;
-      }[];
-    };
-
-/** 탐색 화면 (GET /concepts) */
-export interface ExploreItem {
-  id: string;
-  track: Track;
-  title: string;
-  concepts: ConceptId[];
-  level: Level;
-  source: "seed" | "ai";
+/** POST /inspect (훑어보기, AI 없음) */
+export interface InspectLook {
+  language: "python";
+  languageName: string;
   lines: number;
-  questions: { id: string; type: QuestionType; stage: Stage | null; prompt: string; solved: boolean | null }[];
+  code: string;
+  masked: MaskedLine[];
+  functions: FoundFunction[];
+  levelGuess: Level;
+  levelGuessName: string;
 }
 
-export interface ConceptsView {
-  initialLevel: Level | null;
-  mastery: Record<ConceptId, { mastery: number; weak: boolean }>;
-  items: ExploreItem[];
+// ───────────────────────── 첨삭 (review.py) ─────────────────────────
+
+export interface Memo {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** ○ correct 정확 · △ partial 부분 · ✕ wrong 오해 · ⬚ missing 누락(※ 지점에 메모 없음) */
+export type MarkKind = "correct" | "partial" | "wrong" | "missing";
+export const MARK_NAMES: Record<MarkKind, string> = { correct: "정확", partial: "부분", wrong: "오해", missing: "누락" };
+
+export interface ReviewItem {
+  kind: "memo" | "missing";
+  start: number;
+  end: number;
+  /** ※ 꼭 설명할 곳과 겹치는지 */
+  marked: boolean;
+  memo: string;
+  mark: MarkKind;
+  comment: string;
+  lookAt: number[];
+  /** 모범 설명 ("모범 설명 보기") */
+  model: string;
+}
+
+export interface ReviewResult {
+  readingId: string;
+  summary: string;
+  counts: Record<MarkKind, number>;
+  items: ReviewItem[];
+  byAi: boolean;
+  createdAt: number;
 }
 
 // ───────────────────────── 관리자 (admin.py) ─────────────────────────
 
-export type Trigger = "launch_fill" | "stock_floor" | "demand" | "personal_review" | "manual";
-
-export interface Policy {
-  minStock: number;
-  maxStock: number;
-  learnerLow: number;
-  demandLearners: number;
-  demandWindowDays: number;
-  personalPerLearnerPerDay: number;
-  dailyLimit: number;
-  monthlyBudgetUsd: number;
-}
-
-export interface ValidationCheck {
-  name: string;
-  pass: boolean;
-  detail?: string | null;
-}
-
-export interface ValidationReport {
-  ok: boolean;
-  checks: ValidationCheck[];
-  actualOutput: string | null;
-  estimatedLevel: Level;
-}
-
-export interface GeneratedItemRow {
-  id: string;
-  title: string;
-  code: string;
-  concepts: ConceptId[];
-  level: number;
-  status: string;
-  validation: ValidationReport | null;
-  questionCount: number;
-  createdAt: number;
-}
-
-export interface Job {
-  id: number;
-  concept: string;
-  level: Level;
-  trigger: Trigger;
-  sessionId: string | null;
-  mock: boolean;
-  status: "running" | "published" | "pending" | "rejected" | "failed" | "cancelled";
-  reason: string;
-  itemId: string | null;
-  error: string | null;
-  createdAt: number;
-  finishedAt: number | null;
-}
-
 export interface UsageRow {
   task: string;
+  taskName: string;
   model: string;
   calls: number;
   input: number;
@@ -316,9 +159,21 @@ export interface UsageRow {
   failures: number;
 }
 
-/** AI 콘텐츠 하나 (GET /admin/item) */
-export interface GeneratedItemDetail {
-  row: GeneratedItemRow;
-  output: string | null;
-  questions: Question[];
+export interface DayCount {
+  day: string;
+  practices: number;
+  adjusts: number;
+  topicChecks: number;
+  inspections: number;
+  reviews: number;
+}
+
+export interface AdminOverview {
+  mode: "live" | "mock" | "off";
+  aiSwitch: boolean;
+  model: string;
+  budget: { monthlyUsd: number; monthToDateUsd: number; realUsd: number; percent: number };
+  usage: UsageRow[];
+  days: DayCount[];
+  adminCode: { custom: boolean; recovery: boolean };
 }

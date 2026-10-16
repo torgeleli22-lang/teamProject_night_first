@@ -1,129 +1,115 @@
-"""jojo_api 기능 파일의 규칙 부분: 채점(submit_answer), 문제 내기(questions), 관리자 코드(admin), 튜터 질문(tutor_chat)"""
+"""jojo_api 기능 파일의 규칙 부분: 예시 코드(samples), 주제 판정(topics), 코드 검사(practice), 민감 정보·함수 찾기(inspect_code),
+규칙 첨삭(review), 관리자 코드(admin), 경로 표(lambda_function)"""
 import unittest
 
-from helpers import SEED_ITEMS, SEED_QUESTIONS, common, load_lambda, seed_content
+from helpers import common, load_lambda
 
-answers = load_lambda("submit_answer")
-questions = load_lambda("questions")
+samples = load_lambda("samples")
+topics = load_lambda("topics")
+practice = load_lambda("practice")
+inspect_code = load_lambda("inspect_code")
+review = load_lambda("review")
 admin = load_lambda("admin")
-tutor = load_lambda("tutor_chat")
-
-PRIVATE = {"answerIndex", "explanation", "keyPoint", "hints", "rows", "output", "accepted", "modelAnswer", "rubric", "misconceptions", "blankedCode", "watch"}
 
 
-class Grading(unittest.TestCase):
-    def test_output_compare(self):
-        self.assertTrue(answers.same_output("[1, 2, 3]", "[1,2,3]"))
-        self.assertTrue(answers.same_output('["a", "b"]', "['a', 'b']"))
-        self.assertTrue(answers.same_output("합계: 3000;\n\n", "합계: 3000"))
-        self.assertFalse(answers.same_output("3000", "300"))
-        self.assertTrue(answers.same_value("민지님은 21살", "'민지님은 21살'"))
-        self.assertTrue(answers.same_value('"민지님은 21살"', "'민지님은 21살'"))
-        self.assertTrue(answers.same_value("[77,100,93,69]", "[77, 100, 93, 69]"))
+class Samples(unittest.TestCase):
+    def test_every_level_has_samples_with_valid_marks(self):
+        self.assertEqual({s["level"] for s in samples.SAMPLES}, {1, 2, 3})
+        for s in samples.SAMPLES:
+            compile(s["code"], s["id"], "exec")
+            marks = common.clean_marks(s["code"], s["marks"])
+            self.assertEqual(len(marks), len(s["marks"]), s["id"])   # 겹치거나 범위를 벗어난 ※ 지점이 없다
+            for m in s["marks"]:
+                self.assertTrue(m["explanation"] and m["keywords"], s["id"])
 
-    def test_trace_cells(self):
-        q = SEED_QUESTIONS["cart-trace"]
-        right = [r["value"] for r in q["rows"]]
-        self.assertEqual(answers.grade_trace(q, right), [True] * len(right))
-        self.assertFalse(all(answers.grade_trace(q, right[:-1] + ["틀림"])))
-
-    def test_every_seed_model_answer_passes_its_rubric(self):
-        for q in SEED_QUESTIONS.values():
-            if q["type"] == "short_answer":
-                self.assertEqual(answers.evaluate_short_answer(q, q["modelAnswer"])["verdict"], "correct", q["id"])
-
-    def test_short_answer_rules(self):
-        q = next(q for q in SEED_QUESTIONS.values() if q["type"] == "short_answer")
-        self.assertEqual(answers.evaluate_short_answer(q, "몰라")["verdict"], "incorrect")
-        self.assertEqual(answers.evaluate_short_answer(q, "몰라")["aiReasons"], [])
-        self.assertIn("규칙으로 판단 어려움", answers.evaluate_short_answer(q, "이건 잘 모르겠는데 그냥 동작하는 것 같아요")["aiReasons"])
-
-    def test_objective_grading_uses_original_index(self):
-        for q in SEED_QUESTIONS.values():
-            if q["type"] in ("multiple_choice", "fill_blank"):
-                shown = common.display_choice_index(q, q["answerIndex"])
-                answer = common.unshuffle_answer(q, {"type": q["type"], "index": shown})
-                self.assertTrue(answers.grade_objective(q, answer), q["id"])
-            if q["type"] == "predict_output":
-                self.assertTrue(answers.grade_objective(q, {"type": "predict_output", "text": q["output"]}), q["id"])
-
-    def test_rule_grade_objects(self):
-        q = SEED_QUESTIONS["cart-trace"]
-        item = SEED_ITEMS[q["codeItemId"]]
-        r = answers.grade(q, item, None, 0, True)
-        self.assertFalse(r["correct"])
-        self.assertEqual(r["tutor"]["headline"], "정답과 해설")
-        self.assertIn("실행 후", answers.describe_correct(q))
+    def test_mock_ai_round_trip_finds_same_lines(self):
+        # 목업 AI 응답(줄 글자) → check_generated 가 원래 줄 번호를 다시 찾는다
+        for s in samples.SAMPLES:
+            code, marks, problems = practice.check_generated(practice.sample_as_ai(s), s["level"])
+            self.assertEqual(problems, [], s["id"])
+            self.assertEqual([(m["start"], m["end"]) for m in marks], [(m["start"], m["end"]) for m in s["marks"]], s["id"])
 
 
-class PublicQuestions(unittest.TestCase):
-    def test_answers_never_go_to_the_browser(self):
-        for q in SEED_QUESTIONS.values():
-            pub = questions.to_public(q, SEED_ITEMS[q["codeItemId"]])
-            self.assertFalse(PRIVATE & set(pub), q["id"])
-            if q["type"] == "trace":
-                self.assertTrue(all("value" not in cell for cell in pub["trace"]))
-            if q["type"] == "fill_blank":
-                self.assertIn("____", pub["code"])
+class GeneratedCode(unittest.TestCase):
+    def test_syntax_error_and_missing_marks(self):
+        r = {"title": "t", "code": "if x\n    print(1)", "marks": [{"startLine": "없는 줄", "endLine": "없는 줄"}]}
+        _, _, problems = practice.check_generated(r, 1)
+        self.assertTrue(any("문법" in p for p in problems))
+        self.assertTrue(any("※" in p for p in problems))
 
-    def test_plan_code_lesson_in_stage_order(self):
-        content = seed_content()
-        opts = {"level": 2, "track": "code", "concept": "filter", "unit": None, "cert": None, "size": None, "exclude": [], "mode": "learn", "ids": []}
-        plan = questions.plan_session(content, [], opts)
-        order = ["overview", "trace", "key", "wrapup"]
-        stages = [q["stage"] for q in plan["questions"] if q["codeItemId"] == plan["questions"][0]["codeItemId"]]
-        self.assertEqual(stages, sorted(stages, key=order.index))
-        self.assertEqual(plan["questions"][0]["stage"], "overview")
+    def test_find_line_prefers_hint_for_repeated_lines(self):
+        lines = ["a = 1", "print(a)", "a = 2", "print(a)"]
+        self.assertEqual(practice.find_line(lines, "print(a)", 0), 2)
+        self.assertEqual(practice.find_line(lines, "print(a)", 0, hint=4), 4)
+        self.assertIsNone(practice.find_line(lines, "없음", 0))
 
-    def test_plan_theory_by_cert(self):
-        content = seed_content()
-        opts = {"level": 3, "track": "theory", "concept": "all", "unit": None, "cert": "SQLD", "size": None, "exclude": [], "mode": "learn", "ids": []}
-        plan = questions.plan_session(content, [], opts)
-        self.assertTrue(plan["questions"])
-        self.assertTrue(all("sqld" in q["certs"] for q in plan["questions"]))
 
-    def test_generation_decision(self):
-        self.assertTrue(questions.decide_on_session("map", 3, 0, 0, 0)["generate"])
-        self.assertFalse(questions.decide_on_session("map", 1, 0, 0, 0)["generate"])        # 범위 밖 난이도
-        self.assertFalse(questions.decide_on_session("map", 3, 10, 5, 0)["generate"])       # 안 푼 문제 충분
-        self.assertTrue(questions.decide_on_session("map", 3, 10, 1, 1).get("recordDemand"))  # 한 명만 소진 → 수요 기록
-        self.assertEqual(questions.decide_on_session("map", 3, 10, 1, 2)["trigger"], "demand")
+class TopicRules(unittest.TestCase):
+    def test_rule_verdicts(self):
+        self.assertEqual(topics.rule_check("해킹 도구", 1)["verdict"], "inappropriate")
+        self.assertEqual(topics.rule_check("아무거나", 1)["verdict"], "vague")
+        self.assertEqual(len(topics.rule_check("아무거나", 1)["suggestions"]), 3)
+        self.assertEqual(topics.rule_check("쇼핑몰 만들기", 1)["verdict"], "too_big")
+        self.assertEqual(topics.rule_check("주차 요금 계산", 2), {"verdict": "ok", "topic": "주차 요금 계산", "suggestions": [],
+                                                              "message": topics.rule_check("주차 요금 계산", 2)["message"]})
+
+
+class Inspect(unittest.TestCase):
+    def test_mask_secrets_keeps_code_shape(self):
+        code = 'API_KEY = "abcd1234efgh"\nkey = "AKIA' + "A" * 16 + '"\nname = "민지"'
+        masked, found = inspect_code.mask_secrets(code)
+        self.assertEqual(masked.split("\n")[0], 'API_KEY = "********"')
+        self.assertNotIn("AKIA", masked)
+        self.assertIn('name = "민지"', masked)
+        self.assertEqual([f["line"] for f in found], [1, 2])
+
+    def test_find_functions_with_methods(self):
+        code = "class Shop:\n    def sell(self, n):\n        return n\n\n    def stock(self):\n        pass\n\ndef main():\n    s = Shop()\n    s.sell(1)\nmain()"
+        found = inspect_code.find_functions(code)
+        self.assertEqual([(f["name"], f["start"], f["end"]) for f in found], [("Shop.sell", 2, 3), ("Shop.stock", 5, 6), ("main", 8, 10)])
+
+    def test_read_code_limits(self):
+        with self.assertRaises(common.ApiError):
+            inspect_code.read_code({"code": "print(1)", "filename": "app.js"})
+        with self.assertRaises(common.ApiError):
+            inspect_code.read_code({"code": "x = 1\n" * (common.MAX_CODE_LINES + 1), "filename": "a.py"})
+        self.assertEqual(inspect_code.read_code({"code": "x = 1", "filename": "a.py"}), ("x = 1", "python"))
+
+
+class RuleReview(unittest.TestCase):
+    ITEM = {"id": "r1", "code": "\n".join(f"line{i}" for i in range(1, 21)), "marks": [
+        {"id": "m1", "start": 2, "end": 4, "why": "w", "explanation": "모범1", "keywords": ["하나씩", "더해"]},
+        {"id": "m2", "start": 10, "end": 12, "why": "w", "explanation": "모범2", "keywords": ["할인"]},
+    ]}
+
+    def test_counts_and_missing(self):
+        memos = [{"start": 2, "end": 3, "text": "메뉴를 하나씩 꺼내서 가격을 더해요"}, {"start": 15, "end": 16, "text": "몰라"}]
+        missing = [m for m in self.ITEM["marks"] if not any(review.overlaps(x, m) for x in memos)]
+        graded = review.rule_review(self.ITEM, memos, missing)
+        result = review.build_result(self.ITEM, memos, missing, graded, False)
+        self.assertEqual(result["counts"], {"correct": 1, "partial": 0, "wrong": 1, "missing": 1})
+        self.assertEqual([e["kind"] for e in result["items"]], ["memo", "missing", "memo"])   # 코드 위치 순서
+        self.assertEqual(result["items"][1]["model"], "모범2")
+
+    def test_read_memos_drops_empty_and_sorts(self):
+        memos = review.read_memos({"memos": [{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]}, self.ITEM["code"])
+        self.assertEqual(memos, [{"start": 5, "end": 9, "text": "뒤"}])
 
 
 class AdminCode(unittest.TestCase):
-    def test_reads_hash_made_by_previous_node_server(self):
-        stored = "scrypt$00112233445566778899aabbccddeeff$7d106806dfc148cf6cbc2772538748d24d280b37abc41b9db230c56df36c0b9e"
-        self.assertTrue(admin.code_matches("smoke-code-1234", stored))
-        self.assertFalse(admin.code_matches("wrong", stored))
-
-    def test_new_hash_round_trip(self):
+    def test_scrypt_round_trip(self):
         h = admin.hash_code("새 관리자 코드 123")
         self.assertTrue(h.startswith("scrypt$"))
         self.assertTrue(admin.code_matches("새 관리자 코드 123", h))
-
-    def test_manual_reason(self):
-        self.assertEqual(admin.manual_reason(None), "관리자 수동 생성")
-        self.assertTrue(admin.manual_reason("가" * 80, "1/2").endswith("…"))
-
-
-class TutorPrompt(unittest.TestCase):
-    def test_first_message_has_problem_but_hides_answer_rule(self):
-        q = SEED_QUESTIONS["cart-overview"]
-        prompt = tutor.build_prompt(q, SEED_ITEMS[q["codeItemId"]], False, "2번 보기", "어디부터 봐요?", first=True)
-        self.assertIn("<problem>", prompt)
-        self.assertIn("정답을 직접 말하지 말고", prompt)
-        self.assertIn("1) " + common.displayed_choices(q)[0], prompt)
-        later = tutor.build_prompt(q, SEED_ITEMS[q["codeItemId"]], True, "", "그럼요?", first=False)
-        self.assertNotIn("<problem>", later)
+        self.assertFalse(admin.code_matches("틀린 코드 12345", h))
 
 
 class Entry(unittest.TestCase):
     def test_every_path_has_a_feature(self):
         entry = load_lambda("lambda_function")
-        for path in ["POST /session", "POST /hint", "GET /concepts", "POST /attempts", "POST /explain", "POST /ask", "GET /me", "POST /me",
-                     "GET /learn", "GET /review", "GET /dashboard", "GET /ranking", "GET /health", "GET /admin/overview", "POST /admin/review"]:
-            self.assertIn(path, entry.ROUTES, path)
-        self.assertEqual(set(entry.TASKS), {"learner-analysis", "generate-theory", "load-content"})
+        self.assertEqual(set(entry.ROUTES), {
+            "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
+            "POST /inspect", "POST /inspect/start", "POST /review", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
 
 
 if __name__ == "__main__":

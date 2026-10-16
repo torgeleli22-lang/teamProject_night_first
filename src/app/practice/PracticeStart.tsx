@@ -1,0 +1,183 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { Crumb, ErrorNote, Page, Sticky, Waiting } from "@/components/ui";
+import { apiGet, apiPost } from "@/lib/api";
+import { LEVEL_DESCRIPTIONS, LEVEL_NAMES, type Level, type RandomTopic, type Reading, type TopicCheck } from "@/lib/api-types";
+
+const MAX_TOPIC = 50;
+const EXAMPLES = ["카페 주문", "도서관 대출", "성적 처리", "게임 점수판", "버스 도착 안내", "가계부"];
+
+/** 02 · 연습 모드: 난이도 + 주제 (랜덤으로 뽑기 / 직접 적기) */
+export function PracticeStart() {
+  const router = useRouter();
+  const [level, setLevel] = useState<Level>(2);
+  const [tab, setTab] = useState<"random" | "write">("random");
+  const [randomTopic, setRandomTopic] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const [check, setCheck] = useState<TopicCheck | null>(null);
+  const [busy, setBusy] = useState<"check" | "make" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const draw = useCallback(() => {
+    setError(null);
+    apiGet<RandomTopic>("/topic/random")
+      .then((r) => setRandomTopic(r.topic))
+      .catch((e) => setError(e.message));
+  }, []);
+  useEffect(draw, [draw]);
+
+  /** 주제가 정해지면 코드 받기 → 2장(읽기)으로 */
+  async function make(topic: string) {
+    setBusy("make");
+    setError(null);
+    try {
+      const reading = await apiPost<Reading>("/practice", { level, topic });
+      router.push(`/read/?id=${reading.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(null);
+    }
+  }
+
+  async function submit() {
+    if (tab === "random") {
+      if (randomTopic) await make(randomTopic);
+      return;
+    }
+    // 직접 적은 주제는 AI 가 먼저 판정 (막연함·너무 큼·부적절)
+    setBusy("check");
+    setError(null);
+    setCheck(null);
+    try {
+      const r = await apiPost<TopicCheck>("/topic/check", { level, text: text.trim() });
+      if (r.verdict === "ok") return await make(r.topic);
+      setCheck(r);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setBusy(null);
+  }
+
+  const canSubmit = !busy && (tab === "random" ? !!randomTopic : text.trim().length > 0 && text.length <= MAX_TOPIC);
+  const summary = `${LEVEL_NAMES[level]} · ${tab === "random" ? (randomTopic ? `랜덤 주제 '${randomTopic}'` : "랜덤 주제") : text.trim() || "주제를 적어 주세요"}`;
+
+  return (
+    <Page>
+      <Crumb>
+        <b className="text-pen-red">1장 · 주제 고르기</b> → 2장 · 메모 → 3장 · 첨삭
+      </Crumb>
+      <h1 className="mt-2 text-3xl">어떤 코드를 읽어 볼까요?</h1>
+      <p className="mt-2 text-sm text-ink-700">난이도는 출발점일 뿐이에요. 받아 본 코드가 버거우면 다음 장에서 바로 &lsquo;더 쉽게&rsquo;로 바꿀 수 있어요.</p>
+
+      {/* 난이도 */}
+      <h2 className="mt-8 text-lg">난이도</h2>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="난이도">
+        {([1, 2, 3] as Level[]).map((lv) => {
+          const on = lv === level;
+          return (
+            <button
+              key={lv}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setLevel(lv)}
+              className={`border bg-paper p-4 text-left ${on ? "border-ink-900 shadow-btn" : "border-ink-300 hover:border-ink-500"}`}
+            >
+              <span className={`relative inline-block font-serif text-lg font-bold ${on ? "px-2" : ""}`}>
+                {on && <span className="absolute inset-0 -rotate-3 border-2 border-pen-red" style={{ borderRadius: "50%" }} aria-hidden />}
+                {LEVEL_NAMES[lv]}
+              </span>
+              <span className="mt-2 block border-t border-ink-200 pt-2 text-xs leading-relaxed text-ink-500">{LEVEL_DESCRIPTIONS[lv]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 주제 */}
+      <h2 className="mt-8 text-lg">주제</h2>
+      <div className="mt-3 flex border-b border-ink-900">
+        <button type="button" className={tab === "random" ? "tab-on" : "tab"} onClick={() => setTab("random")}>
+          랜덤으로 뽑기
+        </button>
+        <button type="button" className={tab === "write" ? "tab-on" : "tab"} onClick={() => setTab("write")}>
+          직접 적기
+        </button>
+      </div>
+
+      {tab === "random" ? (
+        <div className="mt-4">
+          <p className="text-sm text-ink-700">코드를 만들 때 아래 같은 생활 속 주제 중 하나를 뽑아요. 최근에 풀었던 주제는 빼고 뽑아요.</p>
+          <p className="hand mt-2 text-pen-blue">{EXAMPLES.join(" · ")} …</p>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm text-ink-500">뽑은 주제</span>
+            <span className="hand marker text-2xl text-ink-900">{randomTopic ?? "뽑는 중…"}</span>
+            <button type="button" className="btn-small" onClick={draw} disabled={!!busy}>
+              다시 뽑기
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4">
+          <label className="text-sm text-ink-700" htmlFor="topic">
+            읽고 싶은 코드의 주제를 적어 주세요. 기능 하나 정도가 좋아요.
+          </label>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              id="topic"
+              className="field max-w-md"
+              value={text}
+              maxLength={MAX_TOPIC}
+              placeholder="예: 주차 요금 계산"
+              onChange={(e) => {
+                setText(e.target.value);
+                setCheck(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && canSubmit && submit()}
+            />
+            <span className="text-xs text-ink-400">
+              {text.length}/{MAX_TOPIC}
+            </span>
+          </div>
+          {check && <TopicAdvice check={check} onPick={make} onRandom={() => (setTab("random"), setCheck(null))} />}
+        </div>
+      )}
+
+      {error && <ErrorNote message={error} />}
+      {busy === "make" && <Waiting text="AI 가 읽기 연습용 코드를 쓰고 있어요… (10초쯤 걸려요)" />}
+      {busy === "check" && <Waiting text="주제를 살펴보고 있어요…" />}
+
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-dashed border-ink-300 pt-5">
+        <span className="hand text-pen-blue">{summary}</span>
+        <button type="button" className="btn-ink" onClick={submit} disabled={!canSubmit}>
+          코드 받기 →
+        </button>
+      </div>
+    </Page>
+  );
+}
+
+/** 직접 적은 주제의 판정 결과: 막연함(제안 3개) · 너무 큼(좁힌 주제) · 부적절(랜덤으로) */
+function TopicAdvice({ check, onPick, onRandom }: { check: TopicCheck; onPick: (t: string) => void; onRandom: () => void }) {
+  const title = { vague: "조금 더 구체적으로 적어 볼까요?", too_big: "한 번에 읽기엔 조금 커요", inappropriate: "이 주제로는 만들 수 없어요", ok: "" }[check.verdict];
+  return (
+    <Sticky color={check.verdict === "inappropriate" ? "pink" : "yellow"} tape className="mt-5 max-w-xl p-4">
+      <p className="hand text-pen-red">{title}</p>
+      <p className="mt-1 text-sm text-ink-700">{check.message}</p>
+      {check.suggestions.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {check.suggestions.map((s, i) => (
+            <button key={s} type="button" className="btn-small" onClick={() => onPick(s)}>
+              {check.verdict === "too_big" && i === 0 ? `좁혀서: ${s}` : s}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <button type="button" className="btn-small mt-3" onClick={onRandom}>
+          랜덤으로 뽑을게요
+        </button>
+      )}
+    </Sticky>
+  );
+}

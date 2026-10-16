@@ -1,113 +1,82 @@
-import type { ReactNode } from "react";
-import type { UnderstandingLevel } from "@/lib/types";
+import type { MarkKind } from "@/lib/api-types";
 
-export function ProgressBar({
-  value,
-  tone = "brand",
-  size = "md",
-  label,
+/** 공책 한 장 (가로줄 + 빨간 여백선) */
+export function Page({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`page ${className}`}>
+      <div className="page-body">{children}</div>
+    </div>
+  );
+}
+
+/** 단계 표시: 1장 · 주제 고르기 → 2장 · 메모 → 3장 · 첨삭 */
+export function Crumb({ children }: { children: React.ReactNode }) {
+  return <p className="crumb">{children}</p>;
+}
+
+const STICKY = { yellow: "bg-sticky-yellow", mint: "bg-sticky-mint", pink: "bg-sticky-pink" };
+
+/** 포스트잇 (마스킹테이프는 tape) */
+export function Sticky({
+  color = "yellow",
+  tape = false,
+  tilt = 0,
+  className = "",
+  children,
 }: {
-  value: number;
-  tone?: "brand" | "mint" | "sun" | "coral";
-  size?: "sm" | "md";
-  label?: string;
+  color?: keyof typeof STICKY;
+  tape?: boolean;
+  tilt?: number;
+  className?: string;
+  children: React.ReactNode;
 }) {
-  const color = { brand: "bg-brand-500", mint: "bg-mint-500", sun: "bg-sun-500", coral: "bg-coral-500" }[tone];
-  const clamped = Math.max(0, Math.min(100, value));
   return (
-    <div
-      role="progressbar"
-      aria-valuenow={Math.round(clamped)}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-label={label}
-      className={`w-full overflow-hidden rounded-full bg-ink-100 ${size === "sm" ? "h-1.5" : "h-2.5"}`}
-    >
-      <div className={`h-full rounded-full ${color} transition-[width] duration-700 ease-out`} style={{ width: `${clamped}%` }} />
+    <div className={`sticky-note ${STICKY[color]} ${className}`} style={tilt ? { transform: `rotate(${tilt}deg)` } : undefined}>
+      {tape && <span className="tape" aria-hidden />}
+      {children}
     </div>
   );
 }
 
-export function masteryTone(mastery: number): "mint" | "brand" | "sun" {
-  if (mastery >= 80) return "mint";
-  if (mastery >= 50) return "brand";
-  return "sun";
+/** 빨간 도장 (난이도 등) */
+export function Stamp({ children }: { children: React.ReactNode }) {
+  return <span className="stamp">{children}</span>;
 }
 
-const LEVEL_STYLE: Record<UnderstandingLevel, { label: string; className: string; dot: string }> = {
-  good: { label: "좋음", className: "bg-mint-50 text-mint-700", dot: "bg-mint-500" },
-  ok: { label: "보통", className: "bg-sun-50 text-sun-600", dot: "bg-sun-500" },
-  weak: { label: "더 알아보기", className: "bg-coral-50 text-coral-600", dot: "bg-coral-500" },
-};
-
-export function UnderstandingChip({ level }: { level: UnderstandingLevel }) {
-  const s = LEVEL_STYLE[level];
+/** 빨간펜 표시: ○ 정확 · △ 부분 · ✕ 오해 · ⬚ 누락 */
+export function PenMark({ kind, size = 28 }: { kind: MarkKind; size?: number }) {
+  const common = { fill: "none", stroke: "#c0392b", strokeWidth: 2.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
-    <span className={`chip ${s.className}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-      {s.label}
-    </span>
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className="shrink-0">
+      {kind === "correct" && <path {...common} d="M16 3.5c7.2 0 12.5 5.3 12.3 12.6-.2 7.1-5.6 12.4-12.6 12.3C8.6 28.3 3.4 23 3.6 15.8 3.8 9 8.5 3.6 16.4 3.4" />}
+      {kind === "partial" && <path {...common} d="M16 4.5 29 27.5H3.2L16.4 4.1" />}
+      {kind === "wrong" && <path {...common} d="M5 5.5 27 27M27.3 5 4.8 27.4" />}
+      {kind === "missing" && <rect {...common} x="5" y="5" width="22" height="22" strokeDasharray="4 3" />}
+    </svg>
   );
 }
 
-export function DifficultyDots({ level, max = 5 }: { level: number; max?: number }) {
+/** 기다리는 동안 (손글씨) */
+export function Waiting({ text }: { text: string }) {
   return (
-    <span className="inline-flex items-center gap-0.5" aria-label={`난이도 ${level}/${max}`}>
-      {Array.from({ length: max }, (_, i) => (
-        <span key={i} className={`h-1.5 w-1.5 rounded-full ${i < level ? "bg-brand-500" : "bg-ink-200"}`} />
-      ))}
-    </span>
-  );
-}
-
-export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
-  return (
-    <div className="mb-3 flex items-end justify-between gap-3">
-      <h2 className="text-[17px] font-bold text-ink-900">{children}</h2>
-      {action}
+    <div className="flex items-center gap-3 py-6" role="status">
+      <span className="inline-block h-4 w-4 animate-spin border-2 border-pen-red border-t-transparent" style={{ borderRadius: "50%" }} />
+      <span className="hand text-pen-red">{text}</span>
     </div>
   );
 }
 
-export function Spinner({ className = "" }: { className?: string }) {
+/** 오류 안내 (분홍 포스트잇) */
+export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <span
-      className={`inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent ${className}`}
-      aria-hidden
-    />
-  );
-}
-
-/**
- * 데이터를 불러오는 동안·실패했을 때 화면.
- * 3초 넘게 걸리면 DB 가 쉬다가 깨어나는 중일 수 있다고 알려준다 (Aurora Serverless 0 ACU).
- */
-export function LoadState({ error, slow, onRetry }: { error: string | null; slow: boolean; onRetry?: () => void }) {
-  if (error) {
-    return (
-      <div className="glass mx-auto mt-10 max-w-md p-8 text-center">
-        <p className="text-4xl" aria-hidden>
-          🌧️
-        </p>
-        <p className="mt-3 font-bold">데이터를 불러오지 못했어요</p>
-        <p className="mt-1 text-sm text-ink-500">{error}</p>
-        {onRetry && (
-          <button type="button" onClick={onRetry} className="btn-primary mt-5 px-5 py-2.5 text-sm">
-            다시 시도
-          </button>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="mx-auto mt-6 max-w-4xl space-y-4" aria-busy="true" aria-live="polite">
-      <div className="skeleton h-8 w-56" />
-      <div className="skeleton h-4 w-80" />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="skeleton h-40" />
-        <div className="skeleton h-40" />
-      </div>
-      {slow && <p className="text-center text-sm text-ink-500">☕ 서버를 깨우는 중이에요. 잠시만 기다려 주세요 (처음 한 번은 10~20초 걸릴 수 있어요).</p>}
-    </div>
+    <Sticky color="pink" className="my-4 p-4" tape>
+      <p className="hand text-pen-red">앗, 잠깐만요!</p>
+      <p className="mt-1 text-sm text-ink-700">{message}</p>
+      {onRetry && (
+        <button type="button" onClick={onRetry} className="btn-small mt-3">
+          다시 시도
+        </button>
+      )}
+    </Sticky>
   );
 }

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
  * 브라우저 → API(Lambda 함수 URL 하나 — lambda/api) 호출.
  * 모든 기능이 같은 주소라서 브라우저가 연결(HTTPS)을 한 번 맺고 계속 다시 쓴다 → 화면 이동·제출이 빠르다.
  * - 세션 id 는 sessionStorage 에 둔다: 이 탭(창)을 닫으면 사라지고, 다시 열면 새로 시작한다.
- * - 정답·채점은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
+ * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
  * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables → API_URL).
  * 내 컴퓨터에서는 npm run api 가 같은 Lambda 를 http://localhost:8787 로 실행한다.
  */
@@ -22,8 +22,6 @@ const API_MISSING = !process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV ===
 
 const SESSION_KEY = "codereading.sid";
 const SESSION_HEADER = "x-session-id";
-/** 기록이 바뀌었을 때 화면의 데이터(헤더 XP 등)를 다시 불러오게 하는 이벤트 */
-const CHANGED_EVENT = "codereading:changed";
 
 function readSession(): string | null {
   try {
@@ -79,46 +77,24 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown, 
 export const apiGet = <T>(path: string, opts?: { signal?: AbortSignal; headers?: Record<string, string> }) => request<T>("GET", path, undefined, opts);
 export const apiPost = <T>(path: string, body: unknown, opts?: { signal?: AbortSignal; headers?: Record<string, string> }) => request<T>("POST", path, body, opts);
 
-/** 풀이·이름 변경·초기화 뒤에 호출 → 화면의 데이터가 새로 고쳐진다 */
-export function notifyChanged() {
-  window.dispatchEvent(new Event(CHANGED_EVENT));
-}
-
-/**
- * 화면 데이터 불러오기. 3초 넘게 걸리면 slow=true
- * (DB 가 쉬고 있다가 깨어나는 중일 수 있어서 안내 문구를 보여준다)
- */
+/** 화면 데이터 불러오기 */
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [slow, setSlow] = useState(false);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
-    window.addEventListener(CHANGED_EVENT, reload);
-    return () => window.removeEventListener(CHANGED_EVENT, reload);
-  }, [reload]);
-
-  useEffect(() => {
     if (!path) return;
     const controller = new AbortController();
-    const timer = setTimeout(() => setSlow(true), 3000);
     setError(null);
     apiGet<T>(path, { signal: controller.signal })
       .then(setData)
       .catch((e) => {
         if (e.name !== "AbortError") setError(e.message);
-      })
-      .finally(() => {
-        clearTimeout(timer);
-        setSlow(false);
       });
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
+    return () => controller.abort();
   }, [path, tick]);
 
-  return { data, error, slow, reload };
+  return { data, error, reload };
 }
