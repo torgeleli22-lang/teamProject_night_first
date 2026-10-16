@@ -3,7 +3,7 @@
 
 # 코드리딩 — AI 기반 인터랙티브 코드 읽기 학습 플랫폼
 
-> 📄 프로젝트 전체 설명(개요·기능·AI 원칙·아키텍처·DB·다음 할 일): [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md) — AI 코딩 도구에게 작업을 맡길 때도 이 문서를 먼저 읽게 하세요.
+> 📄 프로젝트 전체 설명(개요·기능·AI 원칙·아키텍처·DynamoDB·다음 할 일): [`docs/PROJECT_BRIEF.md`](docs/PROJECT_BRIEF.md) — AI 코딩 도구에게 작업을 맡길 때도 이 문서를 먼저 읽게 하세요.
 
 > 코딩을 대신해주는 AI가 아니라, 코드를 읽고 이해하는 법을 가르쳐주는 AI.
 > AI가 문제를 많이 만들어주는 것이 아니라, 학습자가 무엇을 이해하지 못하고 있는지 파악하고 그에 맞는 문제를 만들어준다.
@@ -15,152 +15,104 @@
 ## 구성
 
 ```
-GitHub Pages (정적 화면: HTML/JS)  ──HTTPS──→  EC2 API 서버 (채점·기록·추천·AI)  ──→  RDS PostgreSQL
-        src/app, src/components                    src/api  +  src/lib
+GitHub Pages (정적 화면)  ──JSON (주소 하나)──→  jojo_api (Python Lambda)  ──→  DynamoDB (저장)
+     src/app, src/components                        lambda/api/      │      └─→  Bedrock Claude Haiku 4.5 (AI)
+                                                                     └─→  jojo_generate_code (Node.js Lambda): 코드 문제 생성 + 실행 검증
 ```
 
 - **화면**은 Next.js 정적 내보내기(`output: "export"`)로 만든 파일이라 서버가 없습니다. GitHub Pages 에 올립니다.
-- **API** 는 같은 저장소의 `src/api/` 입니다. EC2 에서 Docker 로 실행합니다 (Lambda 로도 실행 가능). 정답·해설·채점 기준은 API 밖으로 나가지 않습니다.
-- **로그인 없는 세션**: API 가 발급한 세션 id 를 브라우저 `sessionStorage` 에 둡니다. 창(탭)을 닫으면 사라지고, 서버 기록도 일정 시간 뒤 지워집니다.
+- **서버는 Lambda 함수 2개**뿐입니다 ([`lambda/README.md`](lambda/README.md)). 콘솔 코드 탭에 **그대로 붙여넣는 읽을 수 있는 코드**(Python + boto3)이고 zip·빌드가 없습니다.
+  `jojo_api` 하나가 화면의 모든 요청을 받아 기능 파일(`questions.py` 문제 고르기, `submit_answer.py` 채점, `tutor_chat.py` 튜터, `my_page.py` 내 학습·랭킹, `admin.py` 관리자 …)로 나눠 처리하고,
+  JavaScript 코드를 실제로 실행해 확인해야 하는 코드 문제 생성만 Node.js 함수가 맡습니다.
+- **최소 비용·최고 속도**: 함수 URL(무료) 하나로 브라우저 연결을 계속 다시 쓰고, 함수 하나가 모든 요청을 받아 콜드 스타트가 드물며, 화면 하나에 DynamoDB 조회 한 번만 합니다.
+- 정답·해설·채점 기준은 Lambda 밖으로 나가지 않습니다 (채점은 `submit_answer.py`).
+- **로그인 없는 세션**: Lambda 가 발급한 세션 id 를 브라우저 `sessionStorage` 에 둡니다. 창(탭)을 닫으면 사라지고, 서버 기록도 일정 시간 뒤 DynamoDB TTL 로 지워집니다.
 
 ## 빠른 시작 (로컬)
 
 ```bash
 npm install
-cp .env.example .env        # API 설정 (기본: AI_MODE=mock, DB_DRIVER=sqlite)
-npm run api                 # 터미널 1: API  http://localhost:8787
-npm run dev                 # 터미널 2: 화면 http://localhost:3000  (관리자: /admin, 데모: /demo)
+python3 -m pip install boto3   # Python 3.10 이상
+npm run api                    # 터미널 1: Lambda  http://localhost:8787 (DynamoDB 흉내 서버 + 목업 AI)
+npm run dev                    # 터미널 2: 화면 http://localhost:3000  (관리자: /admin)
 ```
 
-`AI_MODE=mock` 이면 **API 키나 AWS 없이도 AI 기능이 흉내 낸 응답으로 동작**해서 화면 흐름과 UI/UX 를 확인할 수 있습니다. `/demo` 에서 학습자 상태를 바꾸고 확인할 시나리오를 따라가 보세요.
-
-Node.js 22.13 이상이 필요합니다. 로컬 DB 는 내장 `node:sqlite` 파일(`data/app.db`)이라 따로 설치할 것이 없습니다.
+AWS 계정·키 없이 실행됩니다. AI 는 기본으로 **목업**(`AI_MODE=mock`, 흉내 낸 응답·비용 없음)이라 화면 흐름과 UI/UX 를 확인할 수 있습니다. Node.js 22.13 이상이 필요합니다.
 
 | 스크립트 | 설명 |
 | --- | --- |
-| `npm run api` | 로컬 API 서버 (EC2 에서 도는 것과 같은 코드) |
+| `npm run api` | 로컬에서 Lambda 실행 (AWS 에서 도는 것과 같은 코드) |
 | `npm run dev` / `build` | 화면 개발 서버 / 정적 빌드 (`out/`) |
-| `npm run build:server` | EC2(Docker)용 API 묶음 `dist/server/index.js` |
-| `npm run build:lambda` | Lambda 배포 파일 `dist/lambda.zip` (Lambda 를 쓸 때) |
-| `npm test` | 단위 테스트 (채점, 검증기, 생성 기준, 랭킹, 화면·서버 경계, Data API 드라이버) |
-| `npm run verify` | 시드 콘텐츠 전체를 실제로 실행해 검증 |
-| `npm run smoke` | API 전체 흐름 점검 (`DB_DRIVER=postgres` 로 PostgreSQL 도) |
+| `npm test` | 단위 테스트 (TypeScript: 검증기·흐름 따라가기·경계 / Python: 채점·통계·문제 고르기·관리자 코드) |
+| `npm run verify` | 기본 문제 전체를 실제로 실행해 검증 + `content.json` 최신 확인 |
+| `npm run smoke` | Lambda 전체 흐름 점검 (학습·채점·튜터·분석·관리자·AI 생성) |
+| `npm run export:content` | 커리큘럼·기본 문제 → `lambda/api/content.json` |
 | `npm run typecheck` | TypeScript 타입 검사 |
 
 ## 핵심 설계: AI 비용을 고려한 구조
 
 AI가 잘하는 것(콘텐츠 생성·자연어 분석·개인화)만 AI에게 맡기고, 나머지는 일반 코드와 DB로 처리합니다. **문제를 20개 풀어도 AI를 20번 부르지 않습니다.**
 
-```
-AI 콘텐츠 생성 (관리자 사전 생성 / 콘텐츠 부족 시) ─→ 실행 검증 + AI 검수 ─→ 문제 DB
-                                                                          │
-학습자 ─→ 세션 추천 (일반 알고리즘) ─→ 문제 풀이 ─→ 규칙 채점 ──────────────────┤
-                                            └→ 주관식 중 애매한 답변만 AI 평가     │
-                                                                          ↓
-                                    학습 기록 저장 ─→ 10문제마다 AI 학습자 분석 ─→ 취약 개념 → 기존 문제 추천 → 부족하면 AI 생성
-```
-
 | 기능 | 처리 방식 | AI 호출 |
 | --- | --- | --- |
-| 객관식·빈칸·결과 예측 채점 | 정답 비교 (`src/lib/grading.ts`) | 없음 |
+| 객관식·빈칸·결과 예측·흐름 따라가기 채점 | 정답 비교 (`submit_answer.py`) | 없음 |
 | 오답 원인 (객관식) | 보기마다 미리 저장된 오개념 표시 | 없음 |
 | 힌트 1~4단계, 해설, 개념 설명 | 콘텐츠와 함께 미리 저장 | 없음 |
-| 주관식 평가 | ① 규칙 평가(핵심 요소 키워드 + 오개념 패턴) → 모든 요소를 담고 오개념이 없으면 그대로 정답 처리 ② 너무 짧음·일부 누락·오개념 표현·판단 어려움일 때만 AI | 필요할 때만 (smart) |
-| "AI에게 자세히 분석 받기", "튜터에게 질문" | 학습자가 직접 요청할 때만 | 요청 시 (smart / fast) |
-| 점수·XP·진도·정답률·풀이 시간·유형별/개념별 통계 | 일반 로직 (`src/lib/learner/stats.ts`) | 없음 |
-| 다음 문제 추천 | 취약 개념 + 선택 난이도 + 문제 유형 + 맞힌 문제 제외 (`src/lib/server/planner.ts`) | 없음 |
-| 추천 난이도 | 선택 난이도의 최근 정답률·힌트 사용 (규칙). 자동으로 바꾸지 않음 | 없음 |
-| 학습자 분석 (혼동 개념, 추천 난이도, 집중할 개념) | 10문제마다 한 번 | 10문제당 1회 (smart) |
-| 새 콘텐츠 생성 | **생성 기준**(`docs/ai-generation-policy.md`): 출시 전 채우기 · 재고 하한 · 여러 학습자 소진 · 맞춤 복습. 백그라운드로 실행 | 기준에 해당할 때만 (smart + 검수 fast) |
+| 주관식 평가 | ① 규칙 평가(핵심 요소 표현 + 오개념 패턴) ② 너무 짧음·일부 누락·오개념 표현·판단 어려움일 때만 AI | 필요할 때만 |
+| "AI에게 자세히 분석 받기", "튜터에게 질문" | 학습자가 직접 요청할 때만 | 요청 시 |
+| 점수·XP·진도·정답률·통계·랭킹 | 일반 로직 (`common.py`, `my_page.py`) | 없음 |
+| 다음 문제 추천, 추천 난이도 | 일반 알고리즘 (`questions.py`) | 없음 |
+| 학습자 분석 (혼동 개념, 추천 난이도) | 10문제마다 한 번 (`learner_analysis.py`) | 10문제당 1회 |
+| 새 콘텐츠 생성 | **생성 기준**(`docs/ai-generation-policy.md`)에 해당할 때만 | 기준에 해당할 때만 |
 
-- **모델 분리**: `fast` = `claude-haiku-5-5` (튜터 질문 답변, 콘텐츠 검수), `smart` = `claude-opus-5-5` (주관식 평가, 학습자 분석, 콘텐츠 생성). 환경 변수로 바꿀 수 있습니다.
-- 모든 AI 응답은 Zod 스키마로 구조화해 받고 서버에서 검증합니다. 공통 시스템 프롬프트는 프롬프트 캐시를 씁니다. 호출마다 토큰 사용량을 `ai_usage` 테이블에 기록하고 `/admin` 에서 추정 비용과 "규칙 채점 비율"을 확인할 수 있습니다.
-- AI 가 꺼져 있거나 실패해도 규칙 평가·저장된 해설·규칙 기반 분석으로 학습이 계속됩니다. 콘텐츠 생성에는 하루 상한(`AI_GENERATION_DAILY_LIMIT`)이 있습니다.
+- 모든 AI 응답은 정해진 JSON 형식으로 받아 Lambda 에서 검사합니다. 호출마다 토큰 사용량을 기록하고, **월 예산**(`AI_MONTHLY_BUDGET_USD`, 기본 10달러)을 넘을 수 있는 호출은 하지 않습니다.
+- AI 가 꺼져 있거나 실패해도 규칙 평가·저장된 해설·규칙 기반 분석으로 학습이 계속됩니다.
 
-## 하나의 코드 → 여러 학습 콘텐츠
+## 콘텐츠 품질 검증 (`lambda/generate-code/checks.mjs`)
 
-콘텐츠 단위는 `CodeItem`(코드 1개) + 여러 `Question` 입니다. 세션은 같은 코드의 질문을 연달아 묶어 "같은 코드, 다른 질문"으로 다시 읽게 하고, 같은 코드 안에서는 확인 → 예측 → 분석 → 추론 → 종합 순으로 진행합니다.
-
-## 난이도
-
-사용자에게는 5단계(🌱입문 · 🌿기초 · 🌳초급 · 🔥중급 · 🚀심화)로 보이지만, 내부에서는 코드 줄 수·문법 요소 수·개념 수·논리 복잡도·데이터 흐름·추론 깊이를 따로 계산합니다 (`src/lib/content/analyzer.ts`). 난이도별로 요구하는 사고(기억하기 → 예측하기 → 분석하기 → 추론하기 → 종합하기)가 다릅니다.
-
-## 콘텐츠 품질 검증 (`src/lib/content/validate.ts`)
-
-AI 가 만든 콘텐츠는 그대로 쓰지 않습니다. 코드를 **격리된 워커 스레드의 vm 컨텍스트**에서 실제로 실행해 다음을 확인한 뒤, 저비용 모델이 해설-동작 일치·정답 유일성·난이도·불필요한 개념을 한 번 더 검수합니다. 실패하면 실패 항목을 알려주고 한 번 재생성하며, 그래도 실패하면 `rejected` 로 저장해 관리자 화면에서 보고서를 볼 수 있습니다.
+AI 가 만든 코드 문제는 그대로 쓰지 않습니다. 코드를 **격리된 워커 스레드의 vm 컨텍스트**에서 실제로 실행해 확인하고, AI 가 한 번 더 검수합니다. 실패하면 한 번 재생성하고, 그래도 실패하면 `rejected` 로 저장해 관리자 화면에서 보고서를 볼 수 있습니다.
 
 - 코드가 시간 안에 실행되는가, 제시한 실행 결과 = 실제 결과인가, 위험한 코드(require/eval/무한 루프)는 없는가
-- 실행 결과를 묻는 객관식은 실제 결과와 일치하는 보기가 정답 하나뿐인가
-- 빈칸: 각 보기를 넣어 실행했을 때 원래 결과가 나오는 보기가 정답 하나뿐인가
-- 주관식: 모범 답안이 자기 채점 기준을 통과하는가 · 코드 학습은 읽기 단계가 모두 있는가 · 개념 학습은 4지선다·자격증 태그가 올바른가
+- 실행 결과를 묻는 객관식·빈칸은 원래 결과를 내는 보기가 정답 하나뿐인가
+- 흐름 따라가기 정답 = 실제 실행 기록인가, 주관식 모범 답안이 자기 채점 기준을 통과하는가
 - 목표 난이도와 측정 난이도가 ±1 이내인가, 난이도에 비해 어려운 문법이 없는가
 
-같은 검증기가 사람이 작성한 시드 콘텐츠(코드 64개 · 질문 90개)에도 `npm run verify` 로 적용됩니다.
+개념 문제는 실행으로 확인할 수 없어서, **다른 AI 호출이 정답을 모르는 채로 풀어 보는 교차 검수**를 통과한 문제만 **관리자 승인** 뒤 공개합니다.
+같은 검증기가 기본 문제(개념 54문제 · 코드 6개 30문제)에도 `npm run verify` 로 적용됩니다.
 
 ## 화면
 
 | 경로 | 내용 |
 | --- | --- |
 | `/` | 랜딩 |
-| `/learn` | **학습 탭**: 개념 / 코드 고르기 → 개념은 분야·주제·자격증·난이도로 객관식 10문제, 코드는 언어·난이도·개념으로 코드 2개를 단계별로. 아직 풀지 않은 문제만. 오늘의 목표, AI 학습 분석 |
-| `/review` | **복습 탭**: 오답 노트(틀린 문제 다시 풀기, 맞히면 빠짐), 복습 세트(틀린 문제 → 취약 개념), 다지면 좋은 개념, 자주 하는 착각 |
-| `/ranking` | **랭킹**: XP 기준 내 등수·상위 %, 상위 10명, 랭킹 이름 바꾸기 (지금은 최근 12시간 안에 공부한 세션끼리 비교) |
-| `/practice?mode=learn&level=2&types=multiple_choice,find_bug` | 문제 풀이 → AI Tutor 영역 + 해설 → 비슷한 문제 → 세션 결과 (`mode=review`, `ids=문제id` 로 복습·다시 풀기) |
-| `/concepts` | 탐색: 단원·개념별 코드와 질문, 난이도·문제 유형 필터 |
-| `/dashboard` | 내 학습: 정답률·풀이 시간·힌트, 개념별 이해도, 문제 유형별 정답률, 반복 오답·오개념, AI 분석, 배지, 기록 |
-| `/admin` | 콘텐츠 관리: 생성 기준, 출시 전 채우기, 개념×난이도별 재고·수요, 생성 기록(트리거별), 검증 보고서, AI 사용량·추정 비용 |
-| `/demo` | 데모: 학습자 상태 바꾸기, 랭킹 확인용 가상 참가자 추가/삭제, UI/UX 확인 시나리오 |
+| `/learn` | **학습 탭**: 개념 / 코드 고르기 → 개념은 분야·주제·자격증·난이도로 객관식 10문제, 코드는 언어·난이도·개념으로 코드 2개를 단계별로. 오늘의 목표, AI 학습 분석 |
+| `/review` | **복습 탭**: 오답 노트, 복습 세트(틀린 문제 → 취약 개념), 다지면 좋은 개념, 자주 하는 착각 |
+| `/ranking` | **랭킹**: XP 기준 내 등수·상위 %, 상위 10명, 랭킹 이름 바꾸기 |
+| `/practice` | 문제 풀이 → AI Tutor 영역 + 해설 → 비슷한 문제 → 세션 결과 |
+| `/concepts` | 탐색: 분야·단원별 주제와 문제 |
+| `/dashboard` | 내 학습: 정답률·풀이 시간·힌트, 개념별 이해도, 학습 캘린더, 배지, 기록 |
+| `/admin` | 콘텐츠 관리: 생성 기준, 출시 전 채우기, 재고·수요, 생성 기록, 검증 보고서, 승인 대기, AI 사용량·추정 비용 |
 
-### 로그인 없이 쓰는 동안의 기록 (세션 단위)
-
-- 지금은 로그인이 없습니다. 접속하면 **세션 쿠키**(`sid`, 유효 기간 없음)를 발급하고, 그 세션 동안만 풀이 기록·캘린더·이해도·AI 분석이 남습니다 (`src/middleware.ts`).
-- **브라우저를 닫으면 쿠키가 사라져서** 다시 접속하면 새로 시작합니다. 서버에 남은 기록은 마지막 사용 후 `SESSION_TTL_HOURS`(기본 12시간)가 지나면 자동으로 삭제됩니다.
-- 참고: 브라우저의 "이전 탭 복원" 기능을 켜 두면 일부 브라우저는 세션 쿠키도 복원합니다. 이때도 서버 기록은 TTL 이 지나면 삭제됩니다.
-- 로그인을 붙일 때는 `users` 테이블을 추가하고 `src/lib/server/visitor.ts` 에서 세션 대신 계정을 돌려주면 됩니다.
-
-### DB 테이블 구성 (`src/lib/server/db.ts`)
-
-| 그룹 | 테이블 | 용도 |
-| --- | --- | --- |
-| ① 문제 (모두가 함께 읽음) | `code_items`, `questions` | 코드와 문제. 서버 메모리에 캐시 |
-| ② 사용자 | `sessions` | 브라우저 세션 1개 = 1줄 (선택 난이도, 하루 목표, 마지막 사용 시각) |
-| ③ 학습 기록 (세션 삭제 시 함께 삭제) | `attempts` | 문제 풀이 1건 = 1줄. 이전 문제 피하기·틀린 문제 다시 내기 |
-| | `daily_activity` | **캘린더용 하루 요약** (세션 × 날짜당 1줄). 캘린더·연속 학습·오늘의 목표·XP 는 이것만 읽음 |
-| | `concept_progress` | **개념별 이해도 요약** (세션 × 개념당 1줄). 풀 때마다 그 줄만 갱신 |
-| | `analyses` | 10문제마다 하는 AI 학습 분석 |
-| 운영 | `generation_jobs`, `demand_signals`, `ai_usage` | AI 생성 기록, 생성 기준의 수요 신호, AI 사용량 |
-
-풀이 1건을 저장할 때 `attempts`·`daily_activity`·`concept_progress` 를 한 트랜잭션에서 함께 갱신하므로, 화면은 기록 전체를 다시 계산하지 않고 요약 테이블만 읽습니다.
-
-## 구조
+## 디렉터리
 
 ```
-src/app, src/components          # 화면 (정적). API 는 src/lib/api.ts 의 apiGet/apiPost/useApi 로만 부른다
-src/api/                         # API (EC2 Docker / Lambda 공통)
-  lambda.ts                      # Lambda 진입점 (함수 URL), 백그라운드 작업은 자기 자신을 비동기 호출
-  server.ts                      # API 서버 (로컬 npm run api, EC2 Docker)
-  router.ts, routes.ts           # 경로 표, 세션 헤더, CORS
-  views.ts                       # 화면별 데이터 (화면당 요청 1번)
-  background.ts                  # 응답 뒤에 할 일 (AI 생성, 학습자 분석)
-src/lib/
-  types.ts, curriculum.ts        # 데이터 모델, 단원·개념·5단계 난이도
-  grading.ts                     # 규칙 채점 + 주관식 1차 규칙 평가
-  content/                       # 시드, 난이도 분석, 격리 실행, 검증기, 생성 기준
-  learner/stats.ts               # 통계·이해도·추천 난이도·XP·배지 (AI 없음)
-  server/                        # (API 전용) DB, 저장소, 추천, 채점
-    db/                          # sqlite · postgres · data-api 드라이버, 스키마, 시드 동기화
-  ai/                            # (API 전용) 모델 분리, 주관식 평가, 학습자 분석, 콘텐츠 생성
+src/app, src/components     화면 (정적). API 는 src/lib/api.ts 의 apiGet/apiPost/useApi 로만 부른다
+src/lib/                    api.ts(API 주소), api-types.ts(응답 모양), types.ts, curriculum.ts, content/seed(기본 문제)
+lambda/                     api/(jojo_api: 입구·공통·기능 파일·content.json), generate-code/(Node.js), tests/(Python 테스트)
+scripts/                    local-api.mjs + local_lambdas.py(로컬 실행), smoke.mjs, verify-content.ts, export-content.ts
+docs/                       PROJECT_BRIEF.md, ai-generation-policy.md, DEPLOY_LAMBDA.md
 ```
 
-## 배포 (GitHub Pages + EC2 + RDS PostgreSQL)
+## 배포 (GitHub Pages + Lambda + DynamoDB + Bedrock)
 
-순서는 [`docs/DEPLOY_AWS.md`](docs/DEPLOY_AWS.md) 를 따라 하세요. 요약:
+[`docs/DEPLOY_LAMBDA.md`](docs/DEPLOY_LAMBDA.md) 를 따라 하세요. 요약:
 
-1. RDS PostgreSQL (퍼블릭 액세스 없음, 보안 그룹 `default`)
-2. EC2 에 `default` 보안 그룹을 함께 붙이고 `.env` 작성 → `sudo docker build -t codereading-api . && sudo docker compose up -d` (Caddy 가 `https://<IP>.sslip.io` 인증서 자동 발급)
-3. 저장소 변수 `API_URL` 에 API 주소 저장, Pages 소스를 GitHub Actions 로 → main 에 push 하면 화면 자동 배포
+1. DynamoDB 테이블 `jojo_table` (pk·sk, TTL `jojo_ttl`)
+2. Lambda 2개를 콘솔에서 만들고 `lambda/api/`, `lambda/generate-code/` 파일을 코드 탭에 붙여넣기 (실행 역할 `SafeRole-sgu-202688`)
+3. `jojo_api` 에서 **테스트** `{"task": "load-content"}` 한 번 → 기본 문제가 들어감
+4. `jojo_api` 함수 URL 을 GitHub 저장소 변수 `API_URL` 에 넣고 Pages 배포
 
 ## 다음 단계
 
-- 로그인 + 계정 연결, 관리자 화면에서 반려 콘텐츠 수정·재검증
-- 실행 흐름 분석 전용 문제 유형(한 줄씩 변수 값 추적), 오답 기반 복습 문제를 배치(Batch API)로 미리 생성
+- 로그인(Google·GitHub) + 로그인 사용자 기록 영구 저장
+- 코드 학습 두 번째 언어(Python)

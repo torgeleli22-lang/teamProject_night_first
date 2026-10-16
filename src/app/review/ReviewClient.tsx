@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { SessionNotice } from "@/components/SessionNotice";
 import { LoadState, ProgressBar, SectionTitle, masteryTone } from "@/components/ui";
-import type { ReviewView } from "@/api/views";
+import type { ReviewView } from "@/lib/api-types";
 import { useApi } from "@/lib/api";
 import { QUESTION_TYPE_LABEL, STAGE_INFO, TRACK_LABEL, conceptName, levelInfo, trackOf } from "@/lib/curriculum";
 import type { Track } from "@/lib/types";

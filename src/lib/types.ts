@@ -62,7 +62,8 @@ export interface DifficultyFactors {
 export type Skill = "recall" | "predict" | "analyze" | "infer" | "synthesize";
 
 export type ContentSource = "seed" | "ai";
-export type ContentStatus = "published" | "rejected";
+/** pending: AI 가 만든 개념 문제가 관리자 승인을 기다림 (학습자에게 보이지 않음) */
+export type ContentStatus = "published" | "pending" | "rejected";
 
 /**
  * 콘텐츠 묶음 하나.

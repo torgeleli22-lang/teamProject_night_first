@@ -5,7 +5,7 @@ import { SessionNotice } from "@/components/SessionNotice";
 import { StartPanel } from "@/components/StartPanel";
 import { TutorAnalysisCard } from "@/components/TutorAnalysisCard";
 import { LoadState, ProgressBar } from "@/components/ui";
-import type { LearnView } from "@/api/views";
+import type { LearnView } from "@/lib/api-types";
 import { useApi } from "@/lib/api";
 import { getConcept } from "@/lib/curriculum";
 

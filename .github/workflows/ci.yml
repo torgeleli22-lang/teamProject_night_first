@@ -1,5 +1,4 @@
-# 자동 검사 (push · PR 마다): 타입 · 테스트 · 콘텐츠 실행 검증 · API 전체 흐름(SQLite, PostgreSQL, DynamoDB) · 정적 빌드 · Lambda 패키지
-# 끝나면 Actions 실행 화면의 Artifacts 에서 'lambda-upload' 를 받아 Lambda 콘솔에 그대로 올리면 된다 (안에 index.js 하나).
+# 자동 검사 (push · PR 마다): 타입 · 테스트(TS + Python) · 콘텐츠 실행 검증 · Lambda 전체 흐름 · 정적 빌드
 name: CI
 
 on:
@@ -11,48 +10,21 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: jobase
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      AI_MODE: mock
-      DATABASE_SSL: disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      # Python Lambda 를 실행하려면 Python + boto3 (AWS Lambda Python 3.13 런타임과 같은 버전)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install boto3
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-        env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobase
-          DATA_API_RETRY_MS: "10"
       - run: npm run verify
-      - name: API 흐름 (SQLite)
+      - name: Lambda 전체 흐름 (로컬 DynamoDB 흉내 서버 + 목업 AI)
         run: npm run smoke
-        env:
-          DATABASE_PATH: ${{ runner.temp }}/smoke.db
-      - name: API 흐름 (PostgreSQL)
-        run: npm run smoke
-        env:
-          DB_DRIVER: postgres
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobase
-      - name: API 흐름 (DynamoDB, 로컬 흉내 서버)
-        run: npm run smoke:dynamo
       - run: npm run build
-      - run: npm run build:server
-      - run: npm run build:lambda
-      # GitHub 이 파일을 zip 으로 묶어 주므로, 받은 zip 이 곧 Lambda 에 올릴 파일이다 (index.js 가 맨 위에 있음)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lambda-upload
-          path: dist/lambda/index.js
-          retention-days: 30

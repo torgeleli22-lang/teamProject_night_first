@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { AIBadge } from "@/components/AIBadge";
 import { Spinner } from "@/components/ui";
 import { ApiError, apiPost } from "@/lib/api";
-import type { Answer } from "@/lib/types";
 
 export interface Turn {
   role: "user" | "tutor";
@@ -15,26 +14,27 @@ export interface Turn {
 const SUGGESTIONS_BEFORE = ["어디부터 읽어야 할지 모르겠어요", "이 문법이 뭔지 모르겠어요"];
 const SUGGESTIONS_AFTER = ["왜 다른 답은 틀린 건가요?", "이 개념을 다른 예시로 보여주세요", "실제로는 어디에 쓰이나요?"];
 
-/** AI 에게 보내는 이전 대화 수 (질문·답 5번) — 비용을 위해 오래된 대화는 빼고 보낸다 */
-const HISTORY_TURNS = 10;
-
 /**
  * 한 문제에 대한 튜터 대화. 대화 내용(turns)은 문제 화면(QuestionView)이 들고 있어서
  * 제출 전후·창을 닫았다 열어도 이어지고, 다음 문제로 넘어가면 사라진다.
+ * 질문은 API(POST /ask, lambda/api/tutor_chat.py)로 보낸다. 이전 대화는 Lambda 가 chatId 로 기억한다.
  */
 export function TutorChat({
   questionId,
   solved,
   turns,
   setTurns,
-  answer,
+  chat,
 }: {
   questionId: string;
   solved: boolean;
   turns: Turn[];
   setTurns: Dispatch<SetStateAction<Turn[]>>;
-  /** 학습자가 지금 고른·쓴·배열한 답 (순서 맞추기는 일부만 놓은 것도). 튜터가 이 답을 보고 이야기한다 */
-  answer?: Answer | null;
+  /**
+   * answerText: 학습자가 지금 고른·쓴 답 (튜터가 이 답을 보고 이야기한다)
+   * chatId: 이 문제의 대화 id. 문제 화면이 들고 있어서 다음 문제로 넘어가면 새 대화가 된다
+   */
+  chat: { answerText: string; chatId: string | null; setChatId: (id: string) => void };
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -68,18 +68,19 @@ export function TutorChat({
   async function send(question: string) {
     const q = question.trim();
     if (!q || loading) return;
-    const history = turns.slice(-HISTORY_TURNS).map(({ role, text }) => ({ role, text }));
     setTurns((t) => [...t, { role: "user", text: q }]);
     setInput("");
     setLoading(true);
     try {
-      const res = await apiPost<{ answer: string; source: "ai" | "offline" }>("/ask", {
+      // tutor_chat.py: 대화 기록은 Lambda 가 chatId 로 DynamoDB 에 보관한다 (화면은 chatId 만 들고 있음)
+      const res = await apiPost<{ answer: string; chatId: string; source: "ai" | "offline" }>("/ask", {
+        ...(chat.chatId ? { chatId: chat.chatId } : {}),
         questionId,
         question: q,
         solved,
-        history,
-        ...(answer ? { answer } : {}),
+        ...(chat.answerText ? { answerText: chat.answerText } : {}),
       });
+      chat.setChatId(res.chatId);
       setTurns((t) => [...t, { role: "tutor", text: res.answer, source: res.source }]);
     } catch (e) {
       // 너무 많이 물어본 경우(429)는 서버가 보낸 안내를 그대로 보여 준다

@@ -3,11 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * 브라우저 → API(Lambda 함수 URL, 로컬은 npm run api) 호출.
+ * 브라우저 → API(Lambda 함수 URL 하나 — lambda/api) 호출.
+ * 모든 기능이 같은 주소라서 브라우저가 연결(HTTPS)을 한 번 맺고 계속 다시 쓴다 → 화면 이동·제출이 빠르다.
  * - 세션 id 는 sessionStorage 에 둔다: 이 탭(창)을 닫으면 사라지고, 다시 열면 새로 시작한다.
- * - 정답·채점은 모두 서버(API)에서 한다. 이 파일은 요청만 보낸다.
+ * - 정답·채점은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
+ * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables → API_URL).
+ * 내 컴퓨터에서는 npm run api 가 같은 Lambda 를 http://localhost:8787 로 실행한다.
  */
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
+
+/** 요청할 전체 주소 */
+export function apiUrl(path: string): string {
+  return `${API_URL}${path}`;
+}
+
 /** 배포 화면인데 API 주소 없이 빌드된 경우 (화면 미리보기만 가능) */
 const API_MISSING = !process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_BASE_PATH;
 
@@ -46,7 +55,7 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown, 
   const sid = readSession();
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(apiUrl(path), {
       method,
       headers: {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),

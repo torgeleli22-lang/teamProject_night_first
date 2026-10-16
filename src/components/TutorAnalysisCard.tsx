@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { AIBadge } from "@/components/AIBadge";
 import { ProgressBar } from "@/components/ui";
-import type { LearnerAnalysis } from "@/lib/ai/analysis";
+import type { LearnerAnalysis } from "@/lib/api-types";
 import { conceptName, levelInfo } from "@/lib/curriculum";
-import type { StoredAnalysis } from "@/lib/server/session-repo";
+import type { StoredAnalysis } from "@/lib/api-types";
 
 /** AI 학습자 분석 결과 (일정 문제 수마다 갱신) */
 export function TutorAnalysisCard({
