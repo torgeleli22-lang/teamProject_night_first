@@ -104,6 +104,16 @@ class AdminCode(unittest.TestCase):
         self.assertFalse(admin.code_matches("틀린 코드 12345", h))
 
 
+class AdminUsage(unittest.TestCase):
+    def test_error_reasons_and_names(self):
+        self.assertIn("권한", admin.reason("bedrock: AccessDeniedException"))
+        self.assertIn("형식", admin.reason("could not parse response: x"))
+        self.assertEqual(admin.reason("Python 문법 오류 (3번째 줄)"), "Python 문법 오류 (3번째 줄)")
+        self.assertEqual(admin.task_name("review"), "빨간펜 첨삭")
+        self.assertEqual(admin.task_name("tutor_chat"), "튜터 대화")
+        self.assertEqual(admin.short_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "목업 · claude-haiku-4-5")
+
+
 class Entry(unittest.TestCase):
     def test_every_path_has_a_feature(self):
         entry = load_lambda("lambda_function")

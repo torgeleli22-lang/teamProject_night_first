@@ -110,6 +110,8 @@ try {
   // ── 관리자 (admin.py): AI 끄기 → 예시 코드·규칙 판정
   const overview = await call("GET", "/admin/overview");
   check(overview.aiSwitch === true && overview.days[0].practices >= 1 && overview.usage.length > 0, `관리자 현황 (오늘 연습 ${overview.days[0].practices}번, AI 작업 ${overview.usage.length}종)`);
+  check(overview.usage.every((u) => u.current && u.taskName && u.description && u.calls === u.successes + u.failures), "작업별 사용량: 이름·설명·성공/실패");
+  check(overview.recent.length > 0 && overview.recent.every((r) => r.taskName && typeof r.ok === "boolean"), `최근 AI 호출 기록 ${overview.recent.length}건`);
   await call("POST", "/admin/ai", { enabled: false });
   const offReading = await call("POST", "/practice", { level: 1, topic: "카페 주문" });
   check(offReading.note && offReading.marks.length >= 2, "AI 끄면 예시 코드");

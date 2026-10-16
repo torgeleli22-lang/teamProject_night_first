@@ -1,7 +1,7 @@
 import random
 
-from common import (LEVELS, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
-                    get_learner, load_reading, public_reading, query_all, remember_topic, save_reading)
+from common import (LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
+                    get_learner, load_reading, log_ai_event, public_reading, query_all, remember_topic, save_reading)
 from samples import SAMPLES
 
 # ─────────────────────────────────────────────────────────────
@@ -150,6 +150,8 @@ def make_code(req, level, topic, learner, prompt_extra):
                     "note": "(목업) 고른 주제와 다른 예시 코드일 수 있어요." if r.get("_mock") else None}
         feedback = "방금 만든 코드에 문제가 있었어요. 고쳐서 다시 만들어 주세요:\n" + "\n".join(f"- {p}" for p in problems)
         print("[generate] 다시 만듦:", problems)
+        # AI 는 답했지만 서버 검사에서 걸린 것도 관리자 화면 'AI 호출 기록'에 남긴다
+        log_ai_event("code_generation", f"mock:{MODEL_ID}" if r.get("_mock") else MODEL_ID, False, error="; ".join(problems), stage="check")
     return from_sample(sample, "AI 가 만든 코드가 검사를 통과하지 못해 준비된 예시 코드를 드려요.")
 
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Crumb, ErrorNote, Page, Sticky, Waiting } from "@/components/ui";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import type { AdminOverview, DayCount } from "@/lib/api-types";
+import type { AdminOverview, DayCount, UsageRow } from "@/lib/api-types";
 
 const TOKEN_KEY = "codereading.admin";
 const MODE_LABEL = { live: "실제 AI (Bedrock)", mock: "목업 (비용 없음)", off: "꺼짐 (AI_MODE=off)" };
@@ -16,6 +16,58 @@ const DAY_COLUMNS: { key: keyof Omit<DayCount, "day">; label: string }[] = [
 ];
 
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 4 : 2)}`;
+/** 한국 시간 '10-17 02:56' */
+const when = (ms: number | null) =>
+  ms ? new Date(ms).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "-";
+
+/** 작업별 사용량 표: 작업(설명) · 모델 · 호출 · 성공 · 실패 · 토큰 · 추정 비용 · 마지막 호출 · 마지막 실패 이유 */
+function UsageTable({ rows }: { rows: UsageRow[] }) {
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full min-w-[820px] border-collapse bg-paper text-sm">
+        <thead>
+          <tr className="border-b border-ink-900 text-left text-xs text-ink-500">
+            <th className="py-2 pr-3 font-medium">작업</th>
+            <th className="py-2 pr-3 font-medium">모델</th>
+            <th className="py-2 pr-3 text-right font-medium">호출</th>
+            <th className="py-2 pr-3 text-right font-medium">성공</th>
+            <th className="py-2 pr-3 text-right font-medium">실패</th>
+            <th className="py-2 pr-3 text-right font-medium">토큰 (입력/출력)</th>
+            <th className="py-2 pr-3 text-right font-medium">추정 비용</th>
+            <th className="py-2 font-medium">마지막 호출</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((u) => (
+            <tr key={u.task + u.model} className="border-b border-ink-200 align-top">
+              <td className="py-2 pr-3">
+                <b className="font-semibold">{u.taskName}</b>
+                <span className="block text-xs text-ink-500">{u.description}</span>
+                {u.lastError && (
+                  <span className="mt-1 block text-xs text-pen-red">
+                    마지막 실패 ({when(u.lastErrorAt)}): {u.lastError}
+                  </span>
+                )}
+              </td>
+              <td className="whitespace-nowrap py-2 pr-3 text-xs text-ink-700">{u.modelName}</td>
+              <td className="py-2 pr-3 text-right">{u.calls.toLocaleString()}</td>
+              <td className="py-2 pr-3 text-right">{u.successes.toLocaleString()}</td>
+              <td className={`py-2 pr-3 text-right ${u.failures ? "font-semibold text-pen-red" : "text-ink-300"}`}>
+                {u.failures}
+                {u.failures > 0 && <span className="block text-xs font-normal">{Math.round((100 * u.failures) / u.calls)}%</span>}
+              </td>
+              <td className="whitespace-nowrap py-2 pr-3 text-right">
+                {u.input.toLocaleString()} / {u.output.toLocaleString()}
+              </td>
+              <td className="py-2 pr-3 text-right">{u.mock ? "목업" : usd(u.costUsd)}</td>
+              <td className="whitespace-nowrap py-2 font-mono text-xs">{when(u.lastAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /** 관리자: AI 사용량 · 비용 · AI 끄기 · 관리자 코드 */
 export function AdminNote() {
@@ -141,30 +193,54 @@ export function AdminNote() {
           {/* 작업별 사용량 */}
           <section className="mt-10">
             <h2 className="text-lg">이번 달 작업별 AI 사용량</h2>
+            <p className="mt-1 text-xs text-ink-500">작업 × 모델마다 한 줄이에요. 실패는 AI 를 불렀지만 답을 쓰지 못한 횟수예요 (그때는 예시 코드·규칙으로 대신해요).</p>
             {data.usage.length === 0 ? (
               <p className="mt-2 text-sm text-ink-500">아직 AI 를 부른 적이 없어요.</p>
             ) : (
+              <>
+                <UsageTable rows={data.usage.filter((u) => u.current)} />
+                {data.usage.some((u) => !u.current) && (
+                  <details className="mt-4">
+                    <summary className="cursor-pointer text-sm text-ink-700">예전 서비스(문제 풀이)에서 쓴 기록 {data.usage.filter((u) => !u.current).length}줄 — 지금은 부르지 않아요</summary>
+                    <UsageTable rows={data.usage.filter((u) => !u.current)} />
+                  </details>
+                )}
+              </>
+            )}
+          </section>
+
+          {/* 최근 AI 호출 */}
+          <section className="mt-10">
+            <h2 className="text-lg">최근 AI 호출 기록</h2>
+            <p className="mt-1 text-xs text-ink-500">가장 최근 50번 (14일 보관). &lsquo;검사&rsquo;는 AI 는 답했지만 서버 검사(문법·길이·※ 줄)에서 걸려 다시 부른 경우예요.</p>
+            {data.recent.length === 0 ? (
+              <p className="mt-2 text-sm text-ink-500">아직 기록이 없어요. (이 기능을 넣은 뒤부터 쌓여요)</p>
+            ) : (
               <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[560px] border-collapse bg-paper text-sm">
+                <table className="w-full min-w-[720px] border-collapse bg-paper text-sm">
                   <thead>
                     <tr className="border-b border-ink-900 text-left text-xs text-ink-500">
+                      <th className="py-2 pr-3 font-medium">시각</th>
                       <th className="py-2 pr-3 font-medium">작업</th>
-                      <th className="py-2 pr-3 text-right font-medium">호출</th>
-                      <th className="py-2 pr-3 text-right font-medium">실패</th>
-                      <th className="py-2 pr-3 text-right font-medium">입력 토큰</th>
-                      <th className="py-2 pr-3 text-right font-medium">출력 토큰</th>
-                      <th className="py-2 font-medium">모델</th>
+                      <th className="py-2 pr-3 font-medium">결과</th>
+                      <th className="py-2 pr-3 text-right font-medium">걸린 시간</th>
+                      <th className="py-2 pr-3 text-right font-medium">토큰 (입력/출력)</th>
+                      <th className="py-2 font-medium">실패 이유</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.usage.map((u) => (
-                      <tr key={u.task + u.model} className="border-b border-ink-200">
-                        <td className="py-2 pr-3">{u.taskName}</td>
-                        <td className="py-2 pr-3 text-right">{u.calls.toLocaleString()}</td>
-                        <td className={`py-2 pr-3 text-right ${u.failures ? "text-pen-red" : ""}`}>{u.failures}</td>
-                        <td className="py-2 pr-3 text-right">{u.input.toLocaleString()}</td>
-                        <td className="py-2 pr-3 text-right">{u.output.toLocaleString()}</td>
-                        <td className="py-2 text-xs text-ink-500">{u.model.startsWith("mock:") ? "목업" : "실제"}</td>
+                    {data.recent.map((r, i) => (
+                      <tr key={i} className="border-b border-ink-200 align-top">
+                        <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-xs">{when(r.at)}</td>
+                        <td className="whitespace-nowrap py-1.5 pr-3">{r.taskName}</td>
+                        <td className={`whitespace-nowrap py-1.5 pr-3 ${r.ok ? "" : "font-semibold text-pen-red"}`}>
+                          {r.ok ? "성공" : r.stage === "check" ? "검사 걸림" : "실패"}
+                        </td>
+                        <td className="whitespace-nowrap py-1.5 pr-3 text-right">{r.ms ? `${(r.ms / 1000).toFixed(1)}초` : "-"}</td>
+                        <td className="whitespace-nowrap py-1.5 pr-3 text-right">
+                          {r.input.toLocaleString()} / {r.output.toLocaleString()}
+                        </td>
+                        <td className="py-1.5 text-xs text-pen-red">{r.error}</td>
                       </tr>
                     ))}
                   </tbody>

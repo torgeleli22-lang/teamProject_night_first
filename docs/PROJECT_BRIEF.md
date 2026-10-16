@@ -52,9 +52,9 @@
 | 01 첫 화면 | `/` | 소개, 연습 모드 / 내 코드 점검 고르기, 공부하는 순서 | 없음 |
 | 02 연습 모드 | `/practice/` | **1장 · 주제 고르기**: 난이도(입문·초급·중급) + 주제(랜덤으로 뽑기 / 직접 적기 50자) | `GET /topic/random`, `POST /topic/check`, `POST /practice` |
 | 03 메모하며 읽기 | `/read/?id=` | **2장**: 줄 번호·문법 색칠 코드, ※ 꼭 설명할 곳(진행 n / m), 첫 줄·끝 줄을 눌러 형광펜 범위 → 포스트잇 메모 ①②, 더 쉽게(이유 고르기)·더 어렵게(메모가 사라진다는 경고), ※ 가 비어도 첨삭 받기 가능 | `GET /reading`, `POST /practice/adjust`, `POST /review` |
-| 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 메모별 첨삭(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
+| 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 왼쪽에 전체 코드(따라 내려옴, 첨삭에 마우스를 올리면 그 범위 표시), 오른쪽에 메모별 첨삭(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
 | 05 내 코드 점검 | `/check/` | 파일 올리기(1개) / 붙여넣기 → 민감 정보 가리기(분홍 포스트잇) → 점검할 함수 고르기 → 훑어본 난이도 도장 → 메모하러 가기 (이후 03·04 와 같음, 더 쉽게/어렵게 없음) | `POST /inspect`, `POST /inspect/start` |
-| 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량, 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
+| 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량(설명·성공·실패·비용·마지막 실패 이유, 예전 서비스 기록은 따로), 최근 AI 호출 기록(50건), 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
 
 **정한 값**: 업로드 최대 **300줄**, 지원 언어 **Python** (JS·Java 는 "곧 열려요" 안내), 점수는 **○△✕ 개수**, 같은 코드에서 다시 만들기 **5번**.
 
@@ -155,7 +155,8 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 연습 7일 · 올린 코드 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews (하루 사용 수) | 90일 |
-| `USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰) | |
+| `USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰), lastAt, lastError, lastErrorAt | |
+| `AILOG` | `<시각>` | task, model, ok, stage(ai·check), input, output, ms, error — 관리자 화면 '최근 AI 호출 기록' | 14일 |
 | `META` | `ai_switch` · `admin_code_hash` | AI 끄기 스위치, 관리자 코드(scrypt 해시) | |
 | `RL` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 | 시간 칸이 지나면 |
 

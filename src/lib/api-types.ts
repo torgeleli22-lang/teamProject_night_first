@@ -148,15 +148,41 @@ export interface ReviewResult {
 
 // ───────────────────────── 관리자 (admin.py) ─────────────────────────
 
+/** 이번 달 AI 사용량: 작업 × 모델 한 줄 */
 export interface UsageRow {
   task: string;
   taskName: string;
+  /** 지금 서비스가 쓰는 작업인지 (false 면 예전 서비스의 기록) */
+  current: boolean;
+  description: string;
   model: string;
+  modelName: string;
+  mock: boolean;
   calls: number;
+  successes: number;
+  failures: number;
   input: number;
   output: number;
   cacheRead: number;
-  failures: number;
+  costUsd: number;
+  lastAt: number | null;
+  /** 마지막 실패 이유 (관리자가 읽을 말 — 원래 오류) */
+  lastError: string;
+  lastErrorAt: number | null;
+}
+
+/** AI 호출 하나 (최근 50개, 14일 보관). stage=check 는 AI 는 답했지만 서버 검사에서 걸린 것 */
+export interface AiLogRow {
+  at: number;
+  task: string;
+  taskName: string;
+  modelName: string;
+  ok: boolean;
+  stage: "ai" | "check";
+  input: number;
+  output: number;
+  ms: number;
+  error: string;
 }
 
 export interface DayCount {
@@ -174,6 +200,7 @@ export interface AdminOverview {
   model: string;
   budget: { monthlyUsd: number; monthToDateUsd: number; realUsd: number; percent: number };
   usage: UsageRow[];
+  recent: AiLogRow[];
   days: DayCount[];
   adminCode: { custom: boolean; recovery: boolean };
 }
