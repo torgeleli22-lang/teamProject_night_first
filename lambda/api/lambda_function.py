@@ -28,14 +28,26 @@ from common import ApiError, read_request, reply, run_route
 #   코드 문제 AI 생성만 따로 있는 Node.js 함수(jojo_generate_code)가 한다 (코드를 실제로 실행해서 확인)
 # ─────────────────────────────────────────────────────────────
 
+def need(module, name):
+    """기능 파일에서 name(ROUTES·run)을 꺼낸다. 없으면 콘솔에 붙여넣은 파일이 비었거나 잘못됐다고 알려 준다"""
+    if not hasattr(module, name):
+        raise RuntimeError(
+            f"{module.__name__}.py 에 {name} 이(가) 없어요. 콘솔의 {module.__name__}.py 가 비어 있거나, 일부만 붙여넣어졌거나, "
+            f"다른 파일 내용이 들어갔을 수 있어요. GitHub 의 lambda/api/{module.__name__}.py 전체를 다시 붙여넣고 Deploy 해 주세요."
+        )
+    return getattr(module, name)
+
+
 # 경로 → 처리 함수 (기능 파일마다 있는 ROUTES 를 합친 표)
-ROUTES = {**questions.ROUTES, **submit_answer.ROUTES, **tutor_chat.ROUTES, **my_page.ROUTES, **admin.ROUTES}
+ROUTES = {}
+for feature in (questions, submit_answer, tutor_chat, my_page, admin):
+    ROUTES.update(need(feature, "ROUTES"))
 
 # 뒤에서 할 일: 이 함수가 자기 자신을 {"task": "..."} 로 다시 불러 실행한다 (화면은 기다리지 않음)
 TASKS = {
-    "learner-analysis": learner_analysis.run,
-    "generate-theory": generate_theory.run,
-    "load-content": load_content.run,
+    "learner-analysis": need(learner_analysis, "run"),
+    "generate-theory": need(generate_theory, "run"),
+    "load-content": need(load_content, "run"),
 }
 
 
