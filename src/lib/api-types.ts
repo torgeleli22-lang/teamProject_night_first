@@ -83,6 +83,8 @@ export const ADJUST_REASONS: Record<AdjustReason, string> = {
 export interface ReadingWithReview {
   reading: Reading;
   review: ReviewResult | null;
+  /** 첨삭 항목 번호(문자열) → AI 튜터와 나눈 대화 */
+  chats?: Record<string, TutorChat>;
 }
 
 // ───────────────────────── 내 코드 점검 (inspect_code.py) ─────────────────────────
@@ -146,6 +148,27 @@ export interface ReviewResult {
   createdAt: number;
 }
 
+// ───────────────────────── AI 튜터 (tutor_chat.py) ─────────────────────────
+
+export interface TutorTurn {
+  role: "user" | "tutor";
+  text: string;
+  /** 튜터가 다시 보라고 한 줄 */
+  lookAt: number[];
+  at: number;
+}
+
+export interface TutorChat {
+  turns: TutorTurn[];
+  turnsLeft: number;
+}
+
+/** POST /tutor */
+export interface TutorReply extends TutorChat {
+  item: number;
+  byAi: boolean;
+}
+
 // ───────────────────────── 관리자 (admin.py) ─────────────────────────
 
 /** 이번 달 AI 사용량: 작업 × 모델 한 줄 */
@@ -192,6 +215,7 @@ export interface DayCount {
   topicChecks: number;
   inspections: number;
   reviews: number;
+  tutorChats: number;
 }
 
 export interface AdminOverview {

@@ -50,6 +50,8 @@ READING_KEEP_DAYS = 7         # 연습 코드·첨삭 기록 보관 기간 (지�
 UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (짧게)
 MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
+MAX_TUTOR_TURNS = 10          # 첨삭 결과의 메모 하나에 AI 튜터에게 물을 수 있는 횟수
+MAX_TUTOR_CHARS = 300         # 튜터 질문 하나의 최대 글자 수
 LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
 
 # 난이도 3단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)

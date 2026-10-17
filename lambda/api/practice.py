@@ -1,8 +1,9 @@
 import random
 
 from common import (LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
-                    get_learner, load_reading, log_ai_event, public_reading, query_all, remember_topic, save_reading)
+                    get_learner, load_reading, log_ai_event, public_reading, remember_topic, save_reading)
 from samples import SAMPLES
+from tutor_chat import chats_for, latest_review
 
 # ─────────────────────────────────────────────────────────────
 # 연습 모드 (practice.py) — jojo_api 의 기능 파일
@@ -113,8 +114,9 @@ def adjust(req):
 def get_reading(req):
     learner = get_learner(req)
     item = load_reading(req["query"].get("id", ""), learner)
-    reviews = [r for r in query_all(f"READ#{item['id']}", prefix="REVIEW#")]
-    return {"reading": public_reading(item), "review": reviews[-1]["result"] if reviews else None}
+    review = latest_review(item["id"])
+    return {"reading": public_reading(item), "review": review["result"] if review else None,
+            "chats": chats_for(item["id"], review)}   # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
 
 
 ROUTES = {

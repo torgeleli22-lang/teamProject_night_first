@@ -70,6 +70,18 @@ try {
   check(result.items.every((e) => e.comment && "model" in e), "항목마다 코멘트 + 모범 설명 (첨삭 뒤)");
   const empty = await call("POST", "/review", { readingId: reading.id, memos: [] });
   check(empty.counts.missing === m.length, "메모 없이 제출해도 첨삭 (모두 빈칸)");
+  // ── AI 튜터 (tutor_chat.py): 첨삭 항목마다 대화, 10번까지, 다시 열면 대화가 남아 있음
+  const t1 = await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "왜 이렇게 판정했나요?" });
+  check(t1.turns.length === 2 && t1.turns[1].role === "tutor" && t1.turns[1].text && t1.turnsLeft === 9, "튜터에게 묻기 → 답");
+  for (let i = 0; i < 9; i++) await call("POST", "/tutor", { readingId: reading.id, item: 0, message: `더 알려 주세요 ${i}` });
+  await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "한 번 더" }, {}, 429);
+  check(true, "메모 하나에 질문 10번까지");
+  await call("POST", "/tutor", { readingId: reading.id, item: 99, message: "?" }, {}, 404);
+  await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "   " }, {}, 400);
+  check(true, "없는 항목 404 · 빈 질문 400");
+  const withChat = await call("GET", `/reading?id=${reading.id}`);
+  check(withChat.chats["0"]?.turns.length === 20 && withChat.chats["0"].turnsLeft === 0, "다시 열면 튜터 대화가 남아 있음");
+
   const again = await call("GET", `/reading?id=${reading.id}`);
   check(again.reading.id === reading.id && again.review?.counts && noAnswers(again.reading), "같은 코드 다시 읽기 + 마지막 첨삭");
 

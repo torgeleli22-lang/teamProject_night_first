@@ -5,9 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
+import { TutorChat } from "@/components/TutorChat";
 import { Crumb, ErrorNote, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
-import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type ReviewResult } from "@/lib/api-types";
+import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
 
 const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
@@ -33,11 +34,12 @@ export function ResultNote() {
     );
   }
   if (!data) return <Page><Waiting text="첨삭지를 펼치는 중이에요…" /></Page>;
-  return <ResultBody reading={data.reading} review={data.review!} />;
+  return <ResultBody reading={data.reading} review={data.review!} chats={data.chats ?? {}} />;
 }
 
-function ResultBody({ reading, review }: { reading: Reading; review: ReviewResult }) {
-  const [active, setActive] = useState<ReviewItem | null>(null);
+function ResultBody({ reading, review, chats }: { reading: Reading; review: ReviewResult; chats: Record<string, TutorChatData> }) {
+  /** 왼쪽 전체 코드에서 분홍으로 보여 줄 범위 (첨삭에 마우스를 올리거나, 튜터가 알려 준 줄을 누를 때) */
+  const [active, setActive] = useState<{ start: number; end: number } | null>(null);
   const memoItems = review.items.filter((it) => it.kind === "memo");
 
   return (
@@ -91,7 +93,10 @@ function ResultBody({ reading, review }: { reading: Reading; review: ReviewResul
                 code={reading.code}
                 label={item.kind === "memo" ? circled(memoItems.indexOf(item) + 1) : "※"}
                 onFocus={() => setActive(item)}
-              />
+                talking={!!chats[String(i)]?.turns.length}
+              >
+                <TutorChat readingId={reading.id} item={i} initial={chats[String(i)]} onLook={(n) => setActive({ start: n, end: n })} />
+              </ItemRow>
             ))}
           </div>
         </div>
@@ -109,8 +114,24 @@ function ResultBody({ reading, review }: { reading: Reading; review: ReviewResul
   );
 }
 
-function ItemRow({ item, code, label, onFocus }: { item: ReviewItem; code: string; label: string; onFocus: () => void }) {
+function ItemRow({
+  item,
+  code,
+  label,
+  onFocus,
+  talking = false,
+  children,
+}: {
+  item: ReviewItem;
+  code: string;
+  label: string;
+  onFocus: () => void;
+  /** 이미 나눈 대화가 있으면 펼친 채로 */
+  talking?: boolean;
+  children: React.ReactNode;
+}) {
   const [open, setOpen] = useState(false);
+  const [talk, setTalk] = useState(talking);
   return (
     <section className="py-6" onMouseEnter={onFocus} onFocus={onFocus} tabIndex={-1}>
       <p className="mb-2 text-xs text-ink-500">
@@ -143,6 +164,13 @@ function ItemRow({ item, code, label, onFocus }: { item: ReviewItem; code: strin
           {open && <p className="mt-2 border-l-2 border-pen-blue pl-3 text-sm leading-relaxed text-ink-700">{item.model}</p>}
         </>
       )}
+      <div className="mt-3">
+        <button type="button" className={talk ? "btn-small" : "btn-line py-1.5 text-xs"} onClick={() => setTalk((v) => !v)} aria-expanded={talk}>
+          {talk ? "튜터 대화 접기" : "AI 튜터와 더 깊게 알아보기"}
+        </button>
+        {/* 접어도 대화가 사라지지 않게 숨기기만 한다 */}
+        <div hidden={!talk}>{children}</div>
+      </div>
     </section>
   );
 }

@@ -9,6 +9,7 @@ topics = load_lambda("topics")
 practice = load_lambda("practice")
 inspect_code = load_lambda("inspect_code")
 review = load_lambda("review")
+tutor = load_lambda("tutor_chat")
 admin = load_lambda("admin")
 
 
@@ -96,6 +97,26 @@ class RuleReview(unittest.TestCase):
         self.assertEqual(memos, [{"start": 5, "end": 9, "text": "뒤"}])
 
 
+class Tutor(unittest.TestCase):
+    ENTRY = {"start": 6, "end": 8, "marked": True, "memo": "재고를 봐요", "mark": "partial", "comment": "조건을 다시 봐요.",
+             "lookAt": [6], "model": "먼저 책이 있는지 확인해요."}
+
+    def test_rule_answers_go_deeper_each_turn(self):
+        first, second, third = (tutor.rule_answer(self.ENTRY, "왜요?", n)["reply"] for n in range(3))
+        self.assertIn("6번", first)
+        self.assertIn("예시 값", second)
+        self.assertIn("먼저 책이 있는지", third)
+
+    def test_system_prompt_has_code_and_item(self):
+        text = tutor.build_system({"code": "a = 1\nprint(a)"}, self.ENTRY)
+        self.assertIn("  1| a = 1", text)
+        self.assertIn("6~8번 줄 (※ 꼭 설명할 곳)", text)
+        self.assertIn("△ 부분", text)
+
+    def test_chat_key_follows_review(self):
+        self.assertEqual(tutor.chat_key({"sk": "REVIEW#0000000001"}, 3), "CHAT#0000000001#003")
+
+
 class AdminCode(unittest.TestCase):
     def test_scrypt_round_trip(self):
         h = admin.hash_code("새 관리자 코드 123")
@@ -110,7 +131,8 @@ class AdminUsage(unittest.TestCase):
         self.assertIn("형식", admin.reason("could not parse response: x"))
         self.assertEqual(admin.reason("Python 문법 오류 (3번째 줄)"), "Python 문법 오류 (3번째 줄)")
         self.assertEqual(admin.task_name("review"), "빨간펜 첨삭")
-        self.assertEqual(admin.task_name("tutor_chat"), "튜터 대화")
+        self.assertEqual(admin.task_name("tutor_chat"), "AI 튜터 대화")
+        self.assertEqual(admin.task_name("learner_analysis"), "학습자 분석")
         self.assertEqual(admin.short_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "목업 · claude-haiku-4-5")
 
 
@@ -119,7 +141,7 @@ class Entry(unittest.TestCase):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
-            "POST /inspect", "POST /inspect/start", "POST /review", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
+            "POST /inspect", "POST /inspect/start", "POST /review", "POST /tutor", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
 
 
 if __name__ == "__main__":
