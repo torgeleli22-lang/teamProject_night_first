@@ -52,6 +52,7 @@ MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
 MAX_TUTOR_TURNS = 10          # 첨삭 결과의 메모 하나에 AI 튜터에게 물을 수 있는 횟수
 MAX_TUTOR_CHARS = 300         # 튜터 질문 하나의 최대 글자 수
+MAX_RETRIES = 3               # 첨삭 뒤 힌트를 보고 메모 하나를 다시 써 볼 수 있는 횟수
 LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
 
 # 난이도 3단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
@@ -734,6 +735,17 @@ def load_reading(reading_id, learner):
     if not item or not alive(item) or item.get("owner") != learner["id"]:
         raise ApiError(404, "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요.")
     return item
+
+
+def latest_review(reading_id):
+    """가장 최근 첨삭 (READ#<id> / REVIEW#<시각>). 튜터 대화·다시 써 보기가 이 첨삭의 항목 번호에 붙는다"""
+    reviews = query_all(f"READ#{reading_id}", prefix="REVIEW#")
+    return reviews[-1] if reviews else None
+
+
+def review_key(review, kind, index):
+    """첨삭 항목에 붙는 기록의 sk: CHAT#<첨삭 시각>#003 · RETRY#<첨삭 시각>#003"""
+    return f"{kind}#{review['sk'][len('REVIEW#'):]}#{index:03d}"
 
 
 def public_reading(item):

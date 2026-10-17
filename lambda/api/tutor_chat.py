@@ -1,7 +1,7 @@
 import re
 
 from common import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field,
-                    get_item, get_learner, load_reading, now_ms, numbered, put_item, query_all, ttl_after)
+                    get_item, get_learner, latest_review, load_reading, now_ms, numbered, put_item, query_all, review_key, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
 # AI 튜터 대화 (tutor_chat.py) — jojo_api 의 기능 파일
@@ -101,13 +101,8 @@ ROUTES = {"POST /tutor": ask_tutor}
 # ───────────────────────── 도움 함수 ─────────────────────────
 
 
-def latest_review(reading_id):
-    reviews = query_all(f"READ#{reading_id}", prefix="REVIEW#")
-    return reviews[-1] if reviews else None
-
-
 def chat_key(review, index):
-    return f"CHAT#{review['sk'][len('REVIEW#'):]}#{index:03d}"
+    return review_key(review, "CHAT", index)
 
 
 def chats_for(reading_id, review):

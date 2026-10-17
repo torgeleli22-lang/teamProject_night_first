@@ -1,9 +1,10 @@
 import random
 
 from common import (LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
-                    get_learner, load_reading, log_ai_event, public_reading, remember_topic, save_reading)
+                    get_learner, latest_review, load_reading, log_ai_event, public_reading, remember_topic, save_reading)
 from samples import SAMPLES
-from tutor_chat import chats_for, latest_review
+from review import retries_for
+from tutor_chat import chats_for
 
 # ─────────────────────────────────────────────────────────────
 # 연습 모드 (practice.py) — jojo_api 의 기능 파일
@@ -116,7 +117,8 @@ def get_reading(req):
     item = load_reading(req["query"].get("id", ""), learner)
     review = latest_review(item["id"])
     return {"reading": public_reading(item), "review": review["result"] if review else None,
-            "chats": chats_for(item["id"], review)}   # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
+            "chats": chats_for(item["id"], review),       # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
+            "retries": retries_for(item["id"], review)}   # 첨삭 항목마다 힌트를 보고 다시 써 본 기록 (review.py)
 
 
 ROUTES = {

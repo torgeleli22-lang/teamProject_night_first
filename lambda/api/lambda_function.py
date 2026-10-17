@@ -15,7 +15,7 @@ from common import AI_MODE, LANGUAGES, MAX_CODE_LINES, REGEN_LIMIT, ApiError, ai
 #     topics.py         GET /topic/random, POST /topic/check            주제 고르기 (랜덤 · 직접 적은 주제 AI 판정)
 #     practice.py       POST /practice /practice/adjust, GET /reading    연습 코드 만들기 · 더 쉽게/어렵게 · 다시 읽기
 #     inspect_code.py   POST /inspect /inspect/start                     내 코드 점검 (민감 정보 가리기 · 함수 고르기 · 난이도 추정)
-#     review.py         POST /review                                     빨간펜 첨삭 (○△✕ · 빈칸)
+#     review.py         POST /review /review/retry                       빨간펜 첨삭 (○△✕ · 빈칸) · 힌트 보고 다시 써 보기
 #     tutor_chat.py     POST /tutor                                      첨삭 뒤 메모마다 AI 튜터와 대화
 #     admin.py          /admin/...                                       관리자 화면 (AI 사용량·비용·AI 끄기, 관리자 코드 필요)
 #     samples.py        AI 를 쓸 수 없을 때의 예시 코드 · 랜덤 주제 목록

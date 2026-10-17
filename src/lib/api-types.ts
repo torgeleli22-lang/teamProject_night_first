@@ -85,6 +85,29 @@ export interface ReadingWithReview {
   review: ReviewResult | null;
   /** 첨삭 항목 번호(문자열) → AI 튜터와 나눈 대화 */
   chats?: Record<string, TutorChat>;
+  /** 첨삭 항목 번호(문자열) → 힌트를 보고 다시 써 본 기록 */
+  retries?: Record<string, RetryState>;
+}
+
+/** 힌트를 보고 다시 쓴 설명 하나와 그 판정 */
+export interface RetryAttempt {
+  text: string;
+  mark: "correct" | "partial" | "wrong";
+  comment: string;
+  lookAt: number[];
+  byAi: boolean;
+  at: number;
+}
+
+export interface RetryState {
+  attempts: RetryAttempt[];
+  /** 남은 횟수 (항목 하나에 3번) */
+  left: number;
+}
+
+/** POST /review/retry */
+export interface RetryReply extends RetryState {
+  item: number;
 }
 
 // ───────────────────────── 내 코드 점검 (inspect_code.py) ─────────────────────────
@@ -217,6 +240,7 @@ export interface DayCount {
   topicChecks: number;
   inspections: number;
   reviews: number;
+  retries: number;
   tutorChats: number;
 }
 

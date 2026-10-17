@@ -13,6 +13,7 @@ const DAY_COLUMNS: { key: keyof Omit<DayCount, "day">; label: string }[] = [
   { key: "topicChecks", label: "주제 판정" },
   { key: "inspections", label: "내 코드 점검" },
   { key: "reviews", label: "첨삭" },
+  { key: "retries", label: "다시 써 보기" },
   { key: "tutorChats", label: "튜터 질문" },
 ];
 
