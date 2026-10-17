@@ -63,6 +63,16 @@ class TopicRules(unittest.TestCase):
                                                               "message": topics.rule_check("주차 요금 계산", 2)["message"]})
 
 
+class TopicLength(unittest.TestCase):
+    def test_long_suggestions_cut_at_word(self):
+        long = "날씨 관측소 네트워크에서 가장 빠른 정보 전달 경로 구하기 그리고 각 관측소의 기온 변화를 시간대별로 정리하기"
+        short = topics.short_topic(long)
+        self.assertLessEqual(len(short), topics.MAX_TOPIC_CHARS)
+        self.assertTrue(short.endswith("…"))
+        self.assertTrue(long.startswith(short[:-1]))
+        self.assertEqual(topics.short_topic("  시간대별   기온 변화 "), "시간대별 기온 변화")
+
+
 class Inspect(unittest.TestCase):
     def test_mask_secrets_keeps_code_shape(self):
         code = 'API_KEY = "abcd1234efgh"\nkey = "AKIA' + "A" * 16 + '"\nname = "민지"'
