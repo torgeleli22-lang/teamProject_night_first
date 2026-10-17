@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiPost } from "@/lib/api";
 import type { TutorChat as Chat, TutorReply } from "@/lib/api-types";
+import { MarkText } from "./ui";
 
 const MAX_CHARS = 300;
 /** 처음 물어보기 쉬운 질문 */
@@ -66,7 +67,9 @@ export function TutorChat({
             </div>
           ) : (
             <div key={i} className="max-w-[92%]">
-              <p className="whitespace-pre-wrap break-words border-l-2 border-pen-red pl-3 text-sm leading-relaxed text-ink-900">{t.text}</p>
+              <p className="whitespace-pre-wrap break-words border-l-2 border-pen-red pl-3 text-sm leading-relaxed text-ink-900">
+                <MarkText text={t.text} />
+              </p>
               {t.lookAt.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1 pl-3">
                   {t.lookAt.map((n) => (

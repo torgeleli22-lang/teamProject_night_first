@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Crumb, ErrorNote, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { type Concept, type ConceptStat, type ExplanationNote, LEVEL_NAMES, type MarkKind, type StudyOverview } from "@/lib/api-types";
 
@@ -29,8 +29,8 @@ export function StudyNote() {
       ) : (
         <>
           <p className="hand mt-3 text-2xl text-pen-blue">
-            지금까지 코드 {s.codes}개 · 공부한 날 {s.days}일 · 처음 설명에서 ○ {pct(s.correctRate)}
-            {s.improved > 0 && ` · 다시 써서 ○ ${s.improved}개`}
+            지금까지 코드 {s.codes}개 · 공부한 날 {s.days}일 · 처음 설명에서 <PenMark kind="correct" inline /> {pct(s.correctRate)}
+            {s.improved > 0 && <> · 다시 써서 <PenMark kind="correct" inline /> {s.improved}개</>}
           </p>
           <p className="mt-1 text-xs text-ink-500">첨삭을 받을 때마다 기록돼요. 지금은 이 탭에서만 이어지고, 탭이나 브라우저를 닫으면 사라져요. (Google·GitHub 로그인이 생기면 계정에 남길 수 있어요)</p>
 
@@ -84,7 +84,9 @@ function LevelSection({ levels }: { levels: StudyOverview["levels"] }) {
             </>
           )}
         </p>
-        <p className="hand mt-3 text-pen-red">{levels.message}</p>
+        <p className="hand mt-3 text-pen-red">
+          <MarkText text={levels.message} />
+        </p>
         <Link href={`/practice?level=${levels.suggested}`} className="btn-ink mt-4">
           {LEVEL_NAMES[levels.suggested]}로 연습하기
         </Link>
@@ -97,12 +99,12 @@ function LevelSection({ levels }: { levels: StudyOverview["levels"] }) {
               <td className="py-1.5">
                 <Bar rate={l.codes ? l.correctRate : 0} empty={!l.codes} />
               </td>
-              <td className="w-28 py-1.5 text-right text-xs text-ink-500">{l.codes ? `최근 ${l.codes}개 · ○ ${pct(l.correctRate)}` : "기록 없음"}</td>
+              <td className="w-28 py-1.5 text-right text-xs text-ink-500">{l.codes ? <>최근 {l.codes}개 · <PenMark kind="correct" inline /> {pct(l.correctRate)}</> : "기록 없음"}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="mt-1 text-[11px] text-ink-400">연습 모드에서 같은 난이도 3개 이상 첨삭을 받으면 추천해요. ○ 80% 이상이면 올리고, 40% 미만이면 내려요.</p>
+      <p className="mt-1 text-[11px] text-ink-400">연습 모드에서 같은 난이도 3개 이상 첨삭을 받으면 추천해요. <PenMark kind="correct" inline /> 80% 이상이면 올리고, 40% 미만이면 내려요.</p>
     </section>
   );
 }
@@ -123,10 +125,10 @@ function ConceptSection({ concepts, level }: { concepts: StudyOverview["concepts
   return (
     <section>
       <h2 className="text-lg">개념별 약점 지도</h2>
-      <p className="mt-1 text-xs text-ink-500">※ 꼭 설명할 곳과 내 메모가 어떤 흐름이었는지, 처음 설명에서 ○ 를 받은 비율이에요.</p>
+      <p className="mt-1 text-xs text-ink-500">※ 꼭 설명할 곳과 내 메모가 어떤 흐름이었는지, 처음 설명에서 <PenMark kind="correct" inline /> 를 받은 비율이에요.</p>
       {weakest ? (
         <p className="hand mt-3 text-pen-red">
-          &lsquo;{weakest.name}&rsquo;에서 가장 많이 막혀요 (○ {pct(weakest.correctRate)}). 이 흐름이 많이 나오는 코드로 연습해 볼까요?
+          &lsquo;{weakest.name}&rsquo;에서 가장 많이 막혀요 (<PenMark kind="correct" inline /> {pct(weakest.correctRate)}). 이 흐름이 많이 나오는 코드로 연습해 볼까요?
         </p>
       ) : (
         <p className="hand mt-3 text-pen-blue">한 개념이 두 번 이상 나오면 약한 곳을 짚어 드려요.</p>
@@ -149,8 +151,8 @@ function ConceptRow({ c, weakest, level }: { c: ConceptStat; weakest: boolean; l
             {weakest && <span className="absolute inset-0 -rotate-2 border-2 border-pen-red" style={{ borderRadius: "50%" }} aria-hidden />}
             {c.name}
           </span>
-          <span className="text-xs text-ink-500">{c.count ? `${c.count}번 · ○ ${pct(c.correctRate)}` : "아직 기록이 없어요"}</span>
-          {c.improved > 0 && <span className="text-xs text-pen-blue">다시 써서 ○ {c.improved}</span>}
+          <span className="text-xs text-ink-500">{c.count ? <>{c.count}번 · <PenMark kind="correct" inline /> {pct(c.correctRate)}</> : "아직 기록이 없어요"}</span>
+          {c.improved > 0 && <span className="text-xs text-pen-blue">다시 써서 <PenMark kind="correct" inline /> {c.improved}</span>}
           {c.missing > 0 && <span className="text-xs text-pen-red">비워 둔 곳 {c.missing}</span>}
         </p>
         <p className="text-[11px] text-ink-400">{c.description}</p>
@@ -175,9 +177,9 @@ function NotesSection({ notes }: { notes: ExplanationNote[] }) {
   return (
     <section className="mt-12">
       <h2 className="text-lg">내 설명 노트</h2>
-      <p className="mt-1 text-xs text-ink-500">○ 를 받은 내 설명을 모았어요. 비슷한 흐름을 만나면 예전에 내가 어떻게 설명했는지 다시 봐요.</p>
+      <p className="mt-1 text-xs text-ink-500"><PenMark kind="correct" inline /> 를 받은 내 설명을 모았어요. 비슷한 흐름을 만나면 예전에 내가 어떻게 설명했는지 다시 봐요.</p>
       {notes.length === 0 ? (
-        <p className="hand mt-3 text-pen-blue">아직 ○ 를 받은 설명이 없어요. 첨삭 뒤 &lsquo;힌트를 보고 다시 써 보기&rsquo;로 ○ 를 받아도 여기에 모여요.</p>
+        <p className="hand mt-3 text-pen-blue">아직 <PenMark kind="correct" inline /> 를 받은 설명이 없어요. 첨삭 뒤 &lsquo;힌트를 보고 다시 써 보기&rsquo;로 <PenMark kind="correct" inline /> 를 받아도 여기에 모여요.</p>
       ) : (
         <>
           <div className="mt-3 flex flex-wrap border-b border-ink-900">

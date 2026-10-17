@@ -7,7 +7,7 @@ import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
 import { RetryBox } from "@/components/RetryBox";
 import { TutorChat } from "@/components/TutorChat";
-import { Crumb, ErrorNote, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { CONCEPT_NAMES, MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
@@ -62,7 +62,9 @@ function ResultBody({
             {reading.title || reading.topic}
             <Stamp>{reading.levelName}</Stamp>
           </h1>
-          <p className="hand mt-3 text-2xl text-pen-red">{review.summary}</p>
+          <p className="hand mt-3 text-2xl text-pen-red">
+            <MarkText text={review.summary} />
+          </p>
           {!review.byAi && <p className="mt-1 text-xs text-ink-500">지금은 AI 대신 규칙으로 첨삭했어요. 핵심 표현이 들어 있는지를 봤어요.</p>}
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 border border-ink-300 bg-paper px-5 py-3 text-sm" aria-label="첨삭 개수">
@@ -184,7 +186,9 @@ function ItemRow({
           <span className="hand text-pen-red">{MARK_NAMES[item.mark]}</span>
         </div>
       </div>
-      <p className="hand mt-3 text-pen-red">{item.comment}</p>
+      <p className="hand mt-3 text-pen-red">
+        <MarkText text={item.comment} />
+      </p>
       {item.lookAt.length > 0 && <p className="mt-1 text-xs text-ink-500">다시 볼 줄: {item.lookAt.map((n) => `${n}번`).join(", ")}</p>}
       {retry}
       {item.model && (
@@ -192,7 +196,11 @@ function ItemRow({
           <button type="button" className="mt-2 text-xs text-pen-blue underline" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
             {open ? "모범 설명 접기" : retry ? "모범 설명 보기 (다시 써 본 뒤에 보면 더 좋아요)" : "모범 설명 보기"}
           </button>
-          {open && <p className="mt-2 border-l-2 border-pen-blue pl-3 text-sm leading-relaxed text-ink-700">{item.model}</p>}
+          {open && (
+            <p className="mt-2 border-l-2 border-pen-blue pl-3 text-sm leading-relaxed text-ink-700">
+              <MarkText text={item.model} />
+            </p>
+          )}
         </>
       )}
       <div className="mt-3">
