@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { MakingCode } from "@/components/MakingCode";
 import { Crumb, ErrorNote, MarkText, Page, Sticky, Waiting } from "@/components/ui";
 import { apiGet, apiPost, useApi } from "@/lib/api";
 import {
   CONCEPT_NAMES,
   type Concept,
+  type Language,
+  LANGUAGE_NAMES,
   LEVEL_DESCRIPTIONS,
   LEVEL_NAMES,
   type Level,
@@ -20,6 +23,21 @@ import {
 const MAX_TOPIC = 50;
 const EXAMPLES = ["카페 주문", "도서관 대출", "성적 처리", "게임 점수판", "버스 도착 안내", "가계부"];
 const ADVANCED_EXAMPLES = ["지하철 최단 경로", "배달 주문 고르기", "강의실 배정", "미로 탈출 길 찾기", "놀이공원 대기열"];
+const LANGUAGES: { key: Language; note: string }[] = [
+  { key: "python", note: "들여쓰기로 흐름이 보이는 언어. 처음이라면 여기서 시작해요." },
+  { key: "javascript", note: "웹에서 쓰는 언어. 중괄호 { } 와 배열 메서드(map·filter), 콜백을 따라가요." },
+];
+const LANGUAGE_KEY = "codereading.language";
+
+/** 마지막에 고른 언어 (이 탭에서만 기억) */
+function savedLanguage(): Language {
+  try {
+    const v = sessionStorage.getItem(LANGUAGE_KEY);
+    return v === "javascript" ? v : "python";
+  } catch {
+    return "python";
+  }
+}
 
 /** 02 · 연습 모드: 난이도 + 주제 (랜덤으로 뽑기 / 직접 적기) */
 export function PracticeStart() {
@@ -28,6 +46,16 @@ export function PracticeStart() {
   const params = useSearchParams();
   const fromLevel = Number(params.get("level"));
   const [level, setLevel] = useState<Level>(fromLevel >= 1 && fromLevel <= 4 ? (fromLevel as Level) : 2);
+  const [language, setLanguage] = useState<Language>("python");
+  useEffect(() => setLanguage(savedLanguage()), []);
+  function pickLanguage(next: Language) {
+    setLanguage(next);
+    try {
+      sessionStorage.setItem(LANGUAGE_KEY, next);
+    } catch {
+      /* 저장하지 못해도 고른 언어로 진행 */
+    }
+  }
   const [focus, setFocus] = useState<Concept | null>((params.get("focus") as Concept) in CONCEPT_NAMES ? (params.get("focus") as Concept) : null);
   const { data: study } = useApi<StudyOverview>("/study");
   const [tab, setTab] = useState<"random" | "write">("random");
@@ -52,7 +80,7 @@ export function PracticeStart() {
     setBusy("make");
     setError(null);
     try {
-      const reading = await apiPost<Reading>("/practice", { level, topic, ...(focus ? { focus } : {}) });
+      const reading = await apiPost<Reading>("/practice", { level, topic, language, ...(focus ? { focus } : {}) });
       router.push(`/read/?id=${reading.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -80,7 +108,7 @@ export function PracticeStart() {
   }
 
   const canSubmit = !busy && (tab === "random" ? !!randomTopic : text.trim().length > 0 && text.length <= MAX_TOPIC);
-  const summary = `${LEVEL_NAMES[level]} · ${tab === "random" ? (randomTopic ? `랜덤 주제 '${randomTopic}'` : "랜덤 주제") : text.trim() || "주제를 적어 주세요"}`;
+  const summary = `${LANGUAGE_NAMES[language]} · ${LEVEL_NAMES[level]} · ${tab === "random" ? (randomTopic ? `랜덤 주제 '${randomTopic}'` : "랜덤 주제") : text.trim() || "주제를 적어 주세요"}`;
 
   return (
     <Page>
@@ -100,6 +128,16 @@ export function PracticeStart() {
           </button>
         </Sticky>
       )}
+
+      <h2 className="mt-8 text-lg">언어</h2>
+      <div className="mt-3 flex border-b border-ink-900" role="radiogroup" aria-label="언어">
+        {LANGUAGES.map(({ key }) => (
+          <button key={key} type="button" role="radio" aria-checked={language === key} className={language === key ? "tab-on" : "tab"} onClick={() => pickLanguage(key)}>
+            {LANGUAGE_NAMES[key]}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-sm text-ink-700">{LANGUAGES.find((l) => l.key === language)?.note}</p>
 
       <h2 className="mt-8 text-lg">난이도</h2>
       {study && study.summary.codes > 0 && study.levels.advice !== "none" && (
@@ -189,9 +227,7 @@ export function PracticeStart() {
       )}
 
       {error && <ErrorNote message={error} />}
-      {busy === "make" && (
-        <Waiting text={advanced ? "AI 가 고급 코드(100~200줄)를 쓰고 있어요… 1분쯤 걸릴 수 있어요" : "AI 가 읽기 연습용 코드를 쓰고 있어요… (10초쯤 걸려요)"} />
-      )}
+      {busy === "make" && <MakingCode language={language} advanced={advanced} what={advanced ? "고급(100~200줄)" : "읽기 연습용"} />}
       {busy === "check" && <Waiting text="주제를 살펴보고 있어요…" />}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-dashed border-ink-300 pt-5">

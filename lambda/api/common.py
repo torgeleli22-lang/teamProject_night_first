@@ -60,16 +60,16 @@ MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
 MAX_TUTOR_TURNS = 10          # 첨삭 결과의 메모 하나에 AI 튜터에게 물을 수 있는 횟수
 MAX_TUTOR_CHARS = 300         # 튜터 질문 하나의 최대 글자 수
 MAX_RETRIES = 3               # 첨삭 뒤 힌트를 보고 메모 하나를 다시 써 볼 수 있는 횟수
-LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
+LANGUAGES = {"python": "Python", "javascript": "JavaScript"}   # 연습 모드 언어 (내 코드 점검은 아직 Python 만, Java 는 나중에)
 
 # 개념 꼬리표: ※ 지점(과 메모 범위)이 어떤 '흐름'을 읽는 곳인지. '내 공부'의 개념별 약점 지도·집중 연습에 쓴다
 CONCEPTS = {
-    "branch": {"name": "조건 분기", "description": "if·elif·else 로 길이 갈리는 곳"},
+    "branch": {"name": "조건 분기", "description": "if·else 로 길이 갈리는 곳"},
     "loop_update": {"name": "반복이 값을 바꾸는 곳", "description": "반복할 때마다 합계·목록·개수가 쌓이거나 바뀌는 곳"},
     "call_flow": {"name": "함수가 함수를 부름", "description": "값이 함수 사이로 넘어가고 돌아오는 곳"},
-    "data_update": {"name": "자료구조 다루기", "description": "딕셔너리·리스트에서 찾고 넣고 바꾸는 곳"},
-    "class_state": {"name": "객체 상태 바뀜", "description": "클래스의 self 값이 메서드로 바뀌는 곳"},
-    "exception": {"name": "예외 흐름", "description": "raise·try·except 로 흐름이 건너뛰는 곳"},
+    "data_update": {"name": "자료구조 다루기", "description": "딕셔너리·리스트(객체·배열)에서 찾고 넣고 바꾸는 곳"},
+    "class_state": {"name": "객체 상태 바뀜", "description": "클래스의 self(this) 값이 메서드로 바뀌는 곳"},
+    "exception": {"name": "예외 흐름", "description": "raise·throw, try 로 흐름이 건너뛰는 곳"},
     "recursion": {"name": "재귀·되돌아가기", "description": "자기 자신을 부르거나 기록을 거꾸로 따라가는 곳"},
     "algorithm": {"name": "알고리즘 핵심", "description": "정렬·탐색·최단 경로·동적 계획법의 중심 계산"},
 }
@@ -77,7 +77,7 @@ CONCEPTS = {
 # 난이도 4단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
 LEVELS = {
     1: {"name": "입문", "description": "짧은 코드, 변수·조건문·반복문이 위에서 아래로 흘러가요."},
-    2: {"name": "초급", "description": "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요."},
+    2: {"name": "초급", "description": "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리(배열과 객체)가 나와요."},
     3: {"name": "중급", "description": "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요."},
     4: {"name": "고급", "description": "100~200줄. 자료구조와 알고리즘(최단 경로·동적 계획법·정렬·탐색 등)이 실제 문제를 푸는 코드예요."},
 }
@@ -752,6 +752,11 @@ def numbered(code):
     return "\n".join(f"{i + 1:3}| {line}" for i, line in enumerate(code.split("\n")))
 
 
+def code_for_ai(item):
+    """첨삭·튜터 프롬프트의 <code> 블록: 언어 이름 + 줄 번호 붙인 코드"""
+    return f"<code language=\"{LANGUAGES.get(item.get('language') or 'python', 'Python')}\">\n{numbered(item['code'])}\n</code>"
+
+
 def clean_marks(code, marks, limit=4):
     """※ 지점 정리: 코드 줄 범위 안으로, 시작 순서대로, 겹치면 빼고, 최대 limit 곳. id 는 m1, m2 …"""
     total = len(code.split("\n"))
@@ -768,36 +773,45 @@ def clean_marks(code, marks, limit=4):
     return out
 
 
-# 개념 추정 규칙 (AI 가 꼬리표를 빠뜨렸을 때, 예전 코드, 메모 범위). 위에서부터 먼저 맞는 것
+# 개념 추정 규칙 (AI 가 꼬리표를 빠뜨렸을 때, 예전 코드, 메모 범위). 위에서부터 먼저 맞는 것. Python·JavaScript 를 함께 본다
 _CONCEPT_RULES = [
-    ("exception", r"\b(raise|try|except)\b"),
+    ("exception", r"\b(raise|try|except|throw|catch)\b"),
     ("algorithm", r"\b(heapq|heappush|heappop|bisect\w*|deque)\b|\bbest\[|\bdp\[|\bmemo\["),
-    ("class_state", r"\bself\.\w+\s*(\+|-)?=(?!=)"),
-    ("loop_update", r"^\s*(for|while)\b"),
-    ("branch", r"^\s*(if|elif|else)\b"),
-    ("data_update", r"\w\[[^\]]+\]\s*(\+|-)?=(?!=)|\.(append|pop|setdefault|update|remove|extend|insert)\("),
+    ("class_state", r"\b(self|this)\.\w+\s*([-+*/]?=(?!=)|\+\+|--)"),
+    ("loop_update", r"^\s*(for|while|do)\b|\.(forEach|map|filter|reduce)\("),
+    ("branch", r"^\s*(\}\s*)?(if|elif|else|switch|case)\b"),
+    ("data_update", r"\w\[[^\]]+\]\s*(\+|-)?=(?!=)|\.(append|pop|setdefault|update|remove|extend|insert|push|shift|unshift|splice|set|delete)\("),
 ]
+# 함수를 만드는 줄: Python def · JS function · const name = (...) => · 클래스 메서드 name(...) {
+_DEF_LINE = re.compile(r"^(\s*)(?:(?:async\s+)?def\s+(\w+)|(?:export\s+)?(?:async\s+)?function\s*\*?\s*(\w+)"
+                       r"|(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|\w+\s*=>)"
+                       r"|(?:static\s+|async\s+)*(?!(?:if|for|while|switch|catch|return|function)\b)(\w+)\s*\([^)]*\)\s*\{)")
+
+
+def _def_name(line):
+    m = _DEF_LINE.match(line)
+    return (m.group(1), next(g for g in m.groups()[1:] if g)) if m else None
 
 
 def guess_concept(code, start, end):
     """줄 범위 안의 문법으로 개념을 추정 (AI 없음). 자기 함수를 다시 부르면 재귀, 다른 함수를 부르면 함수 호출"""
     lines = code.split("\n")
     chunk = "\n".join(lines[max(0, start - 1):end])
-    # 이 범위를 감싸는 함수 (범위 첫 줄보다 덜 들여 쓴 가장 가까운 def). 맨 바깥 코드면 없음
+    # 이 범위의 함수: 범위가 def·function 줄로 시작하면 그 함수, 아니면 범위 첫 줄보다 덜 들여 쓴 가장 가까운 def·function. 맨 바깥 코드면 없음
     first = next((l for l in lines[max(0, start - 1):end] if l.strip()), "")
     indent = len(first) - len(first.lstrip())
-    owner = None
-    for i in range(min(start, len(lines)) - 1, -1, -1):
-        m = re.match(r"(\s*)def\s+(\w+)", lines[i])
-        if m and len(m.group(1)) < indent:
-            owner = m.group(2)
+    owner = (_def_name(first) or (None, None))[1]   # 범위가 함수 첫 줄부터면 그 함수
+    for i in range(min(start, len(lines)) - 1 if not owner else -1, -1, -1):
+        found = _def_name(lines[i])
+        if found and len(found[0]) < indent:
+            owner = found[1]
             break
-    if owner and re.search(rf"\b{owner}\(", "\n".join(l for l in chunk.split("\n") if not re.match(r"\s*def\s", l))):
+    if owner and re.search(rf"\b{owner}\(", "\n".join(l for l in chunk.split("\n") if not _def_name(l))):
         return "recursion"
     for concept, pattern in _CONCEPT_RULES:
         if re.search(pattern, chunk, re.M):
             return concept
-    defined = set(re.findall(r"^\s*def\s+(\w+)", code, re.M))
+    defined = {found[1] for found in map(_def_name, lines) if found}
     if any(re.search(rf"\b{name}\(", chunk) for name in defined):
         return "call_flow"
     return "data_update"
@@ -807,7 +821,7 @@ def save_reading(learner, **fields):
     """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keep(upload 면 짧게)"""
     reading_id = str(uuid.uuid4())
     keep = min(keep_seconds(learner, fields.pop("keep", "reading")), keep_seconds(learner, "reading"))
-    item = {"pk": f"READ#{reading_id}", "sk": "CODE", "id": reading_id, "owner": learner["id"], "language": "python",
+    item = {"pk": f"READ#{reading_id}", "sk": "CODE", "id": reading_id, "owner": learner["id"], "language": fields.pop("language", None) or "python",
             "createdAt": now_ms(), "rootId": fields.pop("rootId", None) or reading_id, "regenCount": fields.pop("regenCount", 0),
             TTL_ATTR: ttl_after(keep), **fields}
     put_item(item)
@@ -839,7 +853,7 @@ def public_reading(item):
     """화면으로 보낼 모양 (※ 지점은 줄 범위만)"""
     level = item.get("level") or 1
     return {
-        "id": item["id"], "source": item["source"], "language": item["language"], "level": level, "levelName": LEVELS[level]["name"],
+        "id": item["id"], "source": item["source"], "language": item.get("language") or "python", "level": level, "levelName": LEVELS[level]["name"],
         "topic": item.get("topic", ""), "title": item.get("title", ""), "code": item["code"],
         "marks": [{"id": m["id"], "start": m["start"], "end": m["end"]} for m in item.get("marks", [])],
         "regenLeft": max(0, REGEN_LIMIT - item.get("regenCount", 0)), "note": item.get("note"),

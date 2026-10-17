@@ -8,7 +8,7 @@ from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_le
 #
 #   기록: 첨삭을 받을 때(review.py) 읽은 코드 하나마다 STUDY#<학습자> / R#<읽은 코드 id> 한 줄을 쓰고,
 #         힌트 보고 다시 써서 나아지면 그 항목을 고친다. 코드 원본은 넣지 않아 작다.
-#         보관: 로그인 안 한 학습자는 하루(탭을 닫으면 다시 찾을 수 없음), 로그인 학습자(추가 예정)는 1년 — common.keep_seconds
+#         보관: 로그인 안 한 학습자는 하루(탭을 닫으면 다시 찾을 수 없음), 로그인 학습자는 1년 — common.keep_seconds
 #         (연습 코드는 잘라 낸 몇 줄을 함께 저장해 원본이 지워져도 노트에서 볼 수 있다. 올린 코드는 개인정보라 저장하지 않음)
 #
 #   난이도 추천: 같은 난이도에서 최근 첨삭 5개의 ○ 비율 — 80% 이상(3개 이상)이면 올려 보기, 40% 미만이면 내려 보기
@@ -36,6 +36,7 @@ def overview(req):
         "concepts": concept_map(rows),
         "notes": explanation_notes(rows),
         "recent": [{"readingId": r["readingId"], "source": r["source"], "level": r["level"], "title": r["title"],
+                    "language": r.get("language") or "python",
                     "counts": r["counts"], "reviewedAt": r["reviewedAt"], "open": reading_alive(r)} for r in rows[:10]],
     }
 
@@ -59,6 +60,7 @@ def record_review(learner, reading, result):
             items.append({"concept": e.get("concept") or "data_update", "first": e["mark"], "best": e["mark"], "marked": e["marked"],
                           "start": e["start"], "end": e["end"], "memo": e["memo"], "bestText": e["memo"], "snippet": snippet})
         put_item({**key, "readingId": reading["id"], "source": reading["source"], "level": int(reading.get("level") or 1),
+                  "language": reading.get("language") or "python",
                   "title": reading.get("title") or reading.get("topic", ""), "topic": reading.get("topic", ""),
                   "counts": result["counts"], "items": items, "reviews": int(old.get("reviews", 0)) + 1,
                   "createdAt": old.get("createdAt") or now_ms(), "reviewedAt": now_ms(),
@@ -144,6 +146,7 @@ def explanation_notes(rows):
                 notes.append({"concept": i["concept"], "conceptName": CONCEPTS.get(i["concept"], {}).get("name", ""),
                               "text": i["bestText"], "improved": i["first"] != "correct", "start": i["start"], "end": i["end"],
                               "snippet": i.get("snippet"), "title": r["title"], "level": r["level"], "source": r["source"],
+                              "language": r.get("language") or "python",
                               "readingId": r["readingId"], "open": reading_alive(r), "at": r["reviewedAt"]})
     return notes[:MAX_NOTES]
 

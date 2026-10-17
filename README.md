@@ -24,7 +24,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 **내 공부** — 첨삭이 쌓이면 **어떤 흐름(개념)을 못 읽는지**(개념별 약점 지도 → '이 개념 집중 연습'), **언제 난이도를 올리고 내릴지**(난이도 추천), **내가 잘 쓴 설명**(내 설명 노트)을 보여 줘요. 모두 AI 없이 기록으로 계산해요.
 
 **두 가지 모드**
-- **연습 모드** — 난이도(입문 · 초급 · 중급 · 고급)와 주제(랜덤 / 직접 적기)를 고르면 AI 가 읽기 연습용 Python 코드와 ※ 꼭 설명할 곳을 만들어요. 고급은 100~200줄에 자료구조·알고리즘(최단 경로·동적 계획법 등)이 들어가요.
+- **연습 모드** — 언어(Python · JavaScript), 난이도(입문 · 초급 · 중급 · 고급)와 주제(랜덤 / 직접 적기)를 고르면 AI 가 읽기 연습용 코드와 ※ 꼭 설명할 곳을 만들어요. 고급은 100~200줄에 자료구조·알고리즘(최단 경로·동적 계획법 등)이 들어가요.
 - **내 코드 점검** — 갖고 있는 Python 코드(파일 1개 또는 붙여넣기, 300줄까지)를 올리면 AI 가 난이도와 ※ 지점을 정해요. API 키·비밀번호 같은 값은 **보내기 전에 화면에서 가려요**.
 
 ## 2. 동작 방식 (사용자 흐름)
@@ -41,7 +41,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | 단계 | 화면 | 서버(Lambda)에서 하는 일 | AI |
 |---|---|---|---|
 | 주제 고르기 | `/practice/` | 랜덤 주제 뽑기 · 직접 적은 주제 판정 (막연함 → 제안 3개, 너무 큼 → 좁히기, 부적절 → 거절) | 판정만 |
-| 코드 받기 | `/practice/` | AI 가 코드 + ※ 지점 생성 → 문법·길이·※ 줄 검사 → 실패하면 한 번 더 → 그래도 안 되면 예시 코드 | ○ |
+| 코드 받기 | `/practice/` | 언어(Python·JavaScript) 고르기 → ① AI 가 코드 + ※ 지점 생성 → ② 규칙 검사(Python 은 `ast` 로 문법·오타·금지 기능, JavaScript 는 괄호·따옴표 짝 같은 겉모양, 줄 수·※ 줄) → ③ 다른 AI 가 머릿속으로 실행해 검토(실행 오류·난이도·※ 모범 설명, 틀린 설명은 고침) → 걸리면 한 번 더 → 그래도 안 되면 예시 코드 | ○ ○ |
 | 메모하며 읽기 | `/read/` | (메모는 브라우저에만 저장, '첨삭 받기' 때 보냄) · 더 쉽게/어렵게 = 새 코드 생성 | 다시 만들 때 |
 | 첨삭 | `/result/` | ※ 와 겹치는 메모가 없으면 누락(규칙) → 메모마다 ○△✕·코멘트·모범 설명(AI) | ○ (메모가 있을 때) |
 | 다시 써 보기 | `/result/` | 다시 쓴 설명 하나만 다시 채점 | ○ |
@@ -124,7 +124,8 @@ src/
 │  └─ admin/AdminNote.tsx              관리자  /admin/
 │     (각 폴더의 page.tsx 는 위 파일을 불러오기만 하는 껍데기 — 고칠 일 없음)
 ├─ components/                         여러 화면이 함께 쓰는 부품
-│  ├─ ui.tsx                           Page · Crumb · Sticky · Stamp · PenMark · Waiting · ErrorNote
+│  ├─ ui.tsx                           Page · Crumb · Sticky · Stamp · LangTag · PenMark · Waiting · ErrorNote
+│  ├─ MakingCode.tsx                   연습 코드를 기다리는 동안 ① 출제 ② 규칙 검사 ③ AI 검토 단계 안내
 │  ├─ NoteHeader.tsx                   맨 위 제목 + 로그인 상자(LoginBox) + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검 / 내 공부)
 │  ├─ CodeView.tsx                     줄 번호·문법 색칠·형광펜·※·①② 가 있는 코드
 │  ├─ MemoMargin.tsx                   코드 옆 포스트잇(끌어 옮기기) + DraftNote(메모 쓰는 칸)
@@ -143,7 +144,7 @@ src/
 | 화면 파일 | 안에 있는 부분 (함수) | 쓰는 부품 |
 |---|---|---|
 | `app/page.tsx` | 머리말 + 맛보기 코드, 두 모드 카드, 공부하는 순서 | Page · Sticky · CodeView · PenMark |
-| `practice/PracticeStart.tsx` | `PracticeStart` 난이도 카드 4개 · 주제 탭 · 코드 받기 / `TopicAdvice` 주제 제안 포스트잇 | Page · Crumb · Sticky · Waiting |
+| `practice/PracticeStart.tsx` | `PracticeStart` 언어 탭(Python·JavaScript) · 난이도 카드 4개 · 주제 탭 · 코드 받기 / `TopicAdvice` 주제 제안 포스트잇 | Page · Crumb · Sticky · Waiting · MakingCode |
 | `read/ReadNote.tsx` | `Reader` 본체(제목·도장·버튼·안내 줄·코드+메모) / `AdjustDialog` 더 쉽게·어렵게 창 / `useWide` 넓은 화면 판별 | CodeView · MemoMargin · DraftNote · Stamp |
 | `result/ResultNote.tsx` | `ResultBody` 총평·○△✕ 개수·왼쪽 전체 코드 / `ItemRow` 메모별 첨삭 한 칸 | CodeView · PenMark · RetryBox · TutorChat |
 | `check/CheckCode.tsx` | 파일 올리기/붙여넣기 탭 · 분홍 경고 포스트잇 · 함수 체크 목록 · 훑어본 난이도 도장 | Sticky · Stamp · Waiting |
@@ -170,6 +171,7 @@ src/
 | 난이도 이름·설명 | `src/lib/api-types.ts` → `LEVEL_NAMES`, `LEVEL_DESCRIPTIONS` |
 | ○△✕ 이름, 더 쉽게 이유 | `src/lib/api-types.ts` → `MARK_NAMES`, `ADJUST_REASONS` |
 | 랜덤 주제 예시(손글씨 줄) | `practice/PracticeStart.tsx` → `EXAMPLES`, `ADVANCED_EXAMPLES` |
+| 언어 탭 · 언어 설명 문구 | `practice/PracticeStart.tsx` → `LANGUAGES` · 제목 옆 언어 꼬리표는 `ui.tsx` → `LangTag` |
 | 튜터 첫 질문 버튼 | `components/TutorChat.tsx` → `STARTERS` |
 | 개념 이름 | `src/lib/api-types.ts` → `CONCEPT_NAMES` (서버 `common.CONCEPTS` 와 같게) |
 | 내 공부 화면(추천 문구·막대 색·노트 모양) | `app/study/StudyNote.tsx` |
@@ -193,14 +195,15 @@ src/
 | `lambda_function.py` | **입구**: 경로 → 기능 파일, 관리자 코드 확인, `GET /health` | `GET /health` | — |
 | `common.py` | **공통 도구** (아래 5.2) | — | — |
 | `topics.py` | 랜덤 주제 · 직접 적은 주제 판정 | `GET /topic/random`, `POST /topic/check` | `topic_check` |
-| `practice.py` | 연습 코드 + ※ 만들기 · 검사 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /reading` | `code_generation` |
+| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · AI 검토 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /reading` | `code_generation`, `code_check` |
 | `inspect_code.py` | 내 코드: 민감 정보 가리기 · 함수 찾기 · 난이도·※ | `POST /inspect`, `POST /inspect/start` | `code_inspection` |
 | `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 | `POST /review`, `POST /review/retry` | `review`, `review_retry` |
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
 | `auth.py` | Google·GitHub 로그인 (OAuth, 라이브러리 없음) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | — |
 | `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | — |
-| `samples.py` | AI 를 못 쓸 때의 예시 코드 8개 · 랜덤 주제 목록 | — | — |
+| `samples.py` | AI 를 못 쓸 때의 예시 코드 (Python 8개) · 랜덤 주제 목록 | — | — |
+| `samples_js.py` | AI 를 못 쓸 때의 JavaScript 예시 코드 7개 (`samples.py` 가 합침) | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
 
 모든 기능 파일은 맨 위에 **설명 블록**(경로·요청·응답 모양), 처리 함수에 **단계 번호 주석**(1. 2. 3. …), 맨 아래에 **도움 함수**가 있어요. 파일마다 `ROUTES = {"POST /경로": 함수}` 표가 있고, 입구가 이 표를 합쳐요.
@@ -225,14 +228,15 @@ src/
 |---|---|
 | 업로드 줄 수, 다시 만들기·다시 쓰기·튜터 횟수, 메모 수, 보관 기간 | `common.py` 1번 설정 |
 | 난이도 이름·설명 | `common.py` → `LEVELS` (화면 `api-types.ts` 도 같이) |
-| 난이도별 코드 길이·문법·※ 수·AI 답 길이 | `practice.py` → `LEVEL_GUIDE`, `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
+| 난이도별 코드 길이·문법·※ 수·AI 답 길이 | `practice.py` → `LEVEL_GUIDE`(언어별), `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | **AI 지시문(프롬프트)** | 각 파일의 `SYSTEM_PROMPT` — 코드 만들기 `practice.py` · 주제 판정 `topics.py` · 내 코드 분석 `inspect_code.py` · 첨삭 `review.py`(`SYSTEM_PROMPT`, 다시 쓰기 `RETRY_PROMPT`) · 튜터 `tutor_chat.py` |
 | AI 답의 모양(JSON 칸) | 각 파일의 `SCHEMA` (바꾸면 그 답을 쓰는 코드와 목업도 같이) |
-| 만든 코드 검사 기준 | `practice.py` → `check_generated` |
+| 만든 코드 검사 기준 | `practice.py` → `check_generated` (Python `py_ast_problems`, JavaScript `js_shape_problems`) · AI 검토 `ai_check_code`, 지시문 `CHECK_PROMPT` |
 | AI 없을 때의 판정·첨삭·튜터 답 | `topics.rule_check`, `inspect_code.rule_analysis`, `review.rule_review`·`rule_retry`, `tutor_chat.rule_answer` |
 | 주제 판정 금지어·막연한 말·큰 말 | `topics.py` → `BAD_WORDS`, `VAGUE_WORDS`, `BIG_WORDS` |
 | 가리는 민감 정보 모양 | `inspect_code.py` → `SECRET_PATTERNS` (**화면 `src/lib/secrets.ts` 도 같이**) |
-| 예시 코드·랜덤 주제 | `samples.py` → `SAMPLES`, `TOPIC_POOL`, `ADVANCED_TOPIC_POOL` (고치면 `npm run verify`) |
+| 예시 코드·랜덤 주제 | `samples.py` → `SAMPLES`, `TOPIC_POOL`, `ADVANCED_TOPIC_POOL` · JavaScript 는 `samples_js.py` (고치면 `npm run verify`) |
+| 언어 추가·언어별 출제 규칙 | `common.py` → `LANGUAGES` · `practice.py` → `CODE_RULES`, `LEVEL_GUIDE`, JavaScript 검사 `js_shape_problems` · 화면 `src/lib/highlight.ts`, `api-types.ts` → `Language` |
 | 요청 한도·월 예산 | `common.py` → `LIMITS`, `MONTHLY_BUDGET_USD` 또는 Lambda 환경 변수 |
 | 관리자 화면의 작업 이름·실패 이유 문구 | `admin.py` → `TASKS`, `ERROR_REASONS` |
 | 개념 종류·이름, 개념 추정 규칙 | `common.py` → `CONCEPTS`, `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |

@@ -1,4 +1,4 @@
-import type { MarkKind } from "@/lib/api-types";
+import { type Language, LANGUAGE_NAMES, type MarkKind } from "@/lib/api-types";
 
 /** 공책 한 장 (가로줄 + 빨간 여백선) */
 export function Page({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -41,6 +41,11 @@ export function Sticky({
 /** 빨간 도장 (난이도 등) */
 export function Stamp({ children }: { children: React.ReactNode }) {
   return <span className="stamp">{children}</span>;
+}
+
+/** 코드 언어 꼬리표 (Python · JavaScript) — 제목 옆, 노트 목록 */
+export function LangTag({ language }: { language?: Language }) {
+  return <span className="border border-ink-400 bg-paper px-1.5 py-0.5 font-sans text-xs font-normal text-ink-700">{LANGUAGE_NAMES[language ?? "python"]}</span>;
 }
 
 /**

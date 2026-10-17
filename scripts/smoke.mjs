@@ -65,6 +65,16 @@ try {
   await call("POST", "/practice/adjust", { readingId: last.id, direction: "harder" }, {}, 429);
   check(true, "여섯 번째는 429");
 
+  // ── JavaScript 연습 (같은 흐름, 언어만 다름)
+  const js = await call("POST", "/practice", { level: 3, topic: "회사 조직도", language: "javascript" });
+  check(js.language === "javascript" && js.code.includes("console.log") && js.marks.length >= 2 && noAnswers(js), `JavaScript 연습 코드 (${js.title}, ※ ${js.marks.length}곳)`);
+  const jsEasier = await call("POST", "/practice/adjust", { readingId: js.id, direction: "easier" });
+  check(jsEasier.language === "javascript" && jsEasier.level === 2, "JavaScript 코드는 더 쉽게 해도 JavaScript");
+  const jsReview = await call("POST", "/review", { readingId: js.id, memos: [{ start: js.marks[0].start, end: js.marks[0].end, text: "아래 팀마다 자기 자신을 다시 불러 인원을 더해요" }] });
+  check(jsReview.items.length === js.marks.length && jsReview.items.every((e) => e.concept), "JavaScript 코드 첨삭");
+  await call("POST", "/practice", { level: 1, topic: "x", language: "cobol" }, {}, 400);
+  check(true, "지원하지 않는 언어는 400");
+
   // ── 빨간펜 첨삭 (review.py)
   const m = reading.marks;
   const result = await call("POST", "/review", {

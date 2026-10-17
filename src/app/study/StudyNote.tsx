@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { TOKEN_COLOR } from "@/components/CodeView";
 import { Crumb, ErrorNote, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { loginUrl, useApi } from "@/lib/api";
-import { type Concept, type ConceptStat, type ExplanationNote, LEVEL_NAMES, type MarkKind, type Me, type StudyOverview } from "@/lib/api-types";
+import { type Concept, type ConceptStat, type ExplanationNote, type Language, LANGUAGE_NAMES, LEVEL_NAMES, type MarkKind, type Me, type StudyOverview } from "@/lib/api-types";
+import { highlightLine } from "@/lib/highlight";
 
 const pct = (r: number) => `${Math.round(r * 100)}%`;
 const day = (ms: number) => new Date(ms).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric" });
@@ -225,9 +227,9 @@ function NotesSection({ notes }: { notes: ExplanationNote[] }) {
                   </span>
                 </div>
                 <p className="hand mt-2 whitespace-pre-wrap break-words text-pen-blue">{n.text}</p>
-                {n.snippet && <Snippet code={n.snippet} start={n.start} />}
+                {n.snippet && <Snippet code={n.snippet} start={n.start} language={n.language} />}
                 <p className="mt-auto pt-3 text-[11px] text-ink-500">
-                  {n.title} · {LEVEL_NAMES[n.level]} · {n.start === n.end ? `${n.start}번 줄` : `${n.start}~${n.end}번 줄`} · {day(n.at)}
+                  {n.title} · {LANGUAGE_NAMES[n.language ?? "python"]} · {LEVEL_NAMES[n.level]} · {n.start === n.end ? `${n.start}번 줄` : `${n.start}~${n.end}번 줄`} · {day(n.at)}
                   {n.open && (
                     <Link href={`/result/?id=${n.readingId}`} className="ml-2 text-pen-blue underline">
                       첨삭 다시 보기
@@ -244,13 +246,19 @@ function NotesSection({ notes }: { notes: ExplanationNote[] }) {
 }
 
 /** 노트에 저장된 코드 몇 줄 (원래 줄 번호로) */
-function Snippet({ code, start }: { code: string; start: number }) {
+function Snippet({ code, start, language = "python" }: { code: string; start: number; language?: Language }) {
   return (
     <pre className="mt-2 max-h-40 overflow-auto border border-ink-300 bg-paper/80 py-1 font-mono text-[11px] leading-5">
       {code.split("\n").map((line, i) => (
         <div key={i} className="grid grid-cols-[2.5rem_1fr]">
           <span className="pr-2 text-right text-ink-400">{start + i}</span>
-          <span className="whitespace-pre pr-2">{line}</span>
+          <span className="whitespace-pre pr-2">
+            {highlightLine(line, language).map((t, j) => (
+              <span key={j} className={TOKEN_COLOR[t.kind]}>
+                {t.text}
+              </span>
+            ))}
+          </span>
         </div>
       ))}
     </pre>
@@ -268,7 +276,7 @@ function RecentSection({ recent }: { recent: StudyOverview["recent"] }) {
           <li key={r.readingId} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
             <span className="w-20 text-xs text-ink-500">{day(r.reviewedAt)}</span>
             <span className={`border px-1.5 py-0.5 text-[11px] ${r.source === "practice" ? "border-ink-500 bg-sticky-yellow" : "border-ink-500 bg-sticky-mint"}`}>
-              {r.source === "practice" ? `연습 · ${LEVEL_NAMES[r.level]}` : "내 코드"}
+              {r.source === "practice" ? `연습 · ${LEVEL_NAMES[r.level]} · ${LANGUAGE_NAMES[r.language ?? "python"]}` : "내 코드"}
             </span>
             <span className="min-w-0 flex-1 truncate font-semibold">{r.title}</span>
             <span className="flex items-center gap-2 text-xs">

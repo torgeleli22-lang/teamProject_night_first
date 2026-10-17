@@ -43,6 +43,7 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
    | `study.py` | 내 공부: 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 (AI 없음) |
    | `admin.py` | 관리자 (AI 사용량·비용·AI 끄기) |
    | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드 |
+   | `samples_js.py` | AI 를 쓸 수 없을 때의 JavaScript 예시 코드 |
 
    - **지울 파일** (예전 기능, 남아 있어도 불리지 않지만 헷갈리니 지우기): `questions.py`, `submit_answer.py`, `my_page.py`, `learner_analysis.py`, `generate_theory.py`, `load_content.py`, `content.json`, `test_events.json`
    - 각 파일은 GitHub 에서 열고 **Raw** → 전체 선택·복사 → 콘솔의 같은 이름 파일에 **전체를 바꿔** 붙여넣기 (없으면 **파일 → 새 파일**로 이름 그대로) → **Deploy**
@@ -126,7 +127,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 |---|---|
 | 화면 | main 에 병합 → Pages 자동 배포 |
 | Lambda 코드 | GitHub 에서 바뀐 파일만 콘솔 코드 탭에 붙여넣고 **Deploy** |
-| 예시 코드·랜덤 주제 | `samples.py` 를 바꾸고 `npm run verify` 통과 → 콘솔에 붙여넣기 |
+| 예시 코드·랜덤 주제 | `samples.py`·`samples_js.py` 를 바꾸고 `npm run verify` 통과 → 콘솔에 붙여넣기 |
 | 설정 (예산 등) | **구성 → 환경 변수** (다음 요청부터 반영) |
 | 급하게 AI 를 멈추기 | 관리자 화면 **AI 끄기** (30초 안에 반영) 또는 환경 변수 `AI_MODE=off` |
 

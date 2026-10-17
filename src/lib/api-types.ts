@@ -7,10 +7,14 @@ export type Level = 1 | 2 | 3 | 4;
 export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급", 4: "고급" };
 export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
   1: "짧은 코드. 변수, 조건문, 반복문이 위에서 아래로 흘러가요.",
-  2: "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요.",
+  2: "함수 여러 개가 서로를 불러요. 리스트·딕셔너리(배열·객체)가 나와요.",
   3: "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요.",
   4: "100~200줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
 };
+
+/** 연습 모드 언어 (common.LANGUAGES 와 같게). 내 코드 점검은 아직 Python 만 */
+export type Language = "python" | "javascript";
+export const LANGUAGE_NAMES: Record<Language, string> = { python: "Python", javascript: "JavaScript" };
 
 /** 개념 꼬리표 (common.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
 export type Concept = "branch" | "loop_update" | "call_flow" | "data_update" | "class_state" | "exception" | "recursion" | "algorithm";
@@ -76,7 +80,7 @@ export interface MarkRange {
 export interface Reading {
   id: string;
   source: "practice" | "inspect";
-  language: "python";
+  language: Language;
   level: Level;
   levelName: string;
   topic: string;
@@ -238,6 +242,8 @@ export interface ExplanationNote {
   title: string;
   level: Level;
   source: "practice" | "inspect";
+  /** 예전 기록에는 없음 (python) */
+  language?: Language;
   readingId: string;
   /** 원본 코드가 아직 남아 있어 다시 열 수 있는지 */
   open: boolean;
@@ -249,7 +255,7 @@ export interface StudyOverview {
   levels: { current: Level; suggested: Level; advice: LevelAdvice["advice"]; message: string; byLevel: LevelAdvice[] };
   concepts: { items: ConceptStat[]; weakest: Concept | null };
   notes: ExplanationNote[];
-  recent: { readingId: string; source: "practice" | "inspect"; level: Level; title: string; counts: Record<MarkKind, number>; reviewedAt: number; open: boolean }[];
+  recent: { readingId: string; source: "practice" | "inspect"; language?: Language; level: Level; title: string; counts: Record<MarkKind, number>; reviewedAt: number; open: boolean }[];
 }
 
 // ───────────────────────── AI 튜터 (tutor_chat.py) ─────────────────────────

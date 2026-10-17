@@ -1,8 +1,8 @@
 import re
 
 from study import record_retry, record_review
-from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field,
-                    get_item, get_learner, guess_concept, latest_review, load_reading, now_ms, numbered, pad, put_item, query_all, review_key,
+from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
+                    get_item, get_learner, guess_concept, latest_review, load_reading, now_ms, pad, put_item, query_all, review_key,
                     time_id, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ def build_prompt(item, memos, missing):
     marks = "\n".join(f"- {m['id']}: {m['start']}~{m['end']}번 줄 (왜: {m['why']})\n  모범 설명: {m['explanation']}" for m in item.get("marks", []))
     memo_text = "\n".join(f"메모 {i + 1} ({m['start']}~{m['end']}번 줄): <memo>{m['text']}</memo>" for i, m in enumerate(memos))
     return "\n\n".join([
-        f"<code>\n{numbered(item['code'])}\n</code>",
+        code_for_ai(item),
         f"※ 꼭 설명할 곳:\n{marks or '(없음)'}",
         f"학습자 메모:\n{memo_text}",
         f"메모가 없는 ※ 지점: {', '.join(m['id'] for m in missing) or '없음'}",
@@ -247,7 +247,7 @@ def build_retry_prompt(item, entry, attempts, text):
     first = entry.get("memo") or "(처음에는 메모가 없었음)"
     before = "\n".join(f"- {a['text']} → {a['mark']}: {a['comment']}" for a in attempts) or "(없음)"
     return "\n\n".join([
-        f"<code>\n{numbered(item['code'])}\n</code>",
+        code_for_ai(item),
         f"범위: {entry['start']}~{entry['end']}번 줄{' (※ 꼭 설명할 곳)' if entry.get('marked') else ''}",
         f"처음 메모: <memo>{first}</memo>\n처음 판정: {entry['mark']}\n힌트(첨삭 코멘트): {entry['comment']}",
         f"모범 설명(채점 기준, 학습자에게 그대로 말하지 않기): {entry.get('model') or '(없음)'}",

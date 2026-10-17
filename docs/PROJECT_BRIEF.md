@@ -38,7 +38,7 @@
 
 | 포함 (지금) | 나중에 | 제외 |
 | --- | --- | --- |
-| 연습 모드 (난이도 3단계 + 주제) | JavaScript·Java | 코드 작성 과제·에디터·자동 완성 |
+| 연습 모드 (Python·JavaScript, 난이도 4단계 + 주제) | Java, 내 코드 점검의 JavaScript | 코드 작성 과제·에디터·자동 완성 |
 | 내 코드 점검 (Python 파일 1개 또는 붙여넣기, 300줄) | 코드 실행 확인 (2단계) | 점수 랭킹·XP 같은 게임 요소 |
 | 빨간펜 첨삭 (○△✕ 개수 표시) · 모범 설명 보기 | 기록 영구 저장 | |
 | 관리자 (AI 사용량·비용·AI 끄기) · Google·GitHub 로그인(선택) | | |
@@ -50,14 +50,14 @@
 | 화면 | 경로 | 내용 | 부르는 API |
 | --- | --- | --- | --- |
 | 01 첫 화면 | `/` | 소개, 연습 모드 / 내 코드 점검 고르기, 공부하는 순서 | 없음 |
-| 02 연습 모드 | `/practice/` | **1장 · 주제 고르기**: 난이도(입문·초급·중급·고급) + 주제(랜덤으로 뽑기 / 직접 적기 50자) | `GET /topic/random`, `POST /topic/check`, `POST /practice` |
+| 02 연습 모드 | `/practice/` | **1장 · 주제 고르기**: 언어(Python·JavaScript, 탭에서 기억) + 난이도(입문·초급·중급·고급) + 주제(랜덤으로 뽑기 / 직접 적기 50자) | `GET /topic/random`, `POST /topic/check`, `POST /practice` |
 | 03 메모하며 읽기 | `/read/?id=` | **2장**: 줄 번호·문법 색칠 코드, ※ 꼭 설명할 곳(진행 n / m), 줄을 누르면 한 줄·누른 채 끌면 범위에 형광펜(범위끼리 겹쳐도 됨, 겹친 곳은 더 진하게) → 포스트잇 메모 ①② 가 **고른 줄 바로 옆**에 붙고, 윗부분을 잡아 **자기 범위 안에서 위아래로 끌어 옮김**(키보드 ↑↓, 겹치면 아래로 밀림, 위치는 `anchor` 로 브라우저에만 저장). 쓰는 중에 −/+ 로 범위 조정. 휴대폰 너비에서는 코드 아래에 차례로, 더 쉽게(이유 고르기)·더 어렵게(메모가 사라진다는 경고), ※ 가 비어도 첨삭 받기 가능 | `GET /reading`, `POST /practice/adjust`, `POST /review` |
 | 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 왼쪽에 전체 코드(따라 내려옴, 첨삭에 마우스를 올리면 그 범위 표시), 오른쪽에 메모별 첨삭 + 정확(○)이 아닌 항목마다 **힌트를 보고 다시 써 보기**(그 항목만 다시 채점, 3번까지, 처음 → 다시 쓴 판정 변화 표시) + 메모마다 **AI 튜터와 더 깊게 알아보기**(질문 10번까지, 튜터가 알려 준 줄을 누르면 왼쪽 코드에 표시)(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
 | 05 내 코드 점검 | `/check/` | 파일 올리기(1개) / 붙여넣기 → 민감 정보 가리기(분홍 포스트잇) → 점검할 함수 고르기 → 훑어본 난이도 도장 → 메모하러 가기 (이후 03·04 와 같음, 더 쉽게/어렵게 없음) | `POST /inspect`, `POST /inspect/start` |
 | 내 공부 | `/study/` | **난이도 추천**(같은 난이도 최근 첨삭 5개의 ○ 비율: 80%↑ 올리기, 40%↓ 내리기, 3개 이상부터) · **개념별 약점 지도**(개념 8가지마다 처음 설명의 ○ 비율·다시 써서 ○ 된 수, 가장 약한 개념에 '이 개념 집중 연습') · **내 설명 노트**(○ 받은 내 설명을 개념별로, 코드 몇 줄과 함께) · 최근 공부 10개. AI 없음 | `GET /study` |
 | 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량(설명·성공·실패·비용·마지막 실패 이유, 예전 서비스 기록은 따로), 최근 AI 호출 기록(50건), 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
 
-**정한 값**: 업로드 최대 **300줄**, 지원 언어 **Python** (JS·Java 는 "곧 열려요" 안내), 점수는 **○△✕ 개수**, 같은 코드에서 다시 만들기 **5번**.
+**정한 값**: 업로드 최대 **300줄**, 연습 모드 언어 **Python·JavaScript** (내 코드 점검은 Python 만, Java 는 나중에), 점수는 **○△✕ 개수**, 같은 코드에서 다시 만들기 **5번**.
 
 ### 4.1 난이도 (`common.LEVELS`, 화면 `LEVEL_NAMES`)
 | 난이도 | 코드 | 길이 (AI 생성 / 최대) |
@@ -66,6 +66,12 @@
 | 2 초급 | 함수 여러 개가 서로를 부름, 리스트·딕셔너리 | 25~45줄 / 60줄 |
 | 3 중급 | 클래스·재귀·예외 처리처럼 흐름이 오감 | 35~60줄 / 80줄 |
 | 4 고급 | 실제 문제를 푸는 작은 프로그램: 클래스·함수 6개 이상, 자료구조 2개 이상 + 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디), 입력 검증·예외, 알고리즘 비교·요약 | 120~190줄 / 최소 100줄 · 최대 200줄, ※ 5곳, 랜덤 주제는 알고리즘용 목록 |
+
+### 4.1.1 언어 (`common.LANGUAGES`, 화면 `LANGUAGE_NAMES`)
+- **Python**: AI 가 만든 코드를 `ast` 로 검사 — 문법, 허용하지 않은 모듈·함수, 정의하지 않은 이름(오타), print (`practice.py_ast_problems`, 실행하지 않음).
+- **JavaScript**: Lambda 에 Node.js 가 없어서 `practice.js_shape_problems` 로 겉모양만 검사 — 괄호 ( ) [ ] { } 짝, 따옴표·템플릿 문자열·/* */ 주석·정규식이 닫혔는지, import·require·fetch·document·process·Math.random·Date.now 를 쓰지 않았는지, 마지막 console.log. 문자열·주석 안의 글자는 보지 않는다.
+- 예시 코드는 언어마다 난이도별 1개 이상 (`samples.py`, `samples_js.py`), `npm run verify` 가 Python·node 로 실제 실행한다.
+- 언어별로 다른 곳: `practice.CODE_RULES`·`LEVEL_GUIDE`, 예시 코드, 화면 `src/lib/highlight.ts`. 첨삭·튜터·내 공부·개념 추정(`common.guess_concept`, 두 언어 규칙을 함께 봄)은 같은 코드를 쓴다. 난이도 추천·개념별 약점은 언어를 섞어 계산한다 (흐름을 읽는 힘은 언어와 크게 상관없음).
 
 ### 4.2 ※ 꼭 설명할 곳 (marks)
 코드마다 2~4곳 (고급은 5곳). 흐름을 이해해야만 설명할 수 있는 곳(조건 분기, 값을 바꾸는 반복, 함수가 다른 함수를 부르는 곳, 예외·재귀). 각 지점은 `start`·`end`(줄 범위), `why`, `explanation`(모범 설명, 첨삭 기준), `keywords`(핵심 표현 3~5개, 규칙 첨삭용) 를 가진다.
@@ -91,7 +97,7 @@ AI 가 코드를 만들 때(내 코드 분석 때) 함께 정하고, 없거나 �
 src/app/                    화면: page.tsx(01) practice/(02) read/(03) result/(04) check/(05) admin/
 src/components/             NoteHeader(제목·로그인·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
 src/lib/                    api.ts(서버 부르기) api-types.ts(응답 모양) secrets.ts(민감 정보 가리기) highlight.ts(문법 색칠) memos.ts(메모 임시 저장)
-lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·tutor_chat·admin.py(기능) samples.py(예시 코드)
+lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·tutor_chat·study·auth·admin.py(기능) samples.py·samples_js.py(예시 코드)
 lambda/tests/               Python 단위 테스트
 tests/                      TypeScript 단위 테스트 (민감 정보·문법 색칠·경계)
 scripts/                    local-api.mjs + local_lambdas.py(로컬 실행), smoke.mjs(전체 흐름), verify_samples.py(예시 코드 실행 검증)
@@ -105,8 +111,8 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | --- | --- | --- |
 | 랜덤 주제 | 목록에서 최근 10개를 빼고 뽑기 (`topics.random_topic`) | 없음 |
 | 직접 적은 주제 판정 (ok · vague 제안 3개 · too_big 좁히기 · inappropriate) | `topics.check_topic` (작업 `topic_check`) | 1회 |
-| 연습 코드 + ※ 지점 만들기 | `practice.make_code` (작업 `code_generation`): 문법 검사(`compile`, 실행하지 않음)·길이·※ 줄 찾기 → 실패하면 이유를 알려 주고 한 번 더 → 그래도 실패하면 예시 코드 | 1~2회 |
-| 더 쉽게 / 더 어렵게 | 지금 코드와 어려웠던 이유를 주고 다시 만들기 (5번까지) | 1~2회 |
+| 연습 코드 + ※ 지점 만들기 | `practice.make_code`: ① 출제(작업 `code_generation`) → ② 규칙 검사(Python `ast`: 문법·금지 기능·정의 안 한 이름·print / JavaScript 겉모양, 길이·※ 줄, 실행하지 않음) → ③ AI 검토(작업 `code_check`: 머릿속 실행으로 실행 오류·난이도·※ 모범 설명 확인, 틀린 모범 설명은 고침) → ②·③ 에 걸리면 이유와 함께 한 번 더 → 그래도 안 되면 예시 코드 | 2~4회 |
+| 더 쉽게 / 더 어렵게 | 지금 코드와 어려웠던 이유를 주고 다시 만들기 (5번까지), 같은 단계별 교정 | 2~4회 |
 | 내 코드 훑어보기 (언어·줄 수·민감 정보·함수 목록·훑어본 난이도) | `inspect_code.look` — 규칙 | 없음 |
 | 내 코드 분석 (난이도·이유·※ 지점) | `inspect_code.start` (작업 `code_inspection`), 고른 함수 범위 안의 ※ 만 | 1회 |
 | 누락 판정 · ○△✕ 개수 | `review.review` — 규칙 | 없음 |
@@ -167,8 +173,8 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
 | `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
-| `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
-| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
+| `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, language, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
+| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `READ#<uuid>` | `RETRY#<첨삭 시각>#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
 | `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
@@ -210,7 +216,7 @@ npm run smoke     # Lambda 전체 흐름 점검
 ### 10.2 이후 단계 (사람이 요청하면 진행)
 | 단계 | 내용 |
 | --- | --- |
-| JavaScript·Java | `inspect_code.read_code`·`find_functions`, 예시 코드, 문법 색칠, 생성 검사(문법 확인 방법)를 언어별로 |
+| Java · 내 코드 점검의 JavaScript | 연습 모드에 Java: `common.LANGUAGES`, `practice.CODE_RULES`·`LEVEL_GUIDE`, 예시 코드, `highlight.ts` (JavaScript 를 넣은 방식 그대로). 내 코드 점검: `inspect_code.read_code`·`find_functions` 를 언어별로 |
 | 코드 실행 확인 (2단계) | AI 가 만든 코드를 실제로 실행해 출력 확인 — 별도 실행 환경이 필요해서 지금은 문법 검사만 |
 
 ## 11. 현재 상태와 다음 할 일
@@ -224,7 +230,7 @@ npm run smoke     # Lambda 전체 흐름 점검
 1. 콘솔의 `jojo_api_py` 파일 바꾸기 (`docs/DEPLOY_LAMBDA.md` 2단계) → 화면 main 병합
 2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기
 3. Google·GitHub OAuth 앱 만들고 Lambda 환경 변수 넣기 (`docs/DEPLOY_LAMBDA.md` 5단계)
-4. JavaScript·Java, 코드 실행 확인
+4. Java, 내 코드 점검의 JavaScript, 코드 실행 확인
 
 **팀이 정해야 할 것**
 - 첨삭 말투·엄격함 (부분 정답을 얼마나 너그럽게 볼지)
