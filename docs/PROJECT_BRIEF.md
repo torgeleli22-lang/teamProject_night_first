@@ -124,9 +124,10 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 ## 7. 사용자와 기록 정책 (로그인 없음)
 
-- Lambda 가 발급한 학습자 id 를 브라우저 `localStorage` 에 둔다 (`x-session-id` 헤더). 탭을 닫아도 이어지고(다른 기기·시크릿 창은 따로), 서버의 학습자·'내 공부' 기록은 마지막 사용 1년 뒤 TTL 로 지워진다.
-- 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 연습 코드는 30일, 올린 코드는 1일 보관. '내 공부' 기록(코드 원본 없이 개념·판정·내 설명)은 1년.
-- 붙인 메모는 첨삭을 받기 전까지 브라우저(`src/lib/memos.ts`, localStorage)에만 있다.
+- Lambda 가 발급한 학습자 id 를 브라우저 `sessionStorage` 에 둔다 (`x-session-id` 헤더). **탭·브라우저를 닫으면 사라지고** 다시 열면 새로 시작한다. 서버의 기록도 다시 찾을 수 없으니 짧게 지운다 (학습자: 마지막 사용 12시간 뒤, 읽은 코드·첨삭·'내 공부': 1일).
+- **로그인(Google·GitHub, 추가 예정)**: 학습자 항목에 `member: true` 를 두면 `common.keep_seconds` 가 보관 기간을 늘린다 (학습자·'내 공부' 1년, 연습 코드 30일, 올린 코드는 그대로 1일). 로그인 기능은 이 표시와 학습자 id 를 계정에 묶는 부분만 더하면 된다.
+- 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 보관 기간은 `common.keep_seconds` 한 곳에서 정한다 (위).
+- 붙인 메모는 첨삭을 받기 전까지 이 탭(`src/lib/memos.ts`, sessionStorage)에만 있다.
 
 ## 8. 화면 디자인 (공부 노트)
 
@@ -161,9 +162,9 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
-| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen | 마지막 사용 1년 뒤 |
-| `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 1년 |
-| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 연습 30일 · 올린 코드 1일 |
+| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member(로그인 학습자, 추가 예정) | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
+| `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
+| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `READ#<uuid>` | `RETRY#<첨삭 시각>#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
 | `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
@@ -216,6 +217,7 @@ npm run smoke     # Lambda 전체 흐름 점검
 **다음 순서**
 1. 콘솔의 `jojo_api_py` 파일 바꾸기 (`docs/DEPLOY_LAMBDA.md` 2단계) → 화면 main 병합
 2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기
+3. Google·GitHub 로그인 → 로그인 학습자만 기록을 오래 남김 (`member`, `keep_seconds`)
 3. JavaScript·Java, 코드 실행 확인
 
 **팀이 정해야 할 것**

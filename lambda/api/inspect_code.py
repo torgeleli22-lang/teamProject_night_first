@@ -1,6 +1,6 @@
 import re
 
-from common import (LANGUAGES, LEVELS, MAX_CODE_LINES, UPLOAD_KEEP_DAYS, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks,
+from common import (LANGUAGES, LEVELS, MAX_CODE_LINES, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks,
                     count_event, field, get_learner, numbered, public_reading, save_reading)
 
 # ─────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ def start(req):
     filename = (field(req["body"], "filename", "str", default="", max_len=100) or "붙여 넣은 코드").strip()
     item = save_reading(learner, source="inspect", level=int(analysis["level"]), topic=filename, title=filename, code=code,
                         marks=marks, origin="upload", note=note, levelReason=analysis.get("levelReason", ""),
-                        functions=[f["name"] for f in picked], keepDays=UPLOAD_KEEP_DAYS)
+                        functions=[f["name"] for f in picked], keep="upload")
     return {**public_reading(item), "masked": masked}
 
 

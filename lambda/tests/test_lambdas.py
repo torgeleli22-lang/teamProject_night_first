@@ -190,6 +190,15 @@ def study_row(level, marks, source="practice", at=0):
     return {"readingId": f"r{at}", "source": source, "level": level, "title": "t", "counts": {}, "items": items, "reviewedAt": at}
 
 
+class KeepTime(unittest.TestCase):
+    def test_anonymous_is_short_member_is_long(self):
+        anon, member = {"member": False}, {"member": True}
+        self.assertEqual(common.keep_seconds(anon, "learner"), common.ANON_HOURS * 3600)
+        self.assertEqual(common.keep_seconds(anon, "study"), common.ANON_READING_HOURS * 3600)
+        self.assertEqual(common.keep_seconds(member, "study"), common.MEMBER_DAYS * 86400)
+        self.assertEqual(common.keep_seconds(member, "upload"), common.UPLOAD_KEEP_DAYS * 86400)   # 올린 코드는 로그인해도 짧게
+
+
 class Study(unittest.TestCase):
     def test_level_up_down_and_waiting(self):
         good = [study_row(2, [("branch", "correct", "correct")] * 5, at=i) for i in range(3)]

@@ -1,5 +1,5 @@
 /**
- * 붙인 메모를 이 브라우저(localStorage)에 저장한다 — 새로 고침하거나 나중에 '같은 코드 다시 읽기'로 돌아와도 남아 있게.
+ * 붙인 메모를 이 탭(sessionStorage)에 잠깐 저장한다 — 새로 고침하거나 '같은 코드 다시 읽기'로 돌아와도 남아 있게. 탭을 닫으면 사라진다.
  * 서버에는 '첨삭 받기'를 누를 때만 보낸다.
  */
 import type { Memo } from "./api-types";
@@ -8,7 +8,7 @@ const key = (readingId: string) => `codereading.memos.${readingId}`;
 
 export function loadMemos(readingId: string): Memo[] {
   try {
-    const raw = localStorage.getItem(key(readingId)) ?? sessionStorage.getItem(key(readingId));
+    const raw = sessionStorage.getItem(key(readingId));
     return raw ? (JSON.parse(raw) as Memo[]) : [];
   } catch {
     return [];
@@ -17,7 +17,7 @@ export function loadMemos(readingId: string): Memo[] {
 
 export function saveMemos(readingId: string, memos: Memo[]) {
   try {
-    localStorage.setItem(key(readingId), JSON.stringify(memos));
+    sessionStorage.setItem(key(readingId), JSON.stringify(memos));
   } catch {
     /* 저장할 수 없는 환경이면 화면에만 */
   }

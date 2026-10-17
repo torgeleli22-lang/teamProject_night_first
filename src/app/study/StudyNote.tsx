@@ -11,7 +11,7 @@ const day = (ms: number) => new Date(ms).toLocaleDateString("ko-KR", { timeZone:
 
 /**
  * 내 공부: 첨삭 기록으로 (1) 난이도 추천 (2) 개념별 약점 지도 (3) 내 설명 노트 (4) 최근 공부.
- * 모두 서버의 규칙 계산(study.py, AI 없음). 기록은 이 브라우저의 학습자에게 1년 남아요.
+ * 모두 서버의 규칙 계산(study.py, AI 없음). 로그인 전에는 이 탭에서만 이어지고, 탭·브라우저를 닫으면 사라져요.
  */
 export function StudyNote() {
   const { data, error, reload } = useApi<StudyOverview>("/study");
@@ -32,7 +32,7 @@ export function StudyNote() {
             지금까지 코드 {s.codes}개 · 공부한 날 {s.days}일 · 처음 설명에서 ○ {pct(s.correctRate)}
             {s.improved > 0 && ` · 다시 써서 ○ ${s.improved}개`}
           </p>
-          <p className="mt-1 text-xs text-ink-500">첨삭을 받을 때마다 기록돼요. 이 브라우저에 1년 동안 남고, 다른 기기·시크릿 창에서는 따로예요.</p>
+          <p className="mt-1 text-xs text-ink-500">첨삭을 받을 때마다 기록돼요. 지금은 이 탭에서만 이어지고, 탭이나 브라우저를 닫으면 사라져요. (Google·GitHub 로그인이 생기면 계정에 남길 수 있어요)</p>
 
           <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
             <LevelSection levels={data.levels} />

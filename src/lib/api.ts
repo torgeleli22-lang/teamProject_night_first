@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 /**
  * 브라우저 → API(Lambda 함수 URL 하나 — lambda/api) 호출.
  * 모든 기능이 같은 주소라서 브라우저가 연결(HTTPS)을 한 번 맺고 계속 다시 쓴다 → 화면 이동·제출이 빠르다.
- * - 학습자 id 는 이 브라우저의 localStorage 에 둔다: 탭을 닫았다 열어도 '내 공부' 기록이 이어진다 (로그인 없음, 다른 기기·시크릿 창은 따로).
+ * - 학습자 id 는 sessionStorage 에 둔다: 이 탭(창)을 닫으면 사라지고, 다시 열면 새로 시작한다 (기록은 서버에서도 하루 안에 지워짐).
+ *   Google·GitHub 로그인을 붙이면 로그인한 학습자만 기록이 계정에 오래 남는다.
  * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
  * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables → API_URL).
  * 내 컴퓨터에서는 npm run api 가 같은 Lambda 를 http://localhost:8787 로 실행한다.
@@ -25,8 +26,7 @@ const SESSION_HEADER = "x-session-id";
 
 function readSession(): string | null {
   try {
-    // 예전(탭마다 sessionStorage)에 받은 id 가 있으면 그대로 이어서 쓴다
-    return localStorage.getItem(SESSION_KEY) ?? sessionStorage.getItem(SESSION_KEY);
+    return sessionStorage.getItem(SESSION_KEY);
   } catch {
     return null;
   }
@@ -34,13 +34,14 @@ function readSession(): string | null {
 
 function saveSession(id: string) {
   try {
-    localStorage.setItem(SESSION_KEY, id);
+    sessionStorage.setItem(SESSION_KEY, id);
   } catch {
-    try {
-      sessionStorage.setItem(SESSION_KEY, id);
-    } catch {
-      /* 저장할 수 없는 환경이면 요청마다 새 학습자 */
-    }
+    /* 저장할 수 없는 환경이면 요청마다 새 학습자 */
+  }
+  try {
+    localStorage.removeItem(SESSION_KEY); // 잠깐 localStorage 에 두었던 예전 id 는 지운다
+  } catch {
+    /* 무시 */
   }
 }
 

@@ -47,7 +47,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | 다시 써 보기 | `/result/` | 다시 쓴 설명 하나만 다시 채점 | ○ |
 | AI 튜터 | `/result/` | 첨삭 항목 하나에 대해 묻고 답하기 (대화 저장) | ○ |
 | 내 코드 점검 | `/check/` | 민감 정보 다시 가리기 · 함수 목록 · 훑어본 난이도(규칙) → '메모하러 가기'에서 AI 가 난이도·※ | 시작할 때 |
-| 내 공부 | `/study/` | 첨삭 기록(1년)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
+| 내 공부 | `/study/` | 첨삭 기록(이 탭에서만, 로그인 후 1년 예정)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
 | 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드 | — |
 
 **AI 가 없어도 동작해요.** 관리자가 AI 를 끄거나, 월 예산($10)에 닿거나, 요청 한도를 넘으면 예시 코드 · 규칙 판정 · 규칙 첨삭으로 바뀌고 화면에 안내가 나와요.
@@ -63,7 +63,8 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
 - **서버**: Lambda **하나**. 입구 파일이 경로를 보고 기능 파일로 보내요. 콘솔 코드 탭에 **그대로 붙여넣는 읽을 수 있는 코드**(Python + boto3)라 zip·빌드가 없어요.
-- **로그인 없음**: 학습자 id 를 이 브라우저(localStorage)에 저장해 탭을 닫아도 이어져요 (다른 기기·시크릿 창은 따로). 읽은 코드·첨삭은 만든 사람만 열 수 있고, 연습 코드는 30일·올린 코드는 1일 뒤 자동 삭제, '내 공부' 기록은 1년.
+- **로그인 없음 (지금)**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
+- **로그인 (Google·GitHub, 추가 예정)**: 로그인한 학습자만 기록을 오래 남겨요 (`common.keep_seconds` 한 곳에서 보관 기간을 정함).
 
 ---
 
@@ -196,7 +197,7 @@ src/
 | 관리자 화면의 작업 이름·실패 이유 문구 | `admin.py` → `TASKS`, `ERROR_REASONS` |
 | 개념 종류·이름, 개념 추정 규칙 | `common.py` → `CONCEPTS`, `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |
 | 난이도 추천 기준(80%·40%·최근 5개·3개 이상), 약점 기준 | `study.py` → `LEVEL_UP`, `LEVEL_DOWN`, `RECENT_PER_LEVEL`, `MIN_FOR_LEVEL`, `MIN_FOR_WEAK` |
-| 보관 기간 (학습자 1년 · 연습 코드 30일 · 내 공부 1년) | `common.py` → `LEARNER_KEEP_DAYS`, `READING_KEEP_DAYS`, `STUDY_KEEP_DAYS` |
+| 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `common.py` → `ANON_HOURS`, `ANON_READING_HOURS`, `MEMBER_DAYS`, `READING_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
 | 새 기능 경로 추가 | 기능 파일을 새로 만들고 `ROUTES` 를 둔 뒤 `lambda_function.py` 의 `for feature in (…)` 에 추가 (함수를 늘리지 않음) |
 
 ### 5.4 DynamoDB 항목 (테이블 `jojo_table`, pk / sk)
@@ -208,7 +209,7 @@ src/
 | `READ#<id>` | `REVIEW#<시각>` | 첨삭 결과 |
 | `READ#<id>` | `RETRY#<첨삭 시각>#<항목>` | 다시 써 본 기록 |
 | `READ#<id>` | `CHAT#<첨삭 시각>#<항목>` | 튜터 대화 |
-| `STUDY#<학습자>` | `R#<읽은 코드 id>` | 내 공부 기록: 개념·처음/가장 좋은 판정·내 설명 (1년) |
+| `STUDY#<학습자>` | `R#<읽은 코드 id>` | 내 공부 기록: 개념·처음/가장 좋은 판정·내 설명 (로그인 안 함 1일 · 로그인 1년) |
 | `STATS` | `DAY#날짜` | 하루 사용 수 |
 | `USAGE` · `AILOG` | 월·작업·모델 / 시각 | AI 토큰·비용, AI 호출 기록 |
 | `META` | `ai_switch` · `admin_code_hash` | AI 스위치, 관리자 코드 |
@@ -256,4 +257,4 @@ docs/               PROJECT_BRIEF.md · ai-generation-policy.md · DEPLOY_LAMBDA
 ## 다음 단계
 - 내 코드 점검에 JavaScript · Java
 - AI 가 만든 코드의 실제 실행 확인
-- 로그인 + 기록 영구 저장
+- Google·GitHub 로그인 → 로그인한 학습자만 기록을 오래 남기기

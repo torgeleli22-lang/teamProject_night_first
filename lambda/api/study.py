@@ -1,4 +1,4 @@
-from common import (CONCEPTS, LEVELS, STUDY_KEEP_DAYS, TTL_ATTR, alive, day_key, get_item, get_learner, now_ms, put_item,
+from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_learner, keep_seconds, now_ms, put_item,
                     query_all, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
@@ -7,7 +7,8 @@ from common import (CONCEPTS, LEVELS, STUDY_KEEP_DAYS, TTL_ATTR, alive, day_key,
 #   GET /study  → {"levels": 난이도 추천, "concepts": 개념별 약점 지도, "notes": 내 설명 노트, "recent": 최근 공부, "summary": 요약}
 #
 #   기록: 첨삭을 받을 때(review.py) 읽은 코드 하나마다 STUDY#<학습자> / R#<읽은 코드 id> 한 줄을 쓰고,
-#         힌트 보고 다시 써서 나아지면 그 항목을 고친다. 코드 원본은 넣지 않아 작고, STUDY_KEEP_DAYS(1년) 보관.
+#         힌트 보고 다시 써서 나아지면 그 항목을 고친다. 코드 원본은 넣지 않아 작다.
+#         보관: 로그인 안 한 학습자는 하루(탭을 닫으면 다시 찾을 수 없음), 로그인 학습자(추가 예정)는 1년 — common.keep_seconds
 #         (연습 코드는 잘라 낸 몇 줄을 함께 저장해 원본이 지워져도 노트에서 볼 수 있다. 올린 코드는 개인정보라 저장하지 않음)
 #
 #   난이도 추천: 같은 난이도에서 최근 첨삭 5개의 ○ 비율 — 80% 이상(3개 이상)이면 올려 보기, 40% 미만이면 내려 보기
@@ -61,7 +62,7 @@ def record_review(learner, reading, result):
                   "title": reading.get("title") or reading.get("topic", ""), "topic": reading.get("topic", ""),
                   "counts": result["counts"], "items": items, "reviews": int(old.get("reviews", 0)) + 1,
                   "createdAt": old.get("createdAt") or now_ms(), "reviewedAt": now_ms(),
-                  "readingTtl": int(reading.get(TTL_ATTR, 0)), TTL_ATTR: ttl_after(STUDY_KEEP_DAYS * 86400)})
+                  "readingTtl": int(reading.get(TTL_ATTR, 0)), TTL_ATTR: ttl_after(keep_seconds(learner, "study"))})
     except Exception as e:   # 기록이 실패해도 첨삭은 그대로 돌려준다
         print("[study]", repr(e))
 
