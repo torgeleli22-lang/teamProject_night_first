@@ -1,7 +1,8 @@
 import re
 
+from study import record_retry, record_review
 from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field,
-                    get_item, get_learner, latest_review, load_reading, now_ms, numbered, pad, put_item, query_all, review_key,
+                    get_item, get_learner, guess_concept, latest_review, load_reading, now_ms, numbered, pad, put_item, query_all, review_key,
                     time_id, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
@@ -87,6 +88,9 @@ def review(req):
     result = build_result(item, memos, missing, graded, by_ai)
     put_item({"pk": f"READ#{item['id']}", "sk": f"REVIEW#{pad(time_id())}", "memos": memos, "result": result, "createdAt": now_ms(),
               TTL_ATTR: ttl_after(max(1, int(item.get(TTL_ATTR, 0) - now_ms() / 1000)))})
+
+    # 5. '내 공부' 기록 (개념별 약점 지도·난이도 추천·내 설명 노트, 1년 보관)
+    record_review(learner, item, result)
     return result
 
 
@@ -150,6 +154,9 @@ def retry(req):
                             "lookAt": [n for n in graded.get("lookAt", []) if 1 <= n <= total][:3], "byAi": by_ai, "at": now_ms()}]
     put_item({"pk": f"READ#{item['id']}", "sk": key, "attempts": attempts, "updatedAt": now_ms(),
               TTL_ATTR: item.get(TTL_ATTR) or ttl_after(86400)})
+
+    # 5. '내 공부' 기록에 나아진 판정·설명 반영
+    record_retry(learner, item, index, graded["mark"], text)
     return {"item": index, "attempts": attempts, "left": MAX_RETRIES - len(attempts)}
 
 
@@ -223,11 +230,14 @@ def build_result(item, memos, missing, graded, by_ai):
         mark = next((m for m in marks if overlaps(memo, m)), None)
         entries.append({"kind": "memo", "start": memo["start"], "end": memo["end"], "marked": bool(mark), "memo": memo["text"],
                         "mark": g["mark"], "comment": g["comment"], "lookAt": [n for n in g.get("lookAt", []) if 1 <= n <= total][:3],
-                        "model": (mark or {}).get("explanation") or g.get("model", "")})
+                        "model": (mark or {}).get("explanation") or g.get("model", ""),
+                        # 개념 꼬리표: ※ 지점과 겹치면 그 지점의 것, 아니면 메모 범위의 문법으로 추정
+                        "concept": (mark or {}).get("concept") or guess_concept(item["code"], memo["start"], memo["end"])})
     for m in missing:
         entries.append({"kind": "missing", "start": m["start"], "end": m["end"], "marked": True, "memo": "", "mark": "missing",
                         "comment": hints.get(m["id"]) or f"※ 표시된 곳이 비어 있어요. {m['start']}~{m['end']}번 줄을 설명해 봐요.",
-                        "lookAt": [m["start"]], "model": m["explanation"]})
+                        "lookAt": [m["start"]], "model": m["explanation"],
+                        "concept": m.get("concept") or guess_concept(item["code"], m["start"], m["end"])})
     entries.sort(key=lambda e: (e["start"], e["kind"] != "memo"))
     counts = {k: sum(1 for e in entries if e["mark"] == k) for k in ("correct", "partial", "wrong", "missing")}
     return {"readingId": item["id"], "summary": graded["summary"], "counts": counts, "items": entries, "byAi": by_ai, "createdAt": now_ms()}

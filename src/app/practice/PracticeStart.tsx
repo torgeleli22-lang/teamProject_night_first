@@ -1,10 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Crumb, ErrorNote, Page, Sticky, Waiting } from "@/components/ui";
-import { apiGet, apiPost } from "@/lib/api";
-import { LEVEL_DESCRIPTIONS, LEVEL_NAMES, type Level, type RandomTopic, type Reading, type TopicCheck } from "@/lib/api-types";
+import { apiGet, apiPost, useApi } from "@/lib/api";
+import {
+  CONCEPT_NAMES,
+  type Concept,
+  LEVEL_DESCRIPTIONS,
+  LEVEL_NAMES,
+  type Level,
+  type RandomTopic,
+  type Reading,
+  type StudyOverview,
+  type TopicCheck,
+} from "@/lib/api-types";
 
 const MAX_TOPIC = 50;
 const EXAMPLES = ["카페 주문", "도서관 대출", "성적 처리", "게임 점수판", "버스 도착 안내", "가계부"];
@@ -13,7 +24,12 @@ const ADVANCED_EXAMPLES = ["지하철 최단 경로", "배달 주문 고르기",
 /** 02 · 연습 모드: 난이도 + 주제 (랜덤으로 뽑기 / 직접 적기) */
 export function PracticeStart() {
   const router = useRouter();
-  const [level, setLevel] = useState<Level>(2);
+  // '내 공부'에서 넘어오면 ?level=3&focus=loop_update (추천 난이도 · 집중 개념)
+  const params = useSearchParams();
+  const fromLevel = Number(params.get("level"));
+  const [level, setLevel] = useState<Level>(fromLevel >= 1 && fromLevel <= 4 ? (fromLevel as Level) : 2);
+  const [focus, setFocus] = useState<Concept | null>((params.get("focus") as Concept) in CONCEPT_NAMES ? (params.get("focus") as Concept) : null);
+  const { data: study } = useApi<StudyOverview>("/study");
   const [tab, setTab] = useState<"random" | "write">("random");
   const [randomTopic, setRandomTopic] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -36,7 +52,7 @@ export function PracticeStart() {
     setBusy("make");
     setError(null);
     try {
-      const reading = await apiPost<Reading>("/practice", { level, topic });
+      const reading = await apiPost<Reading>("/practice", { level, topic, ...(focus ? { focus } : {}) });
       router.push(`/read/?id=${reading.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -75,7 +91,30 @@ export function PracticeStart() {
       <p className="mt-2 text-sm text-ink-700">난이도는 출발점일 뿐이에요. 받아 본 코드가 버거우면 다음 장에서 바로 &lsquo;더 쉽게&rsquo;로 바꿀 수 있어요.</p>
 
       {/* 난이도 */}
+      {focus && (
+        <Sticky color="pink" tape className="mt-6 max-w-2xl p-4">
+          <p className="hand text-pen-red">집중 연습: {CONCEPT_NAMES[focus]}</p>
+          <p className="mt-1 text-sm text-ink-700">이 흐름이 많이 나오는 코드로 만들고, ※ 꼭 설명할 곳의 절반 이상을 이 개념으로 골라 드려요.</p>
+          <button type="button" className="btn-small mt-2" onClick={() => setFocus(null)}>
+            집중 연습 빼기
+          </button>
+        </Sticky>
+      )}
+
       <h2 className="mt-8 text-lg">난이도</h2>
+      {study && study.summary.codes > 0 && study.levels.advice !== "none" && (
+        <p className="mt-1 text-sm">
+          <span className="hand text-pen-red">{study.levels.message}</span>{" "}
+          {study.levels.suggested !== level && (
+            <button type="button" className="text-xs text-pen-blue underline" onClick={() => setLevel(study.levels.suggested)}>
+              {LEVEL_NAMES[study.levels.suggested]} 고르기
+            </button>
+          )}{" "}
+          <Link href="/study" className="text-xs text-ink-500 underline">
+            내 공부 보기
+          </Link>
+        </p>
+      )}
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label="난이도">
         {([1, 2, 3, 4] as Level[]).map((lv) => {
           const on = lv === level;

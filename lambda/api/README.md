@@ -11,6 +11,7 @@
 | `inspect_code.py` | 내 코드 점검: 민감 정보 가리기·함수 찾기(AI 없음) → 난이도·※ 지점(AI) | `POST /inspect` `/inspect/start` |
 | `review.py` | 빨간펜 첨삭: 누락(규칙) + ○△✕·코멘트·모범 설명(AI), 힌트 보고 다시 쓴 설명 다시 채점(3번까지) | `POST /review` `/review/retry` |
 | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화: 메모별 첨삭 하나에 대해 묻고 답하기(10번까지), 대화 저장 | `POST /tutor` |
+| `study.py` | 내 공부 (AI 없음): 첨삭 기록 → 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 | `GET /study` |
 | `admin.py` | 관리자 화면 (`x-admin-token` 필요): AI 사용량·비용·AI 끄기·관리자 코드 | `/admin/...` |
 | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드(난이도마다 2개)와 랜덤 주제 목록 | |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | |

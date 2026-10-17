@@ -9,7 +9,7 @@ import { RetryBox } from "@/components/RetryBox";
 import { TutorChat } from "@/components/TutorChat";
 import { Crumb, ErrorNote, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
-import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
+import { CONCEPT_NAMES, MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
 
 const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
@@ -125,7 +125,10 @@ function ResultBody({
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-dashed border-ink-300 pt-5">
+      <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-dashed border-ink-300 pt-5">
+        <Link href="/study" className="mr-auto text-sm text-pen-blue underline">
+          내 공부에서 개념별로 보기
+        </Link>
         <Link href={`/read/?id=${reading.id}`} className="btn-line">
           같은 코드 다시 읽기
         </Link>
@@ -164,6 +167,7 @@ function ItemRow({
         <span className="mr-1 text-base text-pen-blue">{label}</span>
         {item.start === item.end ? `${item.start}번 줄` : `${item.start}~${item.end}번 줄`}
         {item.marked && <b className="text-pen-red"> · ※ 꼭 설명할 곳</b>}
+        {item.concept && <span className="ml-2 border border-ink-400 bg-paper px-1.5 py-0.5 text-[11px] text-ink-700">{CONCEPT_NAMES[item.concept]}</span>}
       </p>
       <CodeView code={code} from={item.start} to={item.end} tint={item.lookAt} />
       <div className="mt-3 flex items-start gap-3">

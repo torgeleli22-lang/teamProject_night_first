@@ -12,6 +12,19 @@ export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
   4: "100~200줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
 };
 
+/** 개념 꼬리표 (common.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
+export type Concept = "branch" | "loop_update" | "call_flow" | "data_update" | "class_state" | "exception" | "recursion" | "algorithm";
+export const CONCEPT_NAMES: Record<Concept, string> = {
+  branch: "조건 분기",
+  loop_update: "반복이 값을 바꾸는 곳",
+  call_flow: "함수가 함수를 부름",
+  data_update: "자료구조 다루기",
+  class_state: "객체 상태 바뀜",
+  exception: "예외 흐름",
+  recursion: "재귀·되돌아가기",
+  algorithm: "알고리즘 핵심",
+};
+
 // ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────
 
 export interface Health {
@@ -66,6 +79,8 @@ export interface Reading {
   functions?: string[] | null;
   /** 내 코드 점검: AI 가 그 난이도로 본 이유 */
   levelReason?: string | null;
+  /** '이 개념 집중 연습'으로 만든 코드의 집중 개념 */
+  focus?: Concept | null;
 }
 
 /** POST /inspect/start 의 응답 */
@@ -163,6 +178,8 @@ export interface ReviewItem {
   lookAt: number[];
   /** 모범 설명 ("모범 설명 보기") */
   model: string;
+  /** 개념 꼬리표 */
+  concept?: Concept;
 }
 
 export interface ReviewResult {
@@ -172,6 +189,55 @@ export interface ReviewResult {
   items: ReviewItem[];
   byAi: boolean;
   createdAt: number;
+}
+
+// ───────────────────────── 내 공부 (study.py, AI 없음) ─────────────────────────
+
+export interface LevelAdvice {
+  level: Level;
+  name: string;
+  codes: number;
+  correctRate: number;
+  advice: "up" | "down" | "stay" | "none";
+}
+
+export interface ConceptStat {
+  concept: Concept;
+  name: string;
+  description: string;
+  count: number;
+  /** 처음 판정에서 ○ 를 받은 비율 (0~1) */
+  correctRate: number;
+  /** 다시 써서 ○ 가 된 수 */
+  improved: number;
+  missing: number;
+}
+
+export interface ExplanationNote {
+  concept: Concept;
+  conceptName: string;
+  text: string;
+  /** 다시 써서 ○ 를 받은 설명인지 */
+  improved: boolean;
+  start: number;
+  end: number;
+  /** 그 범위의 코드 몇 줄 (연습 코드만) */
+  snippet: string | null;
+  title: string;
+  level: Level;
+  source: "practice" | "inspect";
+  readingId: string;
+  /** 원본 코드가 아직 남아 있어 다시 열 수 있는지 */
+  open: boolean;
+  at: number;
+}
+
+export interface StudyOverview {
+  summary: { codes: number; days: number; items: number; correctRate: number; improved: number };
+  levels: { current: Level; suggested: Level; advice: LevelAdvice["advice"]; message: string; byLevel: LevelAdvice[] };
+  concepts: { items: ConceptStat[]; weakest: Concept | null };
+  notes: ExplanationNote[];
+  recent: { readingId: string; source: "practice" | "inspect"; level: Level; title: string; counts: Record<MarkKind, number>; reviewedAt: number; open: boolean }[];
 }
 
 // ───────────────────────── AI 튜터 (tutor_chat.py) ─────────────────────────

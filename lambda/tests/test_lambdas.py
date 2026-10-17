@@ -10,6 +10,7 @@ practice = load_lambda("practice")
 inspect_code = load_lambda("inspect_code")
 review = load_lambda("review")
 tutor = load_lambda("tutor_chat")
+study = load_lambda("study")
 admin = load_lambda("admin")
 
 
@@ -148,6 +149,74 @@ class Tutor(unittest.TestCase):
         self.assertEqual(tutor.chat_key({"sk": "REVIEW#0000000001"}, 3), "CHAT#0000000001#003")
 
 
+class Concepts(unittest.TestCase):
+    CODE = "\n".join([
+        "def total(xs):",            # 1
+        "    s = 0",                 # 2
+        "    for x in xs:",          # 3
+        "        s += x",            # 4
+        "    return s",              # 5
+        "def fact(n):",              # 6
+        "    if n <= 1:",            # 7
+        "        return 1",          # 8
+        "    return n * fact(n - 1)",  # 9
+        "print(total([1, 2]))",      # 10
+        "try:",                      # 11
+        "    raise ValueError()",    # 12
+        "except ValueError:",        # 13
+        "    pass",                  # 14
+    ])
+
+    def test_guess_concept_rules(self):
+        self.assertEqual(common.guess_concept(self.CODE, 3, 4), "loop_update")
+        self.assertEqual(common.guess_concept(self.CODE, 9, 9), "recursion")
+        self.assertEqual(common.guess_concept(self.CODE, 7, 8), "branch")
+        self.assertEqual(common.guess_concept(self.CODE, 10, 10), "call_flow")   # 맨 바깥에서 부르면 재귀가 아님
+        self.assertEqual(common.guess_concept(self.CODE, 11, 14), "exception")
+
+    def test_every_sample_mark_has_valid_concept(self):
+        for s in samples.SAMPLES:
+            for m in s["marks"]:
+                self.assertIn(m["concept"], common.CONCEPTS, s["id"])
+
+    def test_clean_marks_keeps_or_guesses_concept(self):
+        marks = common.clean_marks(self.CODE, [{"start": 3, "end": 4, "concept": "algorithm"}, {"start": 7, "end": 8, "concept": "모름"}])
+        self.assertEqual([m["concept"] for m in marks], ["algorithm", "branch"])
+
+
+def study_row(level, marks, source="practice", at=0):
+    items = [{"concept": c, "first": f, "best": b, "marked": True, "start": 1, "end": 2, "memo": "설명", "bestText": "설명", "snippet": None}
+             for c, f, b in marks]
+    return {"readingId": f"r{at}", "source": source, "level": level, "title": "t", "counts": {}, "items": items, "reviewedAt": at}
+
+
+class Study(unittest.TestCase):
+    def test_level_up_down_and_waiting(self):
+        good = [study_row(2, [("branch", "correct", "correct")] * 5, at=i) for i in range(3)]
+        self.assertEqual(study.recommend_levels(good, 2)["advice"], "up")
+        self.assertEqual(study.recommend_levels(good, 2)["suggested"], 3)
+        bad = [study_row(3, [("branch", "wrong", "wrong")] * 4, at=i) for i in range(3)]
+        self.assertEqual(study.recommend_levels(bad, 3)["advice"], "down")
+        self.assertEqual(study.recommend_levels(good[:2], 2)["advice"], "none")
+        top = [study_row(4, [("algorithm", "correct", "correct")] * 4, at=i) for i in range(3)]
+        self.assertEqual(study.recommend_levels(top, 4)["suggested"], 4)   # 고급보다 위는 없음
+
+    def test_concept_map_finds_weakest_and_improvement(self):
+        rows = [study_row(2, [("loop_update", "wrong", "correct"), ("loop_update", "partial", "partial"), ("branch", "correct", "correct"),
+                              ("branch", "correct", "correct"), ("recursion", "wrong", "wrong")])]
+        m = study.concept_map(rows)
+        loop = next(c for c in m["items"] if c["concept"] == "loop_update")
+        self.assertEqual((loop["count"], loop["correctRate"], loop["improved"]), (2, 0, 1))
+        self.assertEqual(m["weakest"], "loop_update")   # recursion 은 한 번뿐이라 아직 판단하지 않음
+
+    def test_notes_only_correct_explanations(self):
+        rows = [study_row(1, [("branch", "wrong", "correct"), ("loop_update", "partial", "partial")])]
+        notes = study.explanation_notes(rows)
+        self.assertEqual(len(notes), 1)
+        self.assertTrue(notes[0]["improved"])
+        self.assertEqual(notes[0]["conceptName"], "조건 분기")
+
+
 class AdminCode(unittest.TestCase):
     def test_scrypt_round_trip(self):
         h = admin.hash_code("새 관리자 코드 123")
@@ -172,7 +241,7 @@ class Entry(unittest.TestCase):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
-            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
+            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
 
 
 if __name__ == "__main__":
