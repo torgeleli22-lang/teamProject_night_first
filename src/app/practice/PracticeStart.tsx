@@ -167,13 +167,13 @@ export function PracticeStart() {
 function TopicAdvice({ check, onPick, onRandom }: { check: TopicCheck; onPick: (t: string) => void; onRandom: () => void }) {
   const title = { vague: "조금 더 구체적으로 적어 볼까요?", too_big: "한 번에 읽기엔 조금 커요", inappropriate: "이 주제로는 만들 수 없어요", ok: "" }[check.verdict];
   return (
-    <Sticky color={check.verdict === "inappropriate" ? "pink" : "yellow"} tape className="mt-5 max-w-xl p-4">
+    <Sticky color={check.verdict === "inappropriate" ? "pink" : "yellow"} tape className="mt-5 max-w-2xl p-4">
       <p className="hand text-pen-red">{title}</p>
       <p className="mt-1 text-sm text-ink-700">{check.message}</p>
       {check.suggestions.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {check.suggestions.map((s, i) => (
-            <button key={s} type="button" className="btn-small" onClick={() => onPick(s)}>
+            <button key={s} type="button" className="btn-small max-w-full whitespace-normal break-keep text-left leading-snug" onClick={() => onPick(s)}>
               {check.verdict === "too_big" && i === 0 ? `좁혀서: ${s}` : s}
             </button>
           ))}
