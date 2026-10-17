@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-screen">
-        <div className="mx-auto max-w-[1440px] px-3 pb-16 pt-4 sm:px-6">
+        <div className="note-wrap mx-auto px-3 pb-16 pt-4 sm:px-6">
           <NoteHeader />
           <main>{children}</main>
         </div>

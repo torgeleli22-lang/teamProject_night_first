@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
-import { WideCodeButton } from "@/components/WideCode";
+import { useWideLayout, WideToggle } from "@/components/WideToggle";
 import { RetryBox } from "@/components/RetryBox";
 import { TutorChat } from "@/components/TutorChat";
 import { Crumb, ErrorNote, LangTag, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
@@ -53,6 +53,7 @@ function ResultBody({
   /** 왼쪽 전체 코드에서 분홍으로 보여 줄 범위 (첨삭에 마우스를 올리거나, 튜터가 알려 준 줄을 누를 때) */
   const [active, setActive] = useState<{ start: number; end: number } | null>(null);
   const memoItems = review.items.filter((it) => it.kind === "memo");
+  const { wide, toggle: toggleWide } = useWideLayout();
 
   return (
     <Page>
@@ -80,19 +81,12 @@ function ResultBody({
         </div>
       </div>
 
-      <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className={`mt-10 grid gap-8 ${wide ? "lg:grid-cols-[minmax(0,3fr)_minmax(400px,2fr)]" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"}`}>
         {/* 왼쪽: 전체 코드 (내 메모 범위는 형광펜, 고른 첨삭 범위는 분홍) — 넓은 화면에서는 따라 내려온다 */}
         <aside className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg">전체 코드</h2>
-            <WideCodeButton
-              title={reading.title || reading.topic}
-              code={reading.code}
-              language={reading.language}
-              stars={review.items.filter((it) => it.marked).map((it) => it.start)}
-              highlights={memoItems}
-              labels={memoItems.map((_, i) => circled(i + 1))}
-            />
+            <WideToggle wide={wide} onToggle={toggleWide} />
           </div>
           <p className="mb-2 mt-1 text-xs text-ink-500">
             <span className="marker">형광펜</span>은 내 메모, <b className="text-pen-red">※</b> 는 꼭 설명할 곳이에요. 오른쪽 첨삭에 마우스를 올리면 그 범위가 분홍색으로 보여요.

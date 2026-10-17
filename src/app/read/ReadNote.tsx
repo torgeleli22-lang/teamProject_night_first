@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CodeView, type Range } from "@/components/CodeView";
 import { MakingCode } from "@/components/MakingCode";
 import { FullScreen } from "@/components/WideCode";
+import { useWideLayout, WideToggle } from "@/components/WideToggle";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
@@ -37,6 +38,8 @@ function Reader({ reading }: { reading: Reading }) {
   const [hover, setHover] = useState<number | null>(null);
   /** 크게 보기: 코드와 메모 칸을 화면 가득 (메모는 그대로 붙이고 고칠 수 있음) */
   const [full, setFull] = useState(false);
+  /** 넓게 보기: 공책을 브라우저 너비만큼 (코드 칸이 넓어지고 메모 칸은 그대로) */
+  const { wide: wideLayout, toggle: toggleWide } = useWideLayout();
   const wide = useWide();
   const [dialog, setDialog] = useState<"easier" | "harder" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -178,7 +181,8 @@ function Reader({ reading }: { reading: Reading }) {
             </b>{" "}
             메모함 · 내 메모 {memos.length}장
           </span>
-          <button type="button" className="btn-small" onClick={() => setFull(true)}>
+          <WideToggle wide={wideLayout} onToggle={toggleWide} />
+          <button type="button" className="btn-small" onClick={() => setFull(true)} title="코드와 메모 칸을 화면 가득 펼쳐요">
             크게 보기
           </button>
           {memos.length > 0 && (
