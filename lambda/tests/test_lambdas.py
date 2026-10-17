@@ -1,5 +1,6 @@
 """jojo_api 기능 파일의 규칙 부분: 예시 코드(samples), 주제 판정(topics), 코드 검사(practice), 민감 정보·함수 찾기(inspect_code),
 규칙 첨삭(review), 관리자 코드(admin), 경로 표(lambda_function)"""
+import os
 import unittest
 
 from helpers import common, load_lambda
@@ -245,12 +246,38 @@ class AdminUsage(unittest.TestCase):
         self.assertEqual(admin.short_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "목업 · claude-haiku-4-5")
 
 
+class Login(unittest.TestCase):
+    def test_return_address_must_be_allowed(self):
+        auth = load_lambda("auth")
+        allowed = auth.ALLOWED_ORIGINS[:]
+        auth.ALLOWED_ORIGINS[:] = ["https://example.github.io"]
+        try:
+            self.assertEqual(auth.safe_return("https://example.github.io/app/study/#x"), "https://example.github.io/app/study/")
+            with self.assertRaises(common.ApiError):
+                auth.safe_return("https://evil.example.com/")
+            with self.assertRaises(common.ApiError):
+                auth.safe_return("javascript:alert(1)")
+        finally:
+            auth.ALLOWED_ORIGINS[:] = allowed
+
+    def test_callback_address_uses_function_url(self):
+        auth = load_lambda("auth")
+        req = {"host": "abc.lambda-url.ap-northeast-2.on.aws", "domain": "abc.lambda-url.ap-northeast-2.on.aws"}
+        if not auth.LOCAL_DEV and not os.environ.get("AUTH_CALLBACK_BASE"):
+            self.assertEqual(auth.callback_url(req, "github"), "https://abc.lambda-url.ap-northeast-2.on.aws/auth/callback/github")
+
+    def test_unknown_provider_is_refused(self):
+        with self.assertRaises(common.ApiError):
+            load_lambda("auth").provider_of("kakao")
+
+
 class Entry(unittest.TestCase):
     def test_every_path_has_a_feature(self):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
-            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
+            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code",
+            "GET /me", "GET /auth/start", "GET /auth/callback/google", "GET /auth/callback/github", "POST /auth/logout"})
 
 
 if __name__ == "__main__":

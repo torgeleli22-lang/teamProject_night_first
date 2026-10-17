@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Crumb, ErrorNote, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
-import { useApi } from "@/lib/api";
-import { type Concept, type ConceptStat, type ExplanationNote, LEVEL_NAMES, type MarkKind, type StudyOverview } from "@/lib/api-types";
+import { loginUrl, useApi } from "@/lib/api";
+import { type Concept, type ConceptStat, type ExplanationNote, LEVEL_NAMES, type MarkKind, type Me, type StudyOverview } from "@/lib/api-types";
 
 const pct = (r: number) => `${Math.round(r * 100)}%`;
 const day = (ms: number) => new Date(ms).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric" });
@@ -15,6 +15,7 @@ const day = (ms: number) => new Date(ms).toLocaleDateString("ko-KR", { timeZone:
  */
 export function StudyNote() {
   const { data, error, reload } = useApi<StudyOverview>("/study");
+  const { data: me } = useApi<Me>("/me");
 
   if (error) return <Page><ErrorNote message={error} onRetry={reload} /></Page>;
   if (!data) return <Page><Waiting text="공부 노트를 펼치는 중이에요…" /></Page>;
@@ -32,7 +33,7 @@ export function StudyNote() {
             지금까지 코드 {s.codes}개 · 공부한 날 {s.days}일 · 처음 설명에서 <PenMark kind="correct" inline /> {pct(s.correctRate)}
             {s.improved > 0 && <> · 다시 써서 <PenMark kind="correct" inline /> {s.improved}개</>}
           </p>
-          <p className="mt-1 text-xs text-ink-500">첨삭을 받을 때마다 기록돼요. 지금은 이 탭에서만 이어지고, 탭이나 브라우저를 닫으면 사라져요. (Google·GitHub 로그인이 생기면 계정에 남길 수 있어요)</p>
+          <KeepNote me={me} />
 
           <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
             <LevelSection levels={data.levels} />
@@ -44,6 +45,28 @@ export function StudyNote() {
         </>
       )}
     </Page>
+  );
+}
+
+/** 기록이 어디에 얼마나 남는지 */
+function KeepNote({ me }: { me: Me | null }) {
+  if (me?.member) {
+    return <p className="mt-1 text-xs text-ink-500">첨삭을 받을 때마다 기록돼요. {me.name}님 계정에 1년 동안 남아서 다른 기기에서 로그인해도 이어져요.</p>;
+  }
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-500">
+      첨삭을 받을 때마다 기록돼요. 로그인하지 않으면 이 탭에서만 이어지고, 탭이나 브라우저를 닫으면 사라져요.
+      {me?.providers.google && (
+        <a href={loginUrl("google")} className="text-pen-blue underline">
+          Google로 로그인해서 남기기
+        </a>
+      )}
+      {me?.providers.github && (
+        <a href={loginUrl("github")} className="text-pen-blue underline">
+          GitHub로 로그인해서 남기기
+        </a>
+      )}
+    </p>
   );
 }
 
