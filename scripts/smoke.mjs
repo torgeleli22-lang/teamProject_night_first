@@ -46,6 +46,12 @@ try {
   await call("POST", "/topic/check", { level: 1, text: "가".repeat(51) }, {}, 400);
   check(true, "주제 50자 넘으면 400");
 
+  // ── 고급 (4단계): 알고리즘용 랜덤 주제, 100~200줄, ※ 5곳
+  const advTopic = await call("GET", "/topic/random?level=4");
+  const adv = await call("POST", "/practice", { level: 4, topic: advTopic.topic });
+  const advLines = adv.code.split("\n").length;
+  check(adv.levelName === "고급" && advLines >= 100 && advLines <= 200 && adv.marks.length === 5, `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
+
   // ── 연습 모드 (practice.py)
   const reading = await call("POST", "/practice", { level: 2, topic: "편의점 재고" });
   check(reading.id && reading.code && reading.marks.length >= 2 && reading.levelName === "초급", `연습 코드 (${reading.title}, ※ ${reading.marks.length}곳)`);

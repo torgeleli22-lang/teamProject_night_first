@@ -3,12 +3,13 @@
  * ※ 꼭 설명할 곳의 모범 설명·핵심 표현은 읽는 동안(Reading)에는 오지 않고, 첨삭(ReviewResult) 뒤에만 온다.
  */
 
-export type Level = 1 | 2 | 3;
-export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급" };
+export type Level = 1 | 2 | 3 | 4;
+export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급", 4: "고급" };
 export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
   1: "짧은 코드. 변수, 조건문, 반복문이 위에서 아래로 흘러가요.",
   2: "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요.",
   3: "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요.",
+  4: "100~200줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
 };
 
 // ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────

@@ -22,8 +22,15 @@ LEVEL_GUIDE = {
     1: "10~20줄. 변수·조건문·반복문·리스트가 위에서 아래로 흘러가는 코드. 함수는 없거나 1개.",
     2: "25~45줄. 함수 2~4개가 서로를 불러요. 리스트·딕셔너리를 써요.",
     3: "35~60줄. 클래스, 재귀, 예외 처리 중 1~2가지가 흐름의 중심이에요.",
+    4: ("120~190줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
+        "자료구조(딕셔너리·리스트·힙·큐·스택·그래프 중 2개 이상)와 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디 등)가 흐름의 중심이에요. "
+        "입력 검증과 예외 처리, 알고리즘끼리 비교하거나 결과를 요약하는 부분, 마지막에 실행 예시와 print 결과가 있어요. "
+        "줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
 }
-MAX_LINES = {1: 30, 2: 60, 3: 80}
+MIN_LINES = {1: 0, 2: 0, 3: 0, 4: 100}       # 고급은 너무 짧으면 다시 만든다
+MAX_LINES = {1: 30, 2: 60, 3: 80, 4: 200}
+MARK_COUNT = {1: 2, 2: 3, 3: 3, 4: 5}        # ※ 꼭 설명할 곳 수
+OUTPUT_TOKENS = {1: 3000, 2: 3000, 3: 3500, 4: 12000}   # AI 답(코드 + ※ 설명) 최대 길이
 REASONS = {"too_long": "코드가 너무 길었어요", "unknown_concept": "모르는 개념이 있었어요", "complex_flow": "흐름이 복잡했어요"}
 
 SYSTEM_PROMPT = """너는 프로그래밍 입문자와 비개발자가 '코드를 읽고 흐름을 설명하는 연습'을 하도록 Python 코드를 만드는 출제자야.
@@ -65,7 +72,7 @@ SCHEMA = {
 
 def start_practice(req):
     # 1. 요청 값 확인
-    level = field(req["body"], "level", "int", required=True, low=1, high=3)
+    level = field(req["body"], "level", "int", required=True, low=1, high=4)
     topic = field(req["body"], "topic", "str", required=True, max_len=50).strip()
     if not topic:
         raise ApiError(400, "주제를 골라 주세요.")
@@ -96,7 +103,7 @@ def adjust(req):
         raise ApiError(429, f"같은 코드에서 다시 만들기는 {REGEN_LIMIT}번까지예요. '새 문제 받기'로 새 코드를 받아 주세요.")
 
     # 3. 지금 코드를 기준으로 더 쉽게·더 어렵게
-    level = max(1, old["level"] - 1) if direction == "easier" else min(3, old["level"] + 1)
+    level = max(1, old["level"] - 1) if direction == "easier" else min(4, old["level"] + 1)
     why = ", ".join(REASONS[r] for r in reasons) or "이유는 고르지 않았어요"
     extra = "\n".join([
         f"지금 코드보다 {'쉽게' if direction == 'easier' else '어렵게'} 다시 만들어 주세요. 주제는 그대로 유지해요.",
@@ -140,11 +147,11 @@ def make_code(req, level, topic, learner, prompt_extra):
         prompt = "\n\n".join(p for p in [
             f"주제: {topic}",
             f"난이도: {LEVELS[level]['name']} — {LEVEL_GUIDE[level]}",
-            f"※ 꼭 설명할 곳: {2 if level == 1 else 3}곳",
+            f"※ 꼭 설명할 곳: {MARK_COUNT[level]}곳" + (" — 알고리즘의 핵심(반복이 값을 바꾸는 곳, 비교·선택, 되돌아가며 결과를 만드는 곳)을 고르세요" if level == 4 else ""),
             prompt_extra, feedback,
         ] if p)
         try:
-            r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mock=lambda: sample_as_ai(sample))
+            r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=OUTPUT_TOKENS[level], mock=lambda: sample_as_ai(sample))
         except AiUnavailable as e:
             print("[ai] 예시 코드 사용:", e)
             return from_sample(sample, "지금은 AI 대신 준비된 예시 코드를 드려요.")
@@ -170,13 +177,15 @@ def check_generated(r, level):
     lines = code.split("\n")
     if len(lines) > MAX_LINES[level]:
         problems.append(f"코드가 {len(lines)}줄이라 너무 길어요 ({MAX_LINES[level]}줄 이하)")
+    if len(lines) < MIN_LINES[level]:
+        problems.append(f"코드가 {len(lines)}줄이라 고급으로는 너무 짧아요 ({MIN_LINES[level]}줄 이상, 알고리즘과 자료구조를 갖춘 프로그램으로)")
     found = []
     for m in r["marks"]:
         start = find_line(lines, m["startLine"], 0, m.get("startNo"))
         end = find_line(lines, m["endLine"], start - 1, m.get("endNo")) if start else None
         if start and end and end >= start:
             found.append({**m, "start": start, "end": end})
-    marks = clean_marks(code, found)
+    marks = clean_marks(code, found, limit=MARK_COUNT[level])
     if len(marks) < 2:
         problems.append("※ 꼭 설명할 곳의 startLine·endLine 이 코드의 줄과 같지 않아요 (그대로 옮겨 적어 주세요)")
     return code, marks, problems
@@ -205,7 +214,7 @@ def pick_sample(level, topic, learner):
 
 
 def from_sample(sample, note):
-    return {"title": sample["title"], "code": sample["code"], "marks": clean_marks(sample["code"], sample["marks"]),
+    return {"title": sample["title"], "code": sample["code"], "marks": clean_marks(sample["code"], sample["marks"], limit=5),
             "origin": "sample", "note": note}
 
 

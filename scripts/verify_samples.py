@@ -14,7 +14,7 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 import practice  # noqa: E402
 from common import LEVELS, clean_marks  # noqa: E402
-from samples import SAMPLES, TOPIC_POOL  # noqa: E402
+from samples import ADVANCED_TOPIC_POOL, SAMPLES, TOPIC_POOL  # noqa: E402
 
 failures = []
 
@@ -36,10 +36,12 @@ for s in SAMPLES:
     lines = s["code"].split("\n")
     if s["level"] not in LEVELS:
         fail(sid, f"없는 난이도 {s['level']}")
-    elif len(lines) > practice.MAX_LINES[s["level"]]:
-        fail(sid, f"{len(lines)}줄이라 너무 길어요 ({practice.MAX_LINES[s['level']]}줄 이하)")
+    elif not practice.MIN_LINES[s["level"]] <= len(lines) <= practice.MAX_LINES[s["level"]]:
+        fail(sid, f"{len(lines)}줄이에요 ({practice.MIN_LINES[s['level']]}~{practice.MAX_LINES[s['level']]}줄이어야 해요)")
+    elif len(s["marks"]) != practice.MARK_COUNT[s["level"]] and s["level"] == 4:
+        fail(sid, f"고급은 ※ 지점이 {practice.MARK_COUNT[4]}곳이어야 해요")
     # 3. ※ 지점
-    if len(clean_marks(s["code"], s["marks"])) != len(s["marks"]) or len(s["marks"]) < 2:
+    if len(clean_marks(s["code"], s["marks"], limit=5)) != len(s["marks"]) or len(s["marks"]) < 2:
         fail(sid, "※ 지점이 2곳보다 적거나, 범위를 벗어났거나, 겹쳐요")
     for m in s["marks"]:
         if not (1 <= m["start"] <= m["end"] <= len(lines)):
@@ -56,7 +58,7 @@ for s in SAMPLES:
 
 if len(set(s["id"] for s in SAMPLES)) != len(SAMPLES):
     failures.append("예시 코드 id 가 겹쳐요")
-if len(set(TOPIC_POOL)) != len(TOPIC_POOL) or any(len(t) > 50 for t in TOPIC_POOL):
+if any(len(set(p)) != len(p) or any(len(t) > 50 for t in p) for p in (TOPIC_POOL, ADVANCED_TOPIC_POOL)):
     failures.append("랜덤 주제가 겹치거나 50자를 넘어요")
 
 if failures:

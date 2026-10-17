@@ -20,7 +20,7 @@
 GitHub 에서 파일을 열고 **Raw** 를 누르면 복사하기 쉬워요. 한 파일만 고쳤으면 그 파일만 바꾸면 돼요.
 
 ## 설정
-- 런타임 Python 3.13 이상 · 아키텍처 **arm64** · 메모리 **512MB** · 제한 시간 **2분** (AI 를 부르는 요청은 5~20초)
+- 런타임 Python 3.13 이상 · 아키텍처 **arm64** · 메모리 **512MB** · 제한 시간 **5분** (AI 를 부르는 요청은 5~20초, 고급 코드 만들기는 1~2분)
 - 실행 역할 `SafeRole-sgu-202688` · 함수 URL 인증 NONE
 - 환경 변수: [`docs/DEPLOY_LAMBDA.md`](../../docs/DEPLOY_LAMBDA.md) 의 표
 
@@ -32,7 +32,7 @@ GitHub 에서 파일을 열고 **Raw** 를 누르면 복사하기 쉬워요. 한
 | 바꾸고 싶은 것 | 위치 |
 |---|---|
 | 최대 줄 수, 다시 만들기 횟수, 보관 기간, 메모 수 | `common.py` 1번 설정 (`MAX_CODE_LINES`, `REGEN_LIMIT`, `READING_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `MAX_MEMOS`) |
-| 난이도별 코드 길이·문법 | `practice.py` 의 `LEVEL_GUIDE`, `MAX_LINES` |
+| 난이도별 코드 길이·문법·※ 수 | `practice.py` 의 `LEVEL_GUIDE`, `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | 코드 만들기·첨삭·주제 판정·튜터 말투와 규칙 | 각 파일의 `SYSTEM_PROMPT` |
 | 튜터 질문 횟수·글자 수 | `common.py` 의 `MAX_TUTOR_TURNS`, `MAX_TUTOR_CHARS` |
 | AI 없을 때의 판정·첨삭 | `topics.rule_check`, `inspect_code.rule_analysis`, `review.rule_review` |

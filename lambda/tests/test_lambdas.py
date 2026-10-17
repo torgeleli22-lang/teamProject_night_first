@@ -15,10 +15,10 @@ admin = load_lambda("admin")
 
 class Samples(unittest.TestCase):
     def test_every_level_has_samples_with_valid_marks(self):
-        self.assertEqual({s["level"] for s in samples.SAMPLES}, {1, 2, 3})
+        self.assertEqual({s["level"] for s in samples.SAMPLES}, {1, 2, 3, 4})
         for s in samples.SAMPLES:
             compile(s["code"], s["id"], "exec")
-            marks = common.clean_marks(s["code"], s["marks"])
+            marks = common.clean_marks(s["code"], s["marks"], limit=5)
             self.assertEqual(len(marks), len(s["marks"]), s["id"])   # 겹치거나 범위를 벗어난 ※ 지점이 없다
             for m in s["marks"]:
                 self.assertTrue(m["explanation"] and m["keywords"], s["id"])
@@ -32,6 +32,14 @@ class Samples(unittest.TestCase):
 
 
 class GeneratedCode(unittest.TestCase):
+    def test_advanced_level_needs_length(self):
+        short = next(s for s in samples.SAMPLES if s["level"] == 3)
+        _, _, problems = practice.check_generated(practice.sample_as_ai(short), 4)
+        self.assertTrue(any("고급으로는 너무 짧아요" in p for p in problems))
+        long = next(s for s in samples.SAMPLES if s["level"] == 4)
+        _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
+        self.assertEqual((problems, len(marks)), ([], 5))
+
     def test_syntax_error_and_missing_marks(self):
         r = {"title": "t", "code": "if x\n    print(1)", "marks": [{"startLine": "없는 줄", "endLine": "없는 줄"}]}
         _, _, problems = practice.check_generated(r, 1)
