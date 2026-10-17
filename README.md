@@ -64,7 +64,45 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
 - **서버**: Lambda **하나**. 입구 파일이 경로를 보고 기능 파일로 보내요. 콘솔 코드 탭에 **그대로 붙여넣는 읽을 수 있는 코드**(Python + boto3)라 zip·빌드가 없어요.
 - **로그인 안 함**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
-- **로그인 (Google·GitHub, 선택)**: 오른쪽 위 **로그인** → 계정 고르기. 기록을 1년(연습 코드 30일) 남기고, 로그인 전에 이 탭에서 한 공부도 계정으로 옮겨요. 받는 정보는 계정 번호와 이름뿐 (`auth.py`, 보관 기간은 `common.keep_seconds`). 설정: `docs/DEPLOY_LAMBDA.md` 5단계
+- **로그인 (Google·GitHub, 선택)**: 오른쪽 위 **로그인** → 계정 고르기. 기록을 1년(연습 코드 30일) 남기고, 로그인 전에 이 탭에서 한 공부도 계정으로 옮겨요. 받는 정보는 계정 고유 번호와 이름뿐 (`auth.py`, 보관 기간은 `common.keep_seconds`). 설정: `docs/DEPLOY_LAMBDA.md` 5단계 · 흐름: 아래 3.1
+
+### 3.1 로그인 흐름 (Google 기준, GitHub 도 같아요)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as 브라우저 (화면)
+    participant L as Lambda jojo_api (auth.py)
+    participant G as Google
+    participant D as DynamoDB
+
+    B->>L: GET /auth/start?provider=google&return=지금 화면&sid=이 탭의 학습자 id
+    L->>D: AUTH/<state> 저장 (돌아갈 화면·이 탭 학습자 id, 10분)
+    L-->>B: 302 → Google 로그인 화면 (client_id, redirect_uri, state, scope=openid profile)
+    B->>G: 계정 고르기 · 허용
+    G-->>B: 302 → <함수 URL>/auth/callback/google?code=…&state=…
+    B->>L: GET /auth/callback/google?code=…&state=…
+    L->>D: AUTH/<state> 확인하고 바로 지움 (한 번만)
+    L->>G: code + client_secret → access_token (oauth2.googleapis.com/token)
+    L->>G: access_token → 사용자 정보 (sub = 고유 번호, name)
+    L->>D: ACCOUNT/google:<sub> 로 학습자 찾기 · 없으면 LEARNER(member) 새로 만들기
+    L->>D: 이 탭의 익명 기록('내 공부'·연습 코드)을 계정으로 옮기기
+    L->>D: LOGIN/<새 토큰> 저장 (30일, 쓰면 늘어남)
+    L-->>B: 302 → 화면#login=<토큰>
+    B->>B: 토큰을 localStorage 에 두고 주소의 #login 지우기
+    B->>L: 이후 모든 요청: x-session-id: <토큰>
+    L->>D: LOGIN/<토큰> → LEARNER 확인
+```
+
+| 단계 | 파일 · 함수 | 지키는 것 |
+|---|---|---|
+| 1~3 시작 | `auth.py` → `start`, `safe_return` | 돌아갈 화면은 `ALLOWED_ORIGINS` 의 주소만 (다른 사이트로 토큰이 새지 않게) |
+| 6~7 state 확인 | `auth.py` → `callback` | state 는 10분 안에 한 번만 — 가짜 콜백·다시 보내기 차단 |
+| 8~9 사용자 확인 | `auth.py` → `fetch_profile` | client_secret 은 Lambda 환경 변수에만, 화면에 오지 않음. 이메일은 받지 않음 |
+| 10 계정 찾기 | `auth.py` → `account_learner` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT/google:<sub>`, `ACCOUNT/github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
+| 11 기록 옮기기 | `auth.py` → `adopt_anonymous` | 옮긴 익명 id 는 `formerIds` 에 남겨 예전 코드도 열림. 올린 코드는 그대로 1일 |
+| 12~14 토큰 | `auth.py` → `callback`, 화면 `src/lib/api.ts` → `takeLoginFromUrl` | 토큰은 무작위 uuid, 학습자 id 자체를 보내도 회원으로 받지 않음 |
+| 15~16 이후 요청 | `common.py` → `get_learner`, `use_learner` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
 
 ---
 
