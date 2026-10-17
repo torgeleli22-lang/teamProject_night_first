@@ -266,6 +266,25 @@ class Login(unittest.TestCase):
         if not auth.LOCAL_DEV and not os.environ.get("AUTH_CALLBACK_BASE"):
             self.assertEqual(auth.callback_url(req, "github"), "https://abc.lambda-url.ap-northeast-2.on.aws/auth/callback/github")
 
+    def test_same_name_is_still_a_different_account(self):
+        auth = load_lambda("auth")
+        db = {}
+        saved = auth.get_item, auth.put_item, auth.update_item
+        auth.get_item = lambda pk, sk: db.get((pk, sk))
+        auth.put_item = lambda item: db.__setitem__((item["pk"], item["sk"]), dict(item))
+        auth.update_item = lambda pk, sk, set_values=None, **_: db[(pk, sk)].update(set_values or {})
+        try:
+            kim1 = auth.account_learner("google", {"id": "1001", "name": "김철수"})
+            kim2 = auth.account_learner("google", {"id": "2002", "name": "김철수"})   # 동명이인
+            again = auth.account_learner("google", {"id": "1001", "name": "김철수(새 이름)"})   # 이름만 바뀜
+            other = auth.account_learner("github", {"id": "1001", "name": "김철수"})   # 다른 제공자의 같은 번호
+            self.assertNotEqual(kim1, kim2)
+            self.assertEqual(kim1, again)
+            self.assertNotIn(other, (kim1, kim2))
+            self.assertEqual(db[("LEARNER", kim1)]["name"], "김철수(새 이름)")
+        finally:
+            auth.get_item, auth.put_item, auth.update_item = saved
+
     def test_unknown_provider_is_refused(self):
         with self.assertRaises(common.ApiError):
             load_lambda("auth").provider_of("kakao")

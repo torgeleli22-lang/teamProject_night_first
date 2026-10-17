@@ -22,6 +22,7 @@ from common import (ALLOWED_ORIGINS, LIMITS, LOGIN_DAYS, SESSION_HEADER, SESSION
 #
 #   DynamoDB: AUTH / <state>(10분) · ACCOUNT / <provider>:<사용자 id> → learnerId · LOGIN / <토큰> → learnerId(30일, 쓰면 늘어남)
 #             LEARNER / <learnerId> 에 member: true, name, provider
+#   사용자 구분은 이름이 아니라 바뀌지 않는 고유 번호로 한다: Google 의 sub, GitHub 의 id (이름은 화면에 보여 줄 때만, 동명이인도 다른 계정)
 #   로그인하면 그 탭에서 하던 기록(내 공부·연습 코드)을 계정으로 옮기고, 보관 기간이 길어진다 (common.keep_seconds)
 #
 #   환경 변수 (비밀 값은 Lambda 환경 변수에만): GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET · GITHUB_CLIENT_ID · GITHUB_CLIENT_SECRET
@@ -165,7 +166,7 @@ def http_json(url, data=None, token=None):
 
 
 def fetch_profile(req, provider, code):
-    """{"id": 사용자 id, "name": 보여 줄 이름}. 이메일 등 다른 정보는 받지도 저장하지도 않는다"""
+    """{"id": 고유 번호(Google sub · GitHub id, 계정 구분에 씀), "name": 보여 줄 이름(구분에 쓰지 않음)}. 이메일 등 다른 정보는 받지도 저장하지도 않는다"""
     if not code:
         raise ApiError(400, "로그인 코드가 없어요. 다시 로그인해 주세요.")
     if not configured(provider):   # 로컬 가짜 로그인
