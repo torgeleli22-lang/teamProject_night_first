@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { MakingCode } from "@/components/MakingCode";
 import { Crumb, ErrorNote, MarkText, Page, Sticky, Waiting } from "@/components/ui";
 import { apiGet, apiPost, useApi } from "@/lib/api";
 import {
@@ -226,9 +227,7 @@ export function PracticeStart() {
       )}
 
       {error && <ErrorNote message={error} />}
-      {busy === "make" && (
-        <Waiting text={advanced ? `AI 가 고급 ${LANGUAGE_NAMES[language]} 코드(100~200줄)를 쓰고 있어요… 1분쯤 걸릴 수 있어요` : `AI 가 읽기 연습용 ${LANGUAGE_NAMES[language]} 코드를 쓰고 있어요… (10초쯤 걸려요)`} />
-      )}
+      {busy === "make" && <MakingCode language={language} advanced={advanced} what={advanced ? "고급(100~200줄)" : "읽기 연습용"} />}
       {busy === "check" && <Waiting text="주제를 살펴보고 있어요…" />}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-dashed border-ink-300 pt-5">

@@ -71,11 +71,83 @@ class GeneratedCode(unittest.TestCase):
             self.assertEqual(practice.pick_sample(level, "아무 주제", learner, language="javascript")["language"], "javascript")
             self.assertEqual(practice.pick_sample(level, "아무 주제", learner).get("language", "python"), "python")
 
+    def test_python_ast_checks(self):
+        import ast
+        ok = "import heapq\nfrom collections import deque\ndef f(a, *args, **kw):\n    try:\n        return [y for y in a if (z := y)]\n    except ValueError as e:\n        print(e, args, kw, z)\nprint(f([1]), heapq, deque)"
+        self.assertEqual(practice.py_ast_problems(ast.parse(ok)), [])
+        bad = "import random\nname = input()\ntotal = 0\nfor i in range(3):\n    totl += i\nprint(total, prise)"
+        problems = practice.py_ast_problems(ast.parse(bad))
+        self.assertTrue(any("random 모듈" in p for p in problems))
+        self.assertTrue(any("input()" in p for p in problems))
+        self.assertTrue(any("totl" in p for p in problems) and any("prise" in p for p in problems))   # 오타
+        self.assertIn("print", practice.py_ast_problems(ast.parse("x = 1"))[0])
+        _, _, problems = practice.check_generated({"title": "t", "code": "if x\n    print(1)", "marks": []}, 1)
+        self.assertTrue(any("문법 오류" in p for p in problems))
+
     def test_find_line_prefers_hint_for_repeated_lines(self):
         lines = ["a = 1", "print(a)", "a = 2", "print(a)"]
         self.assertEqual(practice.find_line(lines, "print(a)", 0), 2)
         self.assertEqual(practice.find_line(lines, "print(a)", 0, hint=4), 4)
         self.assertIsNone(practice.find_line(lines, "없음", 0))
+
+
+class CodeCheckPipeline(unittest.TestCase):
+    """① 출제 → ② 규칙 검사 → ③ AI 검토 → 걸리면 한 번 더 → 예시 코드 (AI 는 가짜로 바꿔 끼운다)"""
+
+    def setUp(self):
+        self.saved = practice.ask_ai, practice.ai_allowed, practice.log_ai_event
+        practice.ai_allowed = lambda req: True
+        practice.log_ai_event = lambda *a, **k: None
+        self.sample = next(s for s in samples.SAMPLES if s["id"] == "sample-cafe")
+        self.calls = []
+
+    def tearDown(self):
+        practice.ask_ai, practice.ai_allowed, practice.log_ai_event = self.saved
+
+    def run_with(self, checks, bad_first=False):
+        """checks: AI 검토가 차례로 돌려줄 답 (예외면 그 예외를 던짐)"""
+        answers = list(checks)
+
+        def fake(task, system, prompt, schema, **kw):
+            self.calls.append(task)
+            if task == "code_generation":
+                r = practice.sample_as_ai(self.sample)
+                if bad_first and self.calls.count("code_generation") == 1:
+                    r = {**r, "code": r["code"].replace("total = total + price", "total = totl + price")}   # 오타 → 규칙 검사에서 걸림
+                return {k: v for k, v in r.items() if k != "_mock"}
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        practice.ask_ai = fake
+        return practice.make_code({}, 1, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
+
+    ok = {"output": "", "codeProblems": [], "marks": [{"id": "m1", "ok": True}, {"id": "m2", "ok": True}]}
+
+    def test_passes_and_fixes_wrong_explanation(self):
+        fixed = {**self.ok, "marks": [{"id": "m1", "ok": False, "problem": "합계가 틀림", "explanation": "고친 설명이에요.", "keywords": ["고친"]},
+                                      {"id": "m2", "ok": True}]}
+        made = self.run_with([fixed])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_check"]))
+        self.assertEqual((made["marks"][0]["explanation"], made["marks"][0]["keywords"]), ("고친 설명이에요.", ["고친"]))
+        self.assertEqual(made["marks"][1]["explanation"], self.sample["marks"][1]["explanation"])   # 맞은 설명은 그대로
+
+    def test_code_problem_makes_it_again(self):
+        made = self.run_with([{**self.ok, "codeProblems": ["7번째 줄: 없는 메뉴를 찾아 오류"]}, self.ok])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_check", "code_generation", "code_check"]))
+
+    def test_rule_problem_skips_ai_check_and_retries(self):
+        made = self.run_with([self.ok], bad_first=True)
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_generation", "code_check"]))
+
+    def test_gives_sample_when_problems_remain(self):
+        problem = {**self.ok, "codeProblems": ["무한 반복"]}
+        made = self.run_with([problem, problem])
+        self.assertEqual(made["origin"], "sample")
+
+    def test_check_unavailable_trusts_rule_checks(self):
+        made = self.run_with([common.AiUnavailable("budget")])
+        self.assertEqual(made["origin"], "ai")
 
 
 class TopicRules(unittest.TestCase):

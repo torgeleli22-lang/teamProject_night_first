@@ -68,7 +68,7 @@
 | 4 고급 | 실제 문제를 푸는 작은 프로그램: 클래스·함수 6개 이상, 자료구조 2개 이상 + 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디), 입력 검증·예외, 알고리즘 비교·요약 | 120~190줄 / 최소 100줄 · 최대 200줄, ※ 5곳, 랜덤 주제는 알고리즘용 목록 |
 
 ### 4.1.1 언어 (`common.LANGUAGES`, 화면 `LANGUAGE_NAMES`)
-- **Python**: AI 가 만든 코드를 `compile()` 로 문법 검사 (실행하지 않음).
+- **Python**: AI 가 만든 코드를 `ast` 로 검사 — 문법, 허용하지 않은 모듈·함수, 정의하지 않은 이름(오타), print (`practice.py_ast_problems`, 실행하지 않음).
 - **JavaScript**: Lambda 에 Node.js 가 없어서 `practice.js_shape_problems` 로 겉모양만 검사 — 괄호 ( ) [ ] { } 짝, 따옴표·템플릿 문자열·/* */ 주석·정규식이 닫혔는지, import·require·fetch·document·process·Math.random·Date.now 를 쓰지 않았는지, 마지막 console.log. 문자열·주석 안의 글자는 보지 않는다.
 - 예시 코드는 언어마다 난이도별 1개 이상 (`samples.py`, `samples_js.py`), `npm run verify` 가 Python·node 로 실제 실행한다.
 - 언어별로 다른 곳: `practice.CODE_RULES`·`LEVEL_GUIDE`, 예시 코드, 화면 `src/lib/highlight.ts`. 첨삭·튜터·내 공부·개념 추정(`common.guess_concept`, 두 언어 규칙을 함께 봄)은 같은 코드를 쓴다. 난이도 추천·개념별 약점은 언어를 섞어 계산한다 (흐름을 읽는 힘은 언어와 크게 상관없음).
@@ -111,8 +111,8 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | --- | --- | --- |
 | 랜덤 주제 | 목록에서 최근 10개를 빼고 뽑기 (`topics.random_topic`) | 없음 |
 | 직접 적은 주제 판정 (ok · vague 제안 3개 · too_big 좁히기 · inappropriate) | `topics.check_topic` (작업 `topic_check`) | 1회 |
-| 연습 코드 + ※ 지점 만들기 | `practice.make_code` (작업 `code_generation`): 문법 검사(`compile`, 실행하지 않음)·길이·※ 줄 찾기 → 실패하면 이유를 알려 주고 한 번 더 → 그래도 실패하면 예시 코드 | 1~2회 |
-| 더 쉽게 / 더 어렵게 | 지금 코드와 어려웠던 이유를 주고 다시 만들기 (5번까지) | 1~2회 |
+| 연습 코드 + ※ 지점 만들기 | `practice.make_code`: ① 출제(작업 `code_generation`) → ② 규칙 검사(Python `ast`: 문법·금지 기능·정의 안 한 이름·print / JavaScript 겉모양, 길이·※ 줄, 실행하지 않음) → ③ AI 검토(작업 `code_check`: 머릿속 실행으로 실행 오류·난이도·※ 모범 설명 확인, 틀린 모범 설명은 고침) → ②·③ 에 걸리면 이유와 함께 한 번 더 → 그래도 안 되면 예시 코드 | 2~4회 |
+| 더 쉽게 / 더 어렵게 | 지금 코드와 어려웠던 이유를 주고 다시 만들기 (5번까지), 같은 단계별 교정 | 2~4회 |
 | 내 코드 훑어보기 (언어·줄 수·민감 정보·함수 목록·훑어본 난이도) | `inspect_code.look` — 규칙 | 없음 |
 | 내 코드 분석 (난이도·이유·※ 지점) | `inspect_code.start` (작업 `code_inspection`), 고른 함수 범위 안의 ※ 만 | 1회 |
 | 누락 판정 · ○△✕ 개수 | `review.review` — 규칙 | 없음 |
