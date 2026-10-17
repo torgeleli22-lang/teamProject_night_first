@@ -146,6 +146,32 @@ try {
   const inspectReview = await call("POST", "/review", { readingId: inspected.id, memos: [{ start: 8, end: 11, text: "팔 수 없으면 그대로" }] });
   check(inspectReview.items.length >= 1, "점검 코드도 같은 첨삭");
 
+  // ── 로그인 (auth.py): 로컬 가짜 로그인으로 흐름 확인 — 이 탭의 기록이 계정으로 옮겨지고, 로그아웃하면 새 학습자
+  const meBefore = await call("GET", "/me");
+  check(meBefore.member === false && meBefore.providers.google && meBefore.providers.github, "로그인 전: 로그인 안 한 학습자");
+  const anonSid = sid;
+  const back = "http://localhost:3000/study/";
+  const startRes = await fetch(`${api.url}/auth/start?provider=github&return=${encodeURIComponent(back)}&sid=${anonSid}`, { redirect: "manual" });
+  check(startRes.status === 302, "로그인 시작 → 로그인 화면으로 (302)");
+  const cb = await fetch(startRes.headers.get("location"), { redirect: "manual" });
+  const landing = cb.headers.get("location") || "";
+  check(cb.status === 302 && landing.startsWith(back + "#login="), "로그인 콜백 → 화면으로 돌아가며 로그인 토큰");
+  const token = new URLSearchParams(landing.split("#")[1]).get("login");
+  sid = token;
+  const meAfter = await call("GET", "/me");
+  check(meAfter.member === true && meAfter.name === "로컬 테스트" && sid === token, "로그인 학습자 (응답 헤더는 계정 id 가 아니라 로그인 토큰)");
+  const studyAfter = await call("GET", "/study");
+  check(studyAfter.summary.codes >= 1, `로그인 전 기록이 계정으로 옮겨짐 (코드 ${studyAfter.summary.codes}개)`);
+  await call("GET", `/reading?id=${reading.id}`);
+  check(true, "로그인 전에 받은 코드도 계속 열림");
+  const evil = await fetch(`${api.url}/auth/start?provider=google&return=${encodeURIComponent("https://evil.example/steal")}`, { redirect: "manual" });
+  check(evil.status === 400, "허용하지 않은 화면 주소로는 돌려보내지 않음");
+  const replay = await fetch(startRes.headers.get("location"), { redirect: "manual" });
+  check(replay.status === 400, "같은 로그인 요청(state)은 한 번만");
+  await call("POST", "/auth/logout", {});
+  await call("GET", "/me");
+  check(sid !== token, "로그아웃하면 토큰이 지워지고 새 학습자");
+
   // ── 관리자 (admin.py): AI 끄기 → 예시 코드·규칙 판정
   const overview = await call("GET", "/admin/overview");
   check(overview.aiSwitch === true && overview.days[0].practices >= 1 && overview.usage.length > 0, `관리자 현황 (오늘 연습 ${overview.days[0].practices}번, AI 작업 ${overview.usage.length}종)`);

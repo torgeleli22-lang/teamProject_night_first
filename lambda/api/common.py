@@ -39,12 +39,13 @@ MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
-# 보관 기간: 학습자가 로그인했는지(member)에 따라 다르다. 지금은 로그인이 없어 모두 '로그인 안 한 학습자'
+# 보관 기간: 학습자가 로그인했는지(member)에 따라 다르다 — keep_seconds() 한 곳에서 정한다
 #   로그인 안 함: 학습자 id 는 브라우저 탭(sessionStorage)에만 → 탭·브라우저를 닫으면 다시 찾을 수 없으니 서버 기록도 짧게
-#   로그인 (Google·GitHub, 추가 예정): 계정에 묶여 오래 남는다 — keep_seconds() 한 곳에서 정한다
+#   로그인 (Google·GitHub, auth.py): 계정에 묶여 오래 남는다
 ANON_HOURS = 12               # 로그인 안 한 학습자: 마지막 사용 후 이 시간이 지나면 학습자·기록이 사라진다
 ANON_READING_HOURS = 24       # 로그인 안 한 학습자의 연습 코드·첨삭·'내 공부' 기록
-MEMBER_DAYS = 365             # 로그인 학습자 (추가 예정): 학습자·'내 공부' 기록
+MEMBER_DAYS = 365             # 로그인 학습자: 학습자·'내 공부' 기록
+LOGIN_DAYS = 30               # 로그인 토큰: 마지막 사용 후 이 기간이 지나면 다시 로그인
 SESSION_REFRESH_SEC = 15 * 60  # 학습자의 '마지막 사용 시각'은 이 간격마다만 고쳐 쓴다 (요청마다 쓰지 않아 빠르고 쌈)
 MOCK_DELAY_SEC = float(os.environ.get("MOCK_DELAY_SEC", "0.8"))   # 목업 응답을 기다리는 시간 (화면 확인용)
 MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (300줄 코드 + 메모 → 수십 KB)
@@ -52,7 +53,7 @@ MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (300줄 코드 + 메
 # 서비스 숫자 (바꾸면 바로 반영)
 MAX_CODE_LINES = 300          # 내 코드 점검: 올릴 수 있는 최대 줄 수
 REGEN_LIMIT = 5               # 같은 코드에서 '더 쉽게·더 어렵게'로 다시 만들 수 있는 횟수
-READING_KEEP_DAYS = 30        # 로그인 학습자 (추가 예정): 연습 코드 원본·첨삭·튜터 대화
+READING_KEEP_DAYS = 30        # 로그인 학습자: 연습 코드 원본·첨삭·튜터 대화
 UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (로그인해도 짧게 — 개인정보)
 MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
@@ -166,6 +167,8 @@ def read_request(event):
         # 요청 제한은 IP 로 센다. 브라우저가 보낸 x-forwarded-for 는 믿지 않고 함수 URL 이 확인한 주소를 쓴다
         "ip": http.get("sourceIp") or "local",
         "origin": headers.get("origin"),
+        "host": headers.get("host") or "",                                       # 로그인 콜백 주소를 만들 때
+        "domain": (event.get("requestContext") or {}).get("domainName") or "",   # 함수 URL 의 도메인
         "problem": problem,
     }
 
@@ -188,7 +191,8 @@ def reply(status, data, req=None):
     headers = {**cors_headers((req or {}).get("origin")), "content-type": "application/json; charset=utf-8", "cache-control": "no-store"}
     learner = (req or {}).get("learner")
     if learner:
-        headers[SESSION_HEADER] = learner["id"]
+        # 로그인 안 함: 학습자 id / 로그인: 로그인 토큰 (계정의 학습자 id 는 화면으로 보내지 않는다)
+        headers[SESSION_HEADER] = learner.get("sid") or learner["id"]
     return {"statusCode": status, "headers": headers, "body": "" if data is None else json.dumps(to_plain(data), ensure_ascii=False)}
 
 
@@ -204,7 +208,10 @@ def run_route(req, routes):
             raise ApiError(404, "없는 API 예요.")
         if not req["path"].startswith("/admin") and not hit_limit(f"all:{req['ip']}", LIMITS["per_ip_per_minute"], 60):
             raise ApiError(429, "요청이 너무 많아요. 1분 뒤에 다시 시도해 주세요.")
-        return reply(200, route(req), req)
+        result = route(req)
+        if isinstance(result, dict) and result.get("_redirect"):   # 로그인: 다른 주소로 보내기 (302)
+            return {"statusCode": 302, "headers": {"location": result["_redirect"], "cache-control": "no-store"}, "body": ""}
+        return reply(200, result, req)
     except ApiError as e:
         return reply(e.status, {"error": e.message}, req)
     except Exception as e:  # 예상하지 못한 오류: 로그(CloudWatch)에 남기고 학습자에게는 짧게
@@ -398,7 +405,8 @@ RECENT_TOPICS = 10   # 랜덤 주제에서 빼는 최근 주제 수
 
 def learner_from_item(item):
     return {"id": item["sk"], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0),
-            "member": bool(item.get("member"))}   # 로그인 학습자인지 (로그인 추가 전까지 늘 False)
+            "member": bool(item.get("member")), "name": item.get("name"), "provider": item.get("provider"),   # member: 로그인 학습자
+            "formerIds": item.get("formerIds", [])}   # 로그인 전 탭의 학습자 id (그때 받은 코드도 계속 열 수 있게)
 
 
 def keep_seconds(learner, what):
@@ -415,23 +423,37 @@ def get_learner(req):
     if req.get("learner"):
         return req["learner"]
     sid = req["headers"].get(SESSION_HEADER) or ""
-    session_ttl = keep_seconds(None, "learner")   # 새로 만들거나 이어 쓰는 학습자는 아직 모두 로그인 안 함
     if SESSION_ID.match(sid):
+        # 1. 로그인 안 한 학습자: 학습자 id 그대로 (계정의 학습자 id 를 직접 보내면 받지 않는다 — 로그인 토큰으로만)
         found = get_item("LEARNER", sid)
-        if found and alive(found):
-            # 마지막 사용 시각(=자동 삭제 기한)은 15분마다만 늘린다 (요청마다 쓰기를 하지 않아 빠르고 쌈)
-            if now_ms() - found.get("lastSeen", 0) > SESSION_REFRESH_SEC * 1000:
-                update_item("LEARNER", sid, set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(session_ttl)})
-            req["learner"] = learner_from_item(found)
-            return req["learner"]
+        if found and alive(found) and not found.get("member"):
+            return use_learner(req, found, sid)
+        # 2. 로그인 학습자: 로그인 토큰 (LOGIN / <토큰> → 계정의 학습자, auth.py 가 만든다)
+        login = get_item("LOGIN", sid)
+        if login and alive(login):
+            member = get_item("LEARNER", login["learnerId"])
+            if member and alive(member):
+                return use_learner(req, member, sid, login)
     if not hit_limit(f"new:{req['ip']}", LIMITS["new_sessions_per_ip_hour"], 3600):
         raise ApiError(429, "새로 시작하는 요청이 너무 많아요. 잠시 뒤(최대 1시간)에 다시 시도해 주세요.")
+    # 3. 처음이거나 기한이 지났으면 새 학습자 (로그인 안 함)
     now = now_ms()
     item = {"pk": "LEARNER", "sk": str(uuid.uuid4()), "level": None, "recentTopics": [],
-            "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(session_ttl)}
+            "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(keep_seconds(None, "learner"))}
     put_item(item)
     req["learner"] = learner_from_item(item)
     return req["learner"]
+
+
+def use_learner(req, item, sid, login=None):
+    """찾은 학습자를 이 요청에 쓴다. 마지막 사용 시각(=자동 삭제 기한)은 15분마다만 늘린다 (요청마다 쓰지 않아 빠르고 쌈)"""
+    learner = {**learner_from_item(item), "sid": sid}
+    if now_ms() - item.get("lastSeen", 0) > SESSION_REFRESH_SEC * 1000:
+        update_item("LEARNER", item["sk"], set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(learner, "learner"))})
+        if login:   # 로그인 토큰도 쓰는 동안은 기한을 늘린다
+            update_item("LOGIN", sid, set_values={TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
+    req["learner"] = learner
+    return learner
 
 
 def remember_topic(learner, topic, level):
@@ -797,7 +819,7 @@ def load_reading(reading_id, learner):
     if not isinstance(reading_id, str) or not re.fullmatch(r"[0-9a-f-]{36}", reading_id):
         raise ApiError(400, "요청 값을 확인해 주세요.")
     item = get_item(f"READ#{reading_id}", "CODE")
-    if not item or not alive(item) or item.get("owner") != learner["id"]:
+    if not item or not alive(item) or item.get("owner") not in [learner["id"], *learner.get("formerIds", [])]:
         raise ApiError(404, "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요.")
     return item
 

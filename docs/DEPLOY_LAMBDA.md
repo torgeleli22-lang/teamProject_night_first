@@ -33,6 +33,7 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
    | 파일 | 하는 일 |
    |---|---|
    | `lambda_function.py` | 입구 (경로 → 기능 파일) |
+   | `auth.py` | Google·GitHub 로그인 (선택, 5단계) |
    | `common.py` | 공통 도구 (요청·응답, 요청 수 제한, 학습자, DynamoDB, AI, 읽을 코드) |
    | `topics.py` | 주제 고르기 (랜덤 · 직접 적은 주제 판정) |
    | `practice.py` | 연습 코드 만들기 · 더 쉽게/어렵게 · 다시 읽기 |
@@ -61,6 +62,7 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
 
    - 예전 변수 `GENERATE_CODE_FUNCTION`, `AI_GENERATION_DAILY_LIMIT` 는 이제 쓰지 않아요 (지워도 됨)
    - 선택: `MODEL_ID`, `RATE_LIMIT_*`(요청 수 제한, `common.py` 1번 설정 참고)
+   - 로그인을 쓰려면 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`·`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` (5단계)
 5. **테스트 탭** → 이벤트 `{"path": "/health", "method": "GET"}` → **테스트** → body 에 `"ok": true, "maxCodeLines": 300, "regenLimit": 5`
    다른 시험 이벤트(주제 판정, 연습 코드, 내 코드 훑어보기, 관리자): [`lambda/api/test_events.json`](../lambda/api/test_events.json)
 6. **함수 URL** (이미 있으면 건너뛰기): 구성 → 함수 URL → 생성 → 인증 유형 **NONE**, **CORS 는 설정하지 않음**(코드가 `ALLOWED_ORIGINS` 로 처리).
@@ -84,6 +86,37 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 2. **내 코드 점검** → `.py` 파일 올리기 → 함수 고르기 → 메모하러 가기
 3. 관리자 화면(`/admin/`)에서 이번 달 비용·작업별 사용량이 늘었는지, **AI 끄기** 뒤 연습 코드가 예시 코드로 바뀌는지
 4. 예전 Node.js 함수 `jojo_generate_code` 와 예전 Node.js `jojo_api` 가 남아 있으면 삭제
+
+## 5단계. Google·GitHub 로그인 (선택)
+
+로그인하면 기록이 탭을 닫아도 남아요 (학습자·'내 공부' 1년, 연습 코드 30일). 설정하지 않은 쪽 버튼은 화면에 나오지 않아요.
+**클라이언트 보안 비밀(secret)은 Lambda 환경 변수에만** 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
+
+콜백 주소는 함수 URL 뒤에 `/auth/callback/<google 또는 github>` 를 붙인 값입니다 (함수 URL 끝의 `/` 는 하나만):
+- Google: `https://<함수 URL 도메인>/auth/callback/google`
+- GitHub: `https://<함수 URL 도메인>/auth/callback/github`
+
+**Google**
+1. [Google Cloud Console](https://console.cloud.google.com/) → 프로젝트 만들기(또는 고르기)
+2. **API 및 서비스 → OAuth 동의 화면**: 사용자 유형 **외부**, 앱 이름·지원 이메일 입력, 범위는 `openid`·`profile` 만 (추가하지 않아도 됨). 테스트 중이면 **테스트 사용자**에 쓸 계정을 넣거나 **앱 게시**
+3. **사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID** → 유형 **웹 애플리케이션**
+   - 승인된 리디렉션 URI: 위 Google 콜백 주소
+4. 만들어진 **클라이언트 ID** → 환경 변수 `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET`
+
+**GitHub**
+1. GitHub → Settings → Developer settings → **OAuth Apps → New OAuth App**
+   - Homepage URL: `https://torgeleli22-lang.github.io/teamProject_night_first/`
+   - Authorization callback URL: 위 GitHub 콜백 주소
+2. **Client ID** → `GITHUB_CLIENT_ID`, **Generate a new client secret** → `GITHUB_CLIENT_SECRET`
+
+**Lambda**
+1. 코드 탭에 `auth.py` 를 새 파일로 추가하고, `common.py`·`lambda_function.py` 를 바꿔 붙여넣기 → **Deploy**
+2. 구성 → 환경 변수에 위 네 값 추가 (`ALLOWED_ORIGINS` 는 그대로 — 로그인 뒤 돌아갈 화면도 이 주소만 허용)
+3. 확인: `<함수 URL>/me` → `"providers": {"google": true, "github": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
+
+- 받는 정보는 계정 번호와 이름뿐이에요 (이메일·저장소 권한은 요청하지 않음).
+- 로그인하면 지금 탭에서 한 공부('내 공부', 연습 코드)가 계정으로 옮겨져요.
+- 함수 URL 이 아닌 다른 주소로 콜백을 받아야 하면 `AUTH_CALLBACK_BASE` 에 그 앞부분을 넣어요 (보통은 비워 둠).
 
 ---
 

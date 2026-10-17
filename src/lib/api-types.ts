@@ -25,6 +25,18 @@ export const CONCEPT_NAMES: Record<Concept, string> = {
   algorithm: "알고리즘 핵심",
 };
 
+// ───────────────────────── 로그인 (auth.py) ─────────────────────────
+
+/** GET /me */
+export interface Me {
+  /** 로그인한 학습자인지 */
+  member: boolean;
+  name: string | null;
+  provider: "google" | "github" | null;
+  /** 쓸 수 있는 로그인 (서버에 클라이언트 id 가 설정된 것) */
+  providers: { google: boolean; github: boolean };
+}
+
 // ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────
 
 export interface Health {

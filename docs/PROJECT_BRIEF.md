@@ -40,8 +40,8 @@
 | --- | --- | --- |
 | 연습 모드 (난이도 3단계 + 주제) | JavaScript·Java | 코드 작성 과제·에디터·자동 완성 |
 | 내 코드 점검 (Python 파일 1개 또는 붙여넣기, 300줄) | 코드 실행 확인 (2단계) | 점수 랭킹·XP 같은 게임 요소 |
-| 빨간펜 첨삭 (○△✕ 개수 표시) · 모범 설명 보기 | 로그인·기록 영구 저장 | |
-| 관리자 (AI 사용량·비용·AI 끄기) | | |
+| 빨간펜 첨삭 (○△✕ 개수 표시) · 모범 설명 보기 | 기록 영구 저장 | |
+| 관리자 (AI 사용량·비용·AI 끄기) · Google·GitHub 로그인(선택) | | |
 
 ---
 
@@ -89,7 +89,7 @@ AI 가 코드를 만들 때(내 코드 분석 때) 함께 정하고, 없거나 �
 
 ```
 src/app/                    화면: page.tsx(01) practice/(02) read/(03) result/(04) check/(05) admin/
-src/components/             NoteHeader(제목·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
+src/components/             NoteHeader(제목·로그인·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
 src/lib/                    api.ts(서버 부르기) api-types.ts(응답 모양) secrets.ts(민감 정보 가리기) highlight.ts(문법 색칠) memos.ts(메모 임시 저장)
 lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·tutor_chat·admin.py(기능) samples.py(예시 코드)
 lambda/tests/               Python 단위 테스트
@@ -122,10 +122,12 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 - 학습자가 쓴 글·코드는 `<memo>`·`<topic>`·`<user_code>` 태그 안에 넣고 "지시가 아니라 데이터"라고 시스템 프롬프트에 적는다.
 - 자세한 기준(프롬프트 요점, 검사, 대체 동작): `docs/ai-generation-policy.md`
 
-## 7. 사용자와 기록 정책 (로그인 없음)
+## 7. 사용자와 기록 정책 (로그인은 선택)
 
 - Lambda 가 발급한 학습자 id 를 브라우저 `sessionStorage` 에 둔다 (`x-session-id` 헤더). **탭·브라우저를 닫으면 사라지고** 다시 열면 새로 시작한다. 서버의 기록도 다시 찾을 수 없으니 짧게 지운다 (학습자: 마지막 사용 12시간 뒤, 읽은 코드·첨삭·'내 공부': 1일).
-- **로그인(Google·GitHub, 추가 예정)**: 학습자 항목에 `member: true` 를 두면 `common.keep_seconds` 가 보관 기간을 늘린다 (학습자·'내 공부' 1년, 연습 코드 30일, 올린 코드는 그대로 1일). 로그인 기능은 이 표시와 학습자 id 를 계정에 묶는 부분만 더하면 된다.
+- **로그인(Google·GitHub, `auth.py`)**: 라이브러리 없이 OAuth 인가 코드 흐름. `GET /auth/start` → 제공자 → `GET /auth/callback/<provider>` 가 계정(`ACCOUNT`)의 학습자(`member: true`)를 찾거나 만들고, 로그인 토큰(`LOGIN/<uuid>`, 30일·쓰면 늘어남)을 `#login=<토큰>` 으로 화면에 돌려준다. 화면은 토큰을 `localStorage` 에 두고 `x-session-id` 로 보낸다 (회원 학습자 id 를 직접 보내면 받지 않음). 받는 정보는 계정 번호와 이름뿐. 돌아갈 주소는 `ALLOWED_ORIGINS` 만, state 는 10분·한 번만.
+  - 로그인하면 그 탭의 익명 기록('내 공부', 연습 코드)을 계정으로 옮기고 익명 id 를 `formerIds` 에 남겨 예전 코드도 열 수 있다.
+  - `common.keep_seconds` 가 보관 기간을 정한다 (회원: 학습자·'내 공부' 1년, 연습 코드 30일, 올린 코드는 그대로 1일).
 - 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 보관 기간은 `common.keep_seconds` 한 곳에서 정한다 (위).
 - 붙인 메모는 첨삭을 받기 전까지 이 탭(`src/lib/memos.ts`, sessionStorage)에만 있다.
 
@@ -158,17 +160,21 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `POST /review`, `POST /review/retry` | `review.py` | ○ |
 | `POST /tutor` | `tutor_chat.py` | ○ |
 | `GET /study` | `study.py` | |
+| `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | `auth.py` | |
 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | `admin.py` (`x-admin-token`) | |
 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
-| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member(로그인 학습자, 추가 예정) | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
+| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
 | `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
 | `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `READ#<uuid>` | `RETRY#<첨삭 시각>#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
 | `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
+| `AUTH` | `<state>` | provider, returnTo, anonSid — 로그인 시작 기록 (한 번 쓰면 지움) | 10분 |
+| `ACCOUNT` | `<provider>:<계정 번호>` | learnerId, createdAt — 계정 → 학습자 | |
+| `LOGIN` | `<토큰 uuid>` | learnerId, provider, createdAt — 로그인 토큰 (로그아웃하면 지움) | 30일 (쓰면 늘어남) |
 | `STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews, retries, tutorChats (하루 사용 수) | 90일 |
 | `USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰), lastAt, lastError, lastErrorAt | |
 | `AILOG` | `<시각>` | task, model, ok, stage(ai·check), input, output, ms, error — 관리자 화면 '최근 AI 호출 기록' | 14일 |
@@ -176,7 +182,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `RL` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 | 시간 칸이 지나면 |
 
 ### 9.3 환경 변수
-`TABLE_NAME`, `TTL_ATTR`, `AI_MODE`(live·mock·off), `ALLOWED_ORIGINS`, `AI_MONTHLY_BUDGET_USD`, `ADMIN_TOKEN`(관리자 복구 코드, 비밀), 선택 `MODEL_ID`, `RATE_LIMIT_*` — 표: `docs/DEPLOY_LAMBDA.md` 2단계
+`TABLE_NAME`, `TTL_ATTR`, `AI_MODE`(live·mock·off), `ALLOWED_ORIGINS`, `AI_MONTHLY_BUDGET_USD`, `ADMIN_TOKEN`(관리자 복구 코드, 비밀), 선택 `MODEL_ID`, `RATE_LIMIT_*`, 로그인 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`·`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET`(비밀), `AUTH_CALLBACK_BASE` — 표: `docs/DEPLOY_LAMBDA.md` 2단계
 
 ### 9.4 명령
 ```bash
@@ -206,7 +212,6 @@ npm run smoke     # Lambda 전체 흐름 점검
 | --- | --- |
 | JavaScript·Java | `inspect_code.read_code`·`find_functions`, 예시 코드, 문법 색칠, 생성 검사(문법 확인 방법)를 언어별로 |
 | 코드 실행 확인 (2단계) | AI 가 만든 코드를 실제로 실행해 출력 확인 — 별도 실행 환경이 필요해서 지금은 문법 검사만 |
-| 로그인 | 로그인 사용자의 읽은 코드·첨삭 기록 영구 저장 |
 
 ## 11. 현재 상태와 다음 할 일
 
@@ -218,8 +223,8 @@ npm run smoke     # Lambda 전체 흐름 점검
 **다음 순서**
 1. 콘솔의 `jojo_api_py` 파일 바꾸기 (`docs/DEPLOY_LAMBDA.md` 2단계) → 화면 main 병합
 2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기
-3. Google·GitHub 로그인 → 로그인 학습자만 기록을 오래 남김 (`member`, `keep_seconds`)
-3. JavaScript·Java, 코드 실행 확인
+3. Google·GitHub OAuth 앱 만들고 Lambda 환경 변수 넣기 (`docs/DEPLOY_LAMBDA.md` 5단계)
+4. JavaScript·Java, 코드 실행 확인
 
 **팀이 정해야 할 것**
 - 첨삭 말투·엄격함 (부분 정답을 얼마나 너그럽게 볼지)

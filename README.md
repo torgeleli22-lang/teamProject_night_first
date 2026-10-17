@@ -47,7 +47,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | 다시 써 보기 | `/result/` | 다시 쓴 설명 하나만 다시 채점 | ○ |
 | AI 튜터 | `/result/` | 첨삭 항목 하나에 대해 묻고 답하기 (대화 저장) | ○ |
 | 내 코드 점검 | `/check/` | 민감 정보 다시 가리기 · 함수 목록 · 훑어본 난이도(규칙) → '메모하러 가기'에서 AI 가 난이도·※ | 시작할 때 |
-| 내 공부 | `/study/` | 첨삭 기록(이 탭에서만, 로그인 후 1년 예정)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
+| 내 공부 | `/study/` | 첨삭 기록(로그인 안 함: 이 탭에서만 · 로그인: 1년)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
 | 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드 | — |
 
 **AI 가 없어도 동작해요.** 관리자가 AI 를 끄거나, 월 예산($10)에 닿거나, 요청 한도를 넘으면 예시 코드 · 규칙 판정 · 규칙 첨삭으로 바뀌고 화면에 안내가 나와요.
@@ -63,8 +63,8 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
 - **서버**: Lambda **하나**. 입구 파일이 경로를 보고 기능 파일로 보내요. 콘솔 코드 탭에 **그대로 붙여넣는 읽을 수 있는 코드**(Python + boto3)라 zip·빌드가 없어요.
-- **로그인 없음 (지금)**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
-- **로그인 (Google·GitHub, 추가 예정)**: 로그인한 학습자만 기록을 오래 남겨요 (`common.keep_seconds` 한 곳에서 보관 기간을 정함).
+- **로그인 안 함**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
+- **로그인 (Google·GitHub, 선택)**: 오른쪽 위 **로그인** → 계정 고르기. 기록을 1년(연습 코드 30일) 남기고, 로그인 전에 이 탭에서 한 공부도 계정으로 옮겨요. 받는 정보는 계정 번호와 이름뿐 (`auth.py`, 보관 기간은 `common.keep_seconds`). 설정: `docs/DEPLOY_LAMBDA.md` 5단계
 
 ---
 
@@ -87,7 +87,7 @@ src/
 │     (각 폴더의 page.tsx 는 위 파일을 불러오기만 하는 껍데기 — 고칠 일 없음)
 ├─ components/                         여러 화면이 함께 쓰는 부품
 │  ├─ ui.tsx                           Page · Crumb · Sticky · Stamp · PenMark · Waiting · ErrorNote
-│  ├─ NoteHeader.tsx                   맨 위 제목 + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검 / 내 공부)
+│  ├─ NoteHeader.tsx                   맨 위 제목 + 로그인 상자(LoginBox) + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검 / 내 공부)
 │  ├─ CodeView.tsx                     줄 번호·문법 색칠·형광펜·※·①② 가 있는 코드
 │  ├─ MemoMargin.tsx                   코드 옆 포스트잇(끌어 옮기기) + DraftNote(메모 쓰는 칸)
 │  ├─ RetryBox.tsx                     "힌트를 보고 다시 써 보기"
@@ -121,6 +121,7 @@ src/
 | 공책 줄 간격·여백선, 형광펜 모양, 버튼 그림자, 도장, 탭 | `src/app/globals.css` → `.page` `.marker` `.btn-ink` `.btn-line` `.btn-small` `.stamp` `.tab` |
 | 화면 최대 너비 | `src/app/layout.tsx` → `max-w-[1440px]` |
 | 위쪽 제목·인덱스 탭 | `src/components/NoteHeader.tsx` |
+| 로그인 버튼·로그인 뒤 이름 표시 | `NoteHeader.tsx` → `LoginBox` · 토큰 보관은 `src/lib/api.ts` (`loginUrl`, `takeLoginFromUrl`, `logout`) |
 | 포스트잇 기울기·테이프·색 종류 | `src/components/ui.tsx` → `Sticky`, `globals.css` → `.tape` |
 | 빨간펜 ○△✕⬚ 그림 | `src/components/ui.tsx` → `PenMark` (문장 안에는 `<PenMark kind="correct" inline />`, 서버·AI 문장은 `<MarkText text={…} />` 가 ○△✕ 글자를 빨간펜 그림으로 바꿈 — **글자 ○△✕ 를 화면에 그대로 쓰지 않기**) |
 | 코드 글자 크기·줄 높이 | `globals.css` → `.code-line` (**줄 높이를 바꾸면 `MemoMargin.tsx` 의 `ROW = 28` 도 같이** — 포스트잇 위치 계산) |
@@ -159,6 +160,7 @@ src/
 | `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 | `POST /review`, `POST /review/retry` | `review`, `review_retry` |
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
+| `auth.py` | Google·GitHub 로그인 (OAuth, 라이브러리 없음) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | — |
 | `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | — |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 8개 · 랜덤 주제 목록 | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
@@ -204,7 +206,8 @@ src/
 
 | pk | sk | 내용 |
 |---|---|---|
-| `LEARNER` | 세션 id | 고른 난이도, 최근 주제 10개 |
+| `LEARNER` | 학습자 id | 고른 난이도, 최근 주제 10개, (로그인) member·이름·제공자 |
+| `ACCOUNT` · `LOGIN` · `AUTH` | 계정 / 토큰 / state | 계정 → 학습자, 로그인 토큰(30일), 로그인 시작 기록(10분) |
 | `READ#<id>` | `CODE` | 읽을 코드: 코드·난이도·주제·※ 지점(모범 설명 포함)·만든 사람 |
 | `READ#<id>` | `REVIEW#<시각>` | 첨삭 결과 |
 | `READ#<id>` | `RETRY#<첨삭 시각>#<항목>` | 다시 써 본 기록 |
@@ -257,4 +260,3 @@ docs/               PROJECT_BRIEF.md · ai-generation-policy.md · DEPLOY_LAMBDA
 ## 다음 단계
 - 내 코드 점검에 JavaScript · Java
 - AI 가 만든 코드의 실제 실행 확인
-- Google·GitHub 로그인 → 로그인한 학습자만 기록을 오래 남기기

@@ -5,8 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 /**
  * 브라우저 → API(Lambda 함수 URL 하나 — lambda/api) 호출.
  * 모든 기능이 같은 주소라서 브라우저가 연결(HTTPS)을 한 번 맺고 계속 다시 쓴다 → 화면 이동·제출이 빠르다.
- * - 학습자 id 는 sessionStorage 에 둔다: 이 탭(창)을 닫으면 사라지고, 다시 열면 새로 시작한다 (기록은 서버에서도 하루 안에 지워짐).
- *   Google·GitHub 로그인을 붙이면 로그인한 학습자만 기록이 계정에 오래 남는다.
+ * - 로그인 안 함: 학습자 id 를 sessionStorage 에 둔다 — 이 탭(창)을 닫으면 사라지고 다시 열면 새로 시작 (서버 기록도 하루 안에 지워짐)
+ * - 로그인(Google·GitHub): 로그인 토큰을 localStorage 에 둔다 — 브라우저를 닫아도 이어지고, 기록이 계정에 오래 남는다.
+ *   둘 다 같은 x-session-id 헤더로 보낸다 (서버가 학습자 id 인지 로그인 토큰인지 구분).
  * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
  * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables → API_URL).
  * 내 컴퓨터에서는 npm run api 가 같은 Lambda 를 http://localhost:8787 로 실행한다.
@@ -22,26 +23,64 @@ export function apiUrl(path: string): string {
 const API_MISSING = !process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_BASE_PATH;
 
 const SESSION_KEY = "codereading.sid";
+const LOGIN_KEY = "codereading.login";
 const SESSION_HEADER = "x-session-id";
+/** 로그인·로그아웃했을 때 화면(위쪽 로그인 표시 등)이 다시 불러오게 하는 이벤트 */
+export const AUTH_EVENT = "codereading:auth";
 
-function readSession(): string | null {
+function store(kind: "local" | "session") {
   try {
-    return sessionStorage.getItem(SESSION_KEY);
+    return kind === "local" ? localStorage : sessionStorage;
   } catch {
     return null;
   }
 }
 
+function readSession(): string | null {
+  return store("local")?.getItem(LOGIN_KEY) ?? store("session")?.getItem(SESSION_KEY) ?? null;
+}
+
 function saveSession(id: string) {
-  try {
-    sessionStorage.setItem(SESSION_KEY, id);
-  } catch {
-    /* 저장할 수 없는 환경이면 요청마다 새 학습자 */
+  const login = store("local")?.getItem(LOGIN_KEY);
+  if (login) {
+    if (login === id) return;
+    // 서버가 다른 id 를 주면 로그인이 만료된 것 → 로그인 안 한 학습자로
+    store("local")?.removeItem(LOGIN_KEY);
+    window.dispatchEvent(new Event(AUTH_EVENT));
   }
+  store("session")?.setItem(SESSION_KEY, id);
+  store("local")?.removeItem(SESSION_KEY); // 잠깐 localStorage 에 두었던 예전 id 는 지운다
+}
+
+/** 로그인 시작 주소: 끝나면 지금 화면으로 돌아오고, 이 탭에서 하던 기록을 계정으로 옮긴다 */
+export function loginUrl(provider: "google" | "github"): string {
+  const back = window.location.href.split("#")[0];
+  const sid = store("session")?.getItem(SESSION_KEY) ?? "";
+  return apiUrl(`/auth/start?provider=${provider}&return=${encodeURIComponent(back)}&sid=${encodeURIComponent(sid)}`);
+}
+
+/** 로그인에서 돌아왔을 때 주소의 #login=<토큰> 을 꺼내 저장한다. 실패했으면 이유를 돌려준다 */
+export function takeLoginFromUrl(): string | null {
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const token = hash.get("login");
+  const failed = hash.get("login_error");
+  if (!token && !failed) return null;
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  if (token) {
+    store("local")?.setItem(LOGIN_KEY, token);
+    store("session")?.removeItem(SESSION_KEY);
+    window.dispatchEvent(new Event(AUTH_EVENT));
+  }
+  return failed;
+}
+
+export async function logout() {
   try {
-    localStorage.removeItem(SESSION_KEY); // 잠깐 localStorage 에 두었던 예전 id 는 지운다
-  } catch {
-    /* 무시 */
+    await apiPost("/auth/logout", {});
+  } finally {
+    store("local")?.removeItem(LOGIN_KEY);
+    store("session")?.removeItem(SESSION_KEY);
+    window.dispatchEvent(new Event(AUTH_EVENT));
   }
 }
 
@@ -89,6 +128,12 @@ export function useApi<T>(path: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
+
+  // 로그인·로그아웃하면 다시 불러온다
+  useEffect(() => {
+    window.addEventListener(AUTH_EVENT, reload);
+    return () => window.removeEventListener(AUTH_EVENT, reload);
+  }, [reload]);
 
   useEffect(() => {
     if (!path) return;
