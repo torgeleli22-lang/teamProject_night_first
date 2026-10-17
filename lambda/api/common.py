@@ -7,6 +7,7 @@
   2. AWS 연결 (DynamoDB·Bedrock)          6. 학습자(세션)
   3. 요청 읽기·응답 만들기 (CORS 포함)     7. AI 호출 (Bedrock, 월 예산·사용량 기록·목업·AI 끄기)
   4. DynamoDB 읽기·쓰기 도구              8. 설정 값 (META)
+                                          9. 읽을 코드 (READ#) · 최근 첨삭 · 하루 사용 수
 
 콘솔에서 이 파일을 고쳤다면 GitHub(lambda/api/common.py)에도 같이 반영해 주세요.
 """
