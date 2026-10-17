@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CodeView, type Range } from "@/components/CodeView";
 import { MakingCode } from "@/components/MakingCode";
-import { WideCodeButton } from "@/components/WideCode";
+import { FullScreen } from "@/components/WideCode";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
@@ -35,6 +35,8 @@ function Reader({ reading }: { reading: Reading }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   /** 마우스를 올린 포스트잇 → 코드에서 그 범위를 분홍으로 */
   const [hover, setHover] = useState<number | null>(null);
+  /** 크게 보기: 코드와 메모 칸을 화면 가득 (메모는 그대로 붙이고 고칠 수 있음) */
+  const [full, setFull] = useState(false);
   const wide = useWide();
   const [dialog, setDialog] = useState<"easier" | "harder" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -176,14 +178,9 @@ function Reader({ reading }: { reading: Reading }) {
             </b>{" "}
             메모함 · 내 메모 {memos.length}장
           </span>
-          <WideCodeButton
-            title={reading.title || reading.topic}
-            code={reading.code}
-            language={reading.language}
-            stars={reading.marks.map((m) => m.start)}
-            highlights={memos}
-            labels={labels}
-          />
+          <button type="button" className="btn-small" onClick={() => setFull(true)}>
+            크게 보기
+          </button>
           {memos.length > 0 && (
             <button type="button" className="text-ink-500 underline" onClick={() => window.confirm("붙인 메모를 모두 지울까요?") && (update([]), setDraft(null))}>
               형광펜 지우기
@@ -198,7 +195,26 @@ function Reader({ reading }: { reading: Reading }) {
         <MakingCode language={reading.language} advanced={busy === "harder" && reading.level === 3} what={busy === "easier" ? "더 쉬운" : "더 어려운"} />
       )}
 
-      <div className="mt-4 grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <FullScreen
+        on={full}
+        onClose={() => !draft && setFull(false)}
+        header={
+          <>
+            <b className="min-w-0 flex-1 truncate font-serif text-lg">{reading.title || reading.topic}</b>
+            <span className="text-xs text-ink-700">
+              <b className="text-pen-red">※</b> {covered} / {reading.marks.length} 메모함 · 내 메모 {memos.length}장
+            </span>
+            {busy === "review" && <span className="hand text-pen-red">첨삭하고 있어요…</span>}
+            <button type="button" className="btn-ink py-1.5 text-sm" disabled={!!busy} onClick={submit}>
+              첨삭 받기
+            </button>
+            <button type="button" className="btn-small" disabled={!!draft} title={draft ? "쓰던 메모를 붙이거나 취소한 뒤 닫을 수 있어요" : undefined} onClick={() => setFull(false)}>
+              작게 보기 (Esc)
+            </button>
+          </>
+        }
+      >
+      <div className={`grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px] ${full ? "" : "mt-4"}`}>
         <CodeView
           code={reading.code}
           language={reading.language}
@@ -262,6 +278,7 @@ function Reader({ reading }: { reading: Reading }) {
           </aside>
         )}
       </div>
+      </FullScreen>
 
       <p className="hand mt-5 text-pen-red">
         {left > 0 ? `※ 꼭 설명할 곳이 ${left}곳 남았어요. 비워도 낼 수는 있어요.` : "※ 표시된 곳을 모두 메모했어요. 첨삭을 받아 볼까요?"}

@@ -126,7 +126,7 @@ src/
 ├─ components/                         여러 화면이 함께 쓰는 부품
 │  ├─ ui.tsx                           Page · Crumb · Sticky · Stamp · LangTag · PenMark · Waiting · ErrorNote
 │  ├─ MakingCode.tsx                   연습 코드를 기다리는 동안 ① 출제 ② 규칙 검사 ③ AI 검토 단계 안내
-│  ├─ WideCode.tsx                     '크게 보기': 전체 코드를 화면 가득 (촘촘히·긴 줄 접기, Esc 로 닫기) — 읽기·첨삭 화면
+│  ├─ WideCode.tsx                     '크게 보기': FullScreen(읽기 화면 — 코드+메모 칸을 화면 가득, 메모 그대로 붙이기) · WideCodeButton(첨삭 화면 — 보기 전용, 촘촘히·긴 줄 접기)
 │  ├─ NoteHeader.tsx                   맨 위 제목 + 로그인 상자(LoginBox) + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검 / 내 공부)
 │  ├─ CodeView.tsx                     줄 번호·문법 색칠·형광펜·※·①② 가 있는 코드
 │  ├─ MemoMargin.tsx                   코드 옆 포스트잇(끌어 옮기기) + DraftNote(메모 쓰는 칸)
