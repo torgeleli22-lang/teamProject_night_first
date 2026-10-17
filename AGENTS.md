@@ -13,7 +13,7 @@ AI 사용 기준(프롬프트·검사·대체 동작)은 `docs/ai-generation-pol
 - DynamoDB 항목 모양(pk·sk, 필드)을 바꾸면 그 항목을 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 바꾸고 `npm run smoke` 로 확인한다.
 - 예시 코드(`lambda/api/samples.py`)를 추가·수정하면 `npm run verify` 를 통과시킨다 (실제 실행 + ※ 줄 범위 확인).
 - 정한 값: 업로드 최대 300줄, 지원 언어 Python(JS·Java 는 나중에), 점수는 ○△✕ 개수, 같은 코드 다시 만들기 5번 (`common.py` 1번 설정).
-- 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이. 디자인은 공부 노트(줄 공책·여백선·형광펜·포스트잇·빨간펜·도장·인덱스 탭), 그라데이션·둥근 카드·이모지·파란 버튼은 쓰지 않는다.
+- 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이. 디자인은 공부 노트(줄 공책·여백선·형광펜·포스트잇·빨간펜·도장·인덱스 탭), 그라데이션·둥근 카드·이모지·파란 버튼은 쓰지 않는다. ○△✕⬚ 는 늘 빨간펜 그림(`ui.tsx` 의 `PenMark`, 문장은 `MarkText`)으로 — 글자로 쓰지 않는다.
 - AWS 는 `docs/PROJECT_BRIEF.md` §10 에 확정된 범위만: Lambda(실행 역할 SafeRole, VPC 없음) + DynamoDB `jojo_table` + Bedrock Claude Haiku 4.5(us-east-1). S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
 
 ## 명령

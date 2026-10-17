@@ -122,7 +122,7 @@ src/
 | 화면 최대 너비 | `src/app/layout.tsx` → `max-w-[1440px]` |
 | 위쪽 제목·인덱스 탭 | `src/components/NoteHeader.tsx` |
 | 포스트잇 기울기·테이프·색 종류 | `src/components/ui.tsx` → `Sticky`, `globals.css` → `.tape` |
-| 빨간펜 ○△✕⬚ 그림 | `src/components/ui.tsx` → `PenMark` |
+| 빨간펜 ○△✕⬚ 그림 | `src/components/ui.tsx` → `PenMark` (문장 안에는 `<PenMark kind="correct" inline />`, 서버·AI 문장은 `<MarkText text={…} />` 가 ○△✕ 글자를 빨간펜 그림으로 바꿈 — **글자 ○△✕ 를 화면에 그대로 쓰지 않기**) |
 | 코드 글자 크기·줄 높이 | `globals.css` → `.code-line` (**줄 높이를 바꾸면 `MemoMargin.tsx` 의 `ROW = 28` 도 같이** — 포스트잇 위치 계산) |
 | 문법 색칠 규칙 | `src/lib/highlight.ts` + `CodeView.tsx` → `COLOR` |
 | 형광펜 겹침 색, 고른 범위 색, 분홍 표시 | `CodeView.tsx` → `bg` 계산 줄 |

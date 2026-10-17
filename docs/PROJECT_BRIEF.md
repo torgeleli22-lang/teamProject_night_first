@@ -133,6 +133,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 - 책상(`desk`) 위의 **줄 공책 한 장**(`.page`: 28px 가로줄 + 왼쪽 빨간 여백선), 노란 **형광펜**(`.marker`), **포스트잇**(노랑·민트·분홍) + **마스킹테이프**(`.tape`), **나눔펜체** 손글씨(빨간펜 `pen-red`, 파란 볼펜 `pen-blue`), 빨간펜 **○△✕⬚**(`PenMark`), 난이도 **빨간 도장**(`.stamp`), 메뉴는 오른쪽 위 **인덱스 탭**.
 - 제목은 고운바탕, 본문은 Pretendard, 코드는 나눔고딕코딩 (Google Fonts·jsDelivr).
+- ○ △ ✕ ⬚ 는 어디서나 **빨간펜 그림 하나**(`PenMark`)로 그린다. 문장 안에는 `inline`, 서버·AI 가 보낸 문장은 `MarkText` 가 글자를 그림으로 바꾼다.
 - 쓰지 않는 것: 그라데이션, 둥근 카드, 이모지, 파란 버튼. 버튼은 네모난 잉크 버튼(노란 그림자) / 테두리 버튼(검은 그림자).
 - 색과 모양은 `tailwind.config.ts` 와 `src/app/globals.css` 에 모여 있다. 모바일(390px)에서도 확인한다.
 

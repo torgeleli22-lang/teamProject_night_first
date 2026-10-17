@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { apiPost } from "@/lib/api";
 import { MARK_NAMES, type RetryReply, type RetryState } from "@/lib/api-types";
-import { PenMark, Sticky } from "./ui";
+import { MarkText, PenMark, Sticky } from "./ui";
 
 const MAX_CHARS = 500;
 
@@ -63,14 +63,18 @@ export function RetryBox({
                 <div className="flex items-start gap-2">
                   <div className="flex-1">
                     <p className="text-xs text-ink-500">
-                      {i + 1}번째로 다시 쓴 설명 · {MARK_NAMES[i === 0 ? firstMark : state.attempts[i - 1].mark]} → <b className="text-pen-red">{MARK_NAMES[a.mark]}</b>
+                      {i + 1}번째로 다시 쓴 설명 · <PenMark kind={i === 0 ? firstMark : state.attempts[i - 1].mark} inline />
+                      {MARK_NAMES[i === 0 ? firstMark : state.attempts[i - 1].mark]} → <PenMark kind={a.mark} inline />
+                      <b className="text-pen-red">{MARK_NAMES[a.mark]}</b>
                     </p>
                     <p className="hand mt-1 whitespace-pre-wrap break-words text-pen-blue">{a.text}</p>
                   </div>
                   <PenMark kind={a.mark} size={30} />
                 </div>
               </Sticky>
-              <p className="hand mt-2 text-pen-red">{a.comment}</p>
+              <p className="hand mt-2 text-pen-red">
+                <MarkText text={a.comment} />
+              </p>
               {a.lookAt.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {a.lookAt.map((n) => (

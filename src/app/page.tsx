@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CodeView } from "@/components/CodeView";
-import { Page, PenMark, Sticky } from "@/components/ui";
+import { MarkText, Page, PenMark, Sticky } from "@/components/ui";
 
 const HERO_CODE = `def sell(item, qty):
     status = check_stock(item)
@@ -75,12 +75,15 @@ export default function Home() {
           {[
             ["코드를 받는다", "연습 문제를 받거나 내 코드를 가져와요."],
             ["형광펜으로 범위를 긋고 메모한다", "※ 표시된 줄은 꼭 설명해요."],
-            ["빨간펜 첨삭을 받는다", "메모마다 ○ △ ✕ 로 채점하고 다시 볼 곳을 알려줘요."],
+            ["빨간펜 첨삭을 받는다", "메모마다 ○ △ ✕ 로 채점하고 다시 볼 곳을 알려줘요."], // ○△✕ 는 아래 MarkText 가 빨간펜으로 그림
           ].map(([head, rest], i) => (
             <li key={head} className="flex gap-3">
               <span className="hand w-5 text-pen-red">{i + 1}.</span>
               <span>
-                <b>{head}</b> <span className="text-ink-500">· {rest}</span>
+                <b>{head}</b>{" "}
+                <span className="text-ink-500">
+                  · <MarkText text={rest} />
+                </span>
               </span>
             </li>
           ))}

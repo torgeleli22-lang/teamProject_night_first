@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Crumb, ErrorNote, Page, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, MarkText, Page, Sticky, Waiting } from "@/components/ui";
 import { apiGet, apiPost, useApi } from "@/lib/api";
 import {
   CONCEPT_NAMES,
@@ -104,7 +104,9 @@ export function PracticeStart() {
       <h2 className="mt-8 text-lg">난이도</h2>
       {study && study.summary.codes > 0 && study.levels.advice !== "none" && (
         <p className="mt-1 text-sm">
-          <span className="hand text-pen-red">{study.levels.message}</span>{" "}
+          <span className="hand text-pen-red">
+            <MarkText text={study.levels.message} />
+          </span>{" "}
           {study.levels.suggested !== level && (
             <button type="button" className="text-xs text-pen-blue underline" onClick={() => setLevel(study.levels.suggested)}>
               {LEVEL_NAMES[study.levels.suggested]} 고르기
