@@ -8,6 +8,7 @@ import { LEVEL_DESCRIPTIONS, LEVEL_NAMES, type Level, type RandomTopic, type Rea
 
 const MAX_TOPIC = 50;
 const EXAMPLES = ["카페 주문", "도서관 대출", "성적 처리", "게임 점수판", "버스 도착 안내", "가계부"];
+const ADVANCED_EXAMPLES = ["지하철 최단 경로", "배달 주문 고르기", "강의실 배정", "미로 탈출 길 찾기", "놀이공원 대기열"];
 
 /** 02 · 연습 모드: 난이도 + 주제 (랜덤으로 뽑기 / 직접 적기) */
 export function PracticeStart() {
@@ -22,11 +23,13 @@ export function PracticeStart() {
 
   const draw = useCallback(() => {
     setError(null);
-    apiGet<RandomTopic>("/topic/random")
+    apiGet<RandomTopic>(`/topic/random?level=${level}`)
       .then((r) => setRandomTopic(r.topic))
       .catch((e) => setError(e.message));
-  }, []);
-  useEffect(draw, [draw]);
+  }, [level]);
+  // 고급은 알고리즘이 들어가는 주제 목록이라, 고급으로 바꾸거나 고급에서 바꾸면 다시 뽑는다
+  const advanced = level === 4;
+  useEffect(draw, [advanced]);
 
   /** 주제가 정해지면 코드 받기 → 2장(읽기)으로 */
   async function make(topic: string) {
@@ -73,8 +76,8 @@ export function PracticeStart() {
 
       {/* 난이도 */}
       <h2 className="mt-8 text-lg">난이도</h2>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="난이도">
-        {([1, 2, 3] as Level[]).map((lv) => {
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label="난이도">
+        {([1, 2, 3, 4] as Level[]).map((lv) => {
           const on = lv === level;
           return (
             <button
@@ -109,7 +112,7 @@ export function PracticeStart() {
       {tab === "random" ? (
         <div className="mt-4">
           <p className="text-sm text-ink-700">코드를 만들 때 아래 같은 생활 속 주제 중 하나를 뽑아요. 최근에 풀었던 주제는 빼고 뽑아요.</p>
-          <p className="hand mt-2 text-pen-blue">{EXAMPLES.join(" · ")} …</p>
+          <p className="hand mt-2 text-pen-blue">{(advanced ? ADVANCED_EXAMPLES : EXAMPLES).join(" · ")} …</p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <span className="text-sm text-ink-500">뽑은 주제</span>
             <span className="hand marker text-2xl text-ink-900">{randomTopic ?? "뽑는 중…"}</span>
@@ -145,7 +148,9 @@ export function PracticeStart() {
       )}
 
       {error && <ErrorNote message={error} />}
-      {busy === "make" && <Waiting text="AI 가 읽기 연습용 코드를 쓰고 있어요… (10초쯤 걸려요)" />}
+      {busy === "make" && (
+        <Waiting text={advanced ? "AI 가 고급 코드(100~200줄)를 쓰고 있어요… 1분쯤 걸릴 수 있어요" : "AI 가 읽기 연습용 코드를 쓰고 있어요… (10초쯤 걸려요)"} />
+      )}
       {busy === "check" && <Waiting text="주제를 살펴보고 있어요…" />}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-dashed border-ink-300 pt-5">

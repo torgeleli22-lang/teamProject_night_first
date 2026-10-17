@@ -2,12 +2,12 @@ import random
 import re
 
 from common import (LEVELS, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field, get_learner)
-from samples import TOPIC_POOL
+from samples import ADVANCED_TOPIC_POOL, TOPIC_POOL
 
 # ─────────────────────────────────────────────────────────────
 # 주제 고르기 (topics.py) — jojo_api 의 기능 파일
 #
-#   GET  /topic/random?level=2        생활 속 주제 하나 (최근에 푼 주제는 빼고)
+#   GET  /topic/random?level=2        생활 속 주제 하나 (최근에 푼 주제는 빼고, 고급(4)은 알고리즘이 들어가는 주제 목록에서)
 #   POST /topic/check                 직접 적은 주제 판정   {"level": 2, "text": "카페 주문 시스템"}
 #        → {"verdict": "ok" | "vague" | "too_big" | "inappropriate", "topic", "suggestions": [...], "message"}
 #          ok            바로 진행 (topic 이 다듬은 주제)
@@ -19,7 +19,7 @@ from samples import TOPIC_POOL
 MAX_TOPIC_CHARS = 50
 
 SYSTEM_PROMPT = """너는 프로그래밍 입문자에게 'Python 코드 읽기' 연습용 코드의 주제를 정해 주는 도우미야.
-학습자가 적은 주제로 짧은 연습 코드(입문 10~20줄, 초급 25~45줄, 중급 35~60줄)를 만들 수 있는지 판정해.
+학습자가 적은 주제로 연습 코드(입문 10~20줄, 초급 25~45줄, 중급 35~60줄, 고급 120~190줄의 알고리즘이 있는 작은 프로그램)를 만들 수 있는지 판정해.
 - ok: 그 길이 안에서 기능 하나를 보여 줄 수 있는 구체적인 생활 속 주제. topic 에 짧게 다듬은 주제를 적어.
 - vague: 무엇을 하는 코드인지 알 수 없을 만큼 막연함 (예: '재미있는 거', '아무거나', '프로그램'). suggestions 에 구체적인 주제 3개.
 - too_big: 기능이 여러 개라 그 길이에 담을 수 없음 (예: '쇼핑몰 만들기'). 난이도가 낮을수록 더 엄격하게. suggestions 첫 번째에 기능 하나로 좁힌 주제, 나머지 2개는 다른 기능.
@@ -46,14 +46,16 @@ BAD_WORDS = ["해킹", "비밀번호 훔", "도박", "불법", "폭탄", "마약
 
 def random_topic(req):
     learner = get_learner(req)
-    # 1. 최근에 푼 주제는 빼고 뽑는다 (다 풀었으면 전체에서)
-    pool = [t for t in TOPIC_POOL if t not in learner["recentTopics"]] or TOPIC_POOL
+    level = req["query"].get("level", "")
+    # 1. 고급은 알고리즘이 들어가는 주제 목록에서, 최근에 푼 주제는 빼고 뽑는다 (다 풀었으면 전체에서)
+    topics = ADVANCED_TOPIC_POOL if level == "4" else TOPIC_POOL
+    pool = [t for t in topics if t not in learner["recentTopics"]] or topics
     return {"topic": random.choice(pool)}
 
 
 def check_topic(req):
     # 1. 요청 값 확인
-    level = field(req["body"], "level", "int", required=True, low=1, high=3)
+    level = field(req["body"], "level", "int", required=True, low=1, high=4)
     text = re.sub(r"\s+", " ", field(req["body"], "text", "str", required=True, max_len=200)).strip()
     if not text:
         raise ApiError(400, "주제를 적어 주세요.")
@@ -88,7 +90,7 @@ def rule_check(text, level):
         return {"verdict": "vague", "topic": "", "suggestions": random.sample(TOPIC_POOL, 3),
                 "message": "무엇을 하는 코드인지 조금 더 구체적으로 적어 주세요. 이런 주제는 어때요?"}
     big = [w for w in BIG_WORDS if w in text]
-    if big and (level < 3 or len(big) > 1):
+    if big and (level < 3 or (level == 3 and len(big) > 1)):   # 고급은 '시스템'처럼 큰 주제도 받는다
         core = text
         for w in BIG_WORDS:
             core = core.replace(w, "")

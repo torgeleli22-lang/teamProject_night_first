@@ -3,12 +3,13 @@
  * ※ 꼭 설명할 곳의 모범 설명·핵심 표현은 읽는 동안(Reading)에는 오지 않고, 첨삭(ReviewResult) 뒤에만 온다.
  */
 
-export type Level = 1 | 2 | 3;
-export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급" };
+export type Level = 1 | 2 | 3 | 4;
+export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급", 4: "고급" };
 export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
   1: "짧은 코드. 변수, 조건문, 반복문이 위에서 아래로 흘러가요.",
   2: "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요.",
   3: "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요.",
+  4: "100~200줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
 };
 
 // ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────
@@ -85,6 +86,29 @@ export interface ReadingWithReview {
   review: ReviewResult | null;
   /** 첨삭 항목 번호(문자열) → AI 튜터와 나눈 대화 */
   chats?: Record<string, TutorChat>;
+  /** 첨삭 항목 번호(문자열) → 힌트를 보고 다시 써 본 기록 */
+  retries?: Record<string, RetryState>;
+}
+
+/** 힌트를 보고 다시 쓴 설명 하나와 그 판정 */
+export interface RetryAttempt {
+  text: string;
+  mark: "correct" | "partial" | "wrong";
+  comment: string;
+  lookAt: number[];
+  byAi: boolean;
+  at: number;
+}
+
+export interface RetryState {
+  attempts: RetryAttempt[];
+  /** 남은 횟수 (항목 하나에 3번) */
+  left: number;
+}
+
+/** POST /review/retry */
+export interface RetryReply extends RetryState {
+  item: number;
 }
 
 // ───────────────────────── 내 코드 점검 (inspect_code.py) ─────────────────────────
@@ -217,6 +241,7 @@ export interface DayCount {
   topicChecks: number;
   inspections: number;
   reviews: number;
+  retries: number;
   tutorChats: number;
 }
 

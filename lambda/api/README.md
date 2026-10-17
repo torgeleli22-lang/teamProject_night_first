@@ -9,7 +9,7 @@
 | `topics.py` | 주제 고르기: 랜덤(AI 없음) · 직접 적은 주제 판정(AI) | `GET /topic/random`, `POST /topic/check` |
 | `practice.py` | 연습 코드 + ※ 지점 만들기(AI, 문법 검사) · 더 쉽게/어렵게(5번까지) · 다시 읽기 | `POST /practice` `/practice/adjust`, `GET /reading` |
 | `inspect_code.py` | 내 코드 점검: 민감 정보 가리기·함수 찾기(AI 없음) → 난이도·※ 지점(AI) | `POST /inspect` `/inspect/start` |
-| `review.py` | 빨간펜 첨삭: 누락(규칙) + ○△✕·코멘트·모범 설명(AI) | `POST /review` |
+| `review.py` | 빨간펜 첨삭: 누락(규칙) + ○△✕·코멘트·모범 설명(AI), 힌트 보고 다시 쓴 설명 다시 채점(3번까지) | `POST /review` `/review/retry` |
 | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화: 메모별 첨삭 하나에 대해 묻고 답하기(10번까지), 대화 저장 | `POST /tutor` |
 | `admin.py` | 관리자 화면 (`x-admin-token` 필요): AI 사용량·비용·AI 끄기·관리자 코드 | `/admin/...` |
 | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드(난이도마다 2개)와 랜덤 주제 목록 | |
@@ -20,7 +20,7 @@
 GitHub 에서 파일을 열고 **Raw** 를 누르면 복사하기 쉬워요. 한 파일만 고쳤으면 그 파일만 바꾸면 돼요.
 
 ## 설정
-- 런타임 Python 3.13 이상 · 아키텍처 **arm64** · 메모리 **512MB** · 제한 시간 **2분** (AI 를 부르는 요청은 5~20초)
+- 런타임 Python 3.13 이상 · 아키텍처 **arm64** · 메모리 **512MB** · 제한 시간 **5분** (AI 를 부르는 요청은 5~20초, 고급 코드 만들기는 1~2분)
 - 실행 역할 `SafeRole-sgu-202688` · 함수 URL 인증 NONE
 - 환경 변수: [`docs/DEPLOY_LAMBDA.md`](../../docs/DEPLOY_LAMBDA.md) 의 표
 
@@ -32,7 +32,7 @@ GitHub 에서 파일을 열고 **Raw** 를 누르면 복사하기 쉬워요. 한
 | 바꾸고 싶은 것 | 위치 |
 |---|---|
 | 최대 줄 수, 다시 만들기 횟수, 보관 기간, 메모 수 | `common.py` 1번 설정 (`MAX_CODE_LINES`, `REGEN_LIMIT`, `READING_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `MAX_MEMOS`) |
-| 난이도별 코드 길이·문법 | `practice.py` 의 `LEVEL_GUIDE`, `MAX_LINES` |
+| 난이도별 코드 길이·문법·※ 수 | `practice.py` 의 `LEVEL_GUIDE`, `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | 코드 만들기·첨삭·주제 판정·튜터 말투와 규칙 | 각 파일의 `SYSTEM_PROMPT` |
 | 튜터 질문 횟수·글자 수 | `common.py` 의 `MAX_TUTOR_TURNS`, `MAX_TUTOR_CHARS` |
 | AI 없을 때의 판정·첨삭 | `topics.rule_check`, `inspect_code.rule_analysis`, `review.rule_review` |

@@ -140,7 +140,13 @@ function Reader({ reading }: { reading: Reading }) {
               <button type="button" className="btn-small" disabled={!!busy || reading.regenLeft <= 0} onClick={() => setDialog("easier")}>
                 ↓ 더 쉽게
               </button>
-              <button type="button" className="btn-small" disabled={!!busy || reading.regenLeft <= 0} onClick={() => setDialog("harder")}>
+              <button
+                type="button"
+                className="btn-small"
+                disabled={!!busy || reading.regenLeft <= 0 || reading.level >= 4}
+                title={reading.level >= 4 ? "고급이 가장 어려운 단계예요" : undefined}
+                onClick={() => setDialog("harder")}
+              >
                 ↑ 더 어렵게
               </button>
             </>
@@ -176,7 +182,9 @@ function Reader({ reading }: { reading: Reading }) {
 
       {error && <ErrorNote message={error} />}
       {busy === "review" && <Waiting text="빨간펜으로 메모를 첨삭하고 있어요…" />}
-      {(busy === "easier" || busy === "harder") && <Waiting text={`${busy === "easier" ? "더 쉬운" : "더 어려운"} 코드로 다시 쓰고 있어요…`} />}
+      {(busy === "easier" || busy === "harder") && (
+        <Waiting text={`${busy === "easier" ? "더 쉬운" : "더 어려운"} 코드로 다시 쓰고 있어요…${busy === "harder" && reading.level === 3 ? " 고급은 1분쯤 걸릴 수 있어요" : ""}`} />
+      )}
 
       <div className="mt-4 grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <CodeView

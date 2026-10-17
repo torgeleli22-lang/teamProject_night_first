@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
+import { RetryBox } from "@/components/RetryBox";
 import { TutorChat } from "@/components/TutorChat";
 import { Crumb, ErrorNote, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
-import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
+import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
 
 const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
@@ -34,10 +35,20 @@ export function ResultNote() {
     );
   }
   if (!data) return <Page><Waiting text="첨삭지를 펼치는 중이에요…" /></Page>;
-  return <ResultBody reading={data.reading} review={data.review!} chats={data.chats ?? {}} />;
+  return <ResultBody reading={data.reading} review={data.review!} chats={data.chats ?? {}} retries={data.retries ?? {}} />;
 }
 
-function ResultBody({ reading, review, chats }: { reading: Reading; review: ReviewResult; chats: Record<string, TutorChatData> }) {
+function ResultBody({
+  reading,
+  review,
+  chats,
+  retries,
+}: {
+  reading: Reading;
+  review: ReviewResult;
+  chats: Record<string, TutorChatData>;
+  retries: Record<string, RetryState>;
+}) {
   /** 왼쪽 전체 코드에서 분홍으로 보여 줄 범위 (첨삭에 마우스를 올리거나, 튜터가 알려 준 줄을 누를 때) */
   const [active, setActive] = useState<{ start: number; end: number } | null>(null);
   const memoItems = review.items.filter((it) => it.kind === "memo");
@@ -94,6 +105,18 @@ function ResultBody({ reading, review, chats }: { reading: Reading; review: Revi
                 label={item.kind === "memo" ? circled(memoItems.indexOf(item) + 1) : "※"}
                 onFocus={() => setActive(item)}
                 talking={!!chats[String(i)]?.turns.length}
+                retry={
+                  item.mark !== "correct" ? (
+                    <RetryBox
+                      readingId={reading.id}
+                      item={i}
+                      firstMark={item.mark}
+                      firstText={item.memo}
+                      initial={retries[String(i)]}
+                      onLook={(n) => setActive({ start: n, end: n })}
+                    />
+                  ) : null
+                }
               >
                 <TutorChat readingId={reading.id} item={i} initial={chats[String(i)]} onLook={(n) => setActive({ start: n, end: n })} />
               </ItemRow>
@@ -120,6 +143,7 @@ function ItemRow({
   label,
   onFocus,
   talking = false,
+  retry,
   children,
 }: {
   item: ReviewItem;
@@ -128,6 +152,8 @@ function ItemRow({
   onFocus: () => void;
   /** 이미 나눈 대화가 있으면 펼친 채로 */
   talking?: boolean;
+  /** 힌트를 보고 다시 써 보기 (정확(○)인 항목은 없음) */
+  retry: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -156,10 +182,11 @@ function ItemRow({
       </div>
       <p className="hand mt-3 text-pen-red">{item.comment}</p>
       {item.lookAt.length > 0 && <p className="mt-1 text-xs text-ink-500">다시 볼 줄: {item.lookAt.map((n) => `${n}번`).join(", ")}</p>}
+      {retry}
       {item.model && (
         <>
           <button type="button" className="mt-2 text-xs text-pen-blue underline" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-            {open ? "모범 설명 접기" : "모범 설명 보기"}
+            {open ? "모범 설명 접기" : retry ? "모범 설명 보기 (다시 써 본 뒤에 보면 더 좋아요)" : "모범 설명 보기"}
           </button>
           {open && <p className="mt-2 border-l-2 border-pen-blue pl-3 text-sm leading-relaxed text-ink-700">{item.model}</p>}
         </>

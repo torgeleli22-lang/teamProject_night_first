@@ -52,13 +52,15 @@ MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
 MAX_TUTOR_TURNS = 10          # 첨삭 결과의 메모 하나에 AI 튜터에게 물을 수 있는 횟수
 MAX_TUTOR_CHARS = 300         # 튜터 질문 하나의 최대 글자 수
+MAX_RETRIES = 3               # 첨삭 뒤 힌트를 보고 메모 하나를 다시 써 볼 수 있는 횟수
 LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
 
-# 난이도 3단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
+# 난이도 4단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
 LEVELS = {
     1: {"name": "입문", "description": "짧은 코드, 변수·조건문·반복문이 위에서 아래로 흘러가요."},
     2: {"name": "초급", "description": "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리가 나와요."},
     3: {"name": "중급", "description": "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요."},
+    4: {"name": "고급", "description": "100~200줄. 자료구조와 알고리즘(최단 경로·동적 계획법·정렬·탐색 등)이 실제 문제를 푸는 코드예요."},
 }
 
 
@@ -95,7 +97,7 @@ _clients = {}
 def bedrock():
     if "bedrock" not in _clients:
         _clients["bedrock"] = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION,
-                                           config=Config(read_timeout=45, retries={"max_attempts": 2}))   # 코드 만들기 한 번이 20초 안팎
+                                           config=Config(read_timeout=120, retries={"max_attempts": 2}))   # 코드 만들기 한 번이 20초 안팎, 고급(200줄 가까이)은 1분 넘게
     return _clients["bedrock"]
 
 
@@ -734,6 +736,17 @@ def load_reading(reading_id, learner):
     if not item or not alive(item) or item.get("owner") != learner["id"]:
         raise ApiError(404, "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요.")
     return item
+
+
+def latest_review(reading_id):
+    """가장 최근 첨삭 (READ#<id> / REVIEW#<시각>). 튜터 대화·다시 써 보기가 이 첨삭의 항목 번호에 붙는다"""
+    reviews = query_all(f"READ#{reading_id}", prefix="REVIEW#")
+    return reviews[-1] if reviews else None
+
+
+def review_key(review, kind, index):
+    """첨삭 항목에 붙는 기록의 sk: CHAT#<첨삭 시각>#003 · RETRY#<첨삭 시각>#003"""
+    return f"{kind}#{review['sk'][len('REVIEW#'):]}#{index:03d}"
 
 
 def public_reading(item):

@@ -46,6 +46,12 @@ try {
   await call("POST", "/topic/check", { level: 1, text: "가".repeat(51) }, {}, 400);
   check(true, "주제 50자 넘으면 400");
 
+  // ── 고급 (4단계): 알고리즘용 랜덤 주제, 100~200줄, ※ 5곳
+  const advTopic = await call("GET", "/topic/random?level=4");
+  const adv = await call("POST", "/practice", { level: 4, topic: advTopic.topic });
+  const advLines = adv.code.split("\n").length;
+  check(adv.levelName === "고급" && advLines >= 100 && advLines <= 200 && adv.marks.length === 5, `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
+
   // ── 연습 모드 (practice.py)
   const reading = await call("POST", "/practice", { level: 2, topic: "편의점 재고" });
   check(reading.id && reading.code && reading.marks.length >= 2 && reading.levelName === "초급", `연습 코드 (${reading.title}, ※ ${reading.marks.length}곳)`);
@@ -70,6 +76,19 @@ try {
   check(result.items.every((e) => e.comment && "model" in e), "항목마다 코멘트 + 모범 설명 (첨삭 뒤)");
   const empty = await call("POST", "/review", { readingId: reading.id, memos: [] });
   check(empty.counts.missing === m.length, "메모 없이 제출해도 첨삭 (모두 빈칸)");
+  // ── 힌트 보고 다시 써 보기 (review.py): 항목 하나만 다시 채점, 3번까지, 다시 열면 기록이 남아 있음
+  const missingIndex = result.items.findIndex((e) => e.kind === "missing");
+  const r1 = await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "조건을 보고 결과를 돌려줘요" });
+  check(r1.attempts.length === 1 && ["correct", "partial", "wrong"].includes(r1.attempts[0].mark) && r1.attempts[0].comment && r1.left === 2,
+    `빈칸 항목을 다시 써서 다시 채점 (${r1.attempts[0].mark})`);
+  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "두 번째" });
+  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "세 번째" });
+  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "네 번째" }, {}, 429);
+  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "  " }, {}, 400);
+  check(true, "다시 쓰기 3번까지 · 빈 글 400");
+  const withRetry = await call("GET", `/reading?id=${reading.id}`);
+  check(withRetry.retries[String(missingIndex)]?.attempts.length === 3 && withRetry.retries[String(missingIndex)].left === 0, "다시 열면 다시 쓴 기록이 남아 있음");
+
   // ── AI 튜터 (tutor_chat.py): 첨삭 항목마다 대화, 10번까지, 다시 열면 대화가 남아 있음
   const t1 = await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "왜 이렇게 판정했나요?" });
   check(t1.turns.length === 2 && t1.turns[1].role === "tutor" && t1.turns[1].text && t1.turnsLeft === 9, "튜터에게 묻기 → 답");

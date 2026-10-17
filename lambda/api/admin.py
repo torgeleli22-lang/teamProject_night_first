@@ -73,11 +73,12 @@ TASKS = {
     "topic_check": ("주제 판정", "'직접 적기'로 낸 주제가 괜찮은지 봐요"),
     "code_inspection": ("내 코드 분석", "내 코드 점검 '메모하러 가기'. 난이도와 ※ 지점을 정해요"),
     "review": ("빨간펜 첨삭", "'첨삭 받기'. 메모가 하나도 없으면 AI 없이 규칙으로 해요"),
+    "review_retry": ("다시 써 보기 채점", "첨삭 뒤 힌트를 보고 다시 쓴 설명 하나를 다시 채점 (메모 하나에 3번까지)"),
     "tutor_chat": ("AI 튜터 대화", "첨삭 결과에서 메모마다 묻는 대화 (메모 하나에 10번까지)"),
 }
 OLD_TASKS = {"content_generation": "문제 생성", "learner_analysis": "학습자 분석",
              "short_answer_eval": "주관식 평가", "theory_generation": "개념 문제 생성", "theory_review": "개념 문제 검수"}
-EVENT_NAMES = ["practices", "adjusts", "topicChecks", "inspections", "reviews", "tutorChats"]
+EVENT_NAMES = ["practices", "adjusts", "topicChecks", "inspections", "reviews", "retries", "tutorChats"]
 RECENT_LOGS = 50
 
 # 실패 이유 (common.ask_ai 가 남기는 영어 오류 → 관리자가 읽을 말)

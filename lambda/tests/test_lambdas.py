@@ -15,10 +15,10 @@ admin = load_lambda("admin")
 
 class Samples(unittest.TestCase):
     def test_every_level_has_samples_with_valid_marks(self):
-        self.assertEqual({s["level"] for s in samples.SAMPLES}, {1, 2, 3})
+        self.assertEqual({s["level"] for s in samples.SAMPLES}, {1, 2, 3, 4})
         for s in samples.SAMPLES:
             compile(s["code"], s["id"], "exec")
-            marks = common.clean_marks(s["code"], s["marks"])
+            marks = common.clean_marks(s["code"], s["marks"], limit=5)
             self.assertEqual(len(marks), len(s["marks"]), s["id"])   # 겹치거나 범위를 벗어난 ※ 지점이 없다
             for m in s["marks"]:
                 self.assertTrue(m["explanation"] and m["keywords"], s["id"])
@@ -32,6 +32,14 @@ class Samples(unittest.TestCase):
 
 
 class GeneratedCode(unittest.TestCase):
+    def test_advanced_level_needs_length(self):
+        short = next(s for s in samples.SAMPLES if s["level"] == 3)
+        _, _, problems = practice.check_generated(practice.sample_as_ai(short), 4)
+        self.assertTrue(any("고급으로는 너무 짧아요" in p for p in problems))
+        long = next(s for s in samples.SAMPLES if s["level"] == 4)
+        _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
+        self.assertEqual((problems, len(marks)), ([], 5))
+
     def test_syntax_error_and_missing_marks(self):
         r = {"title": "t", "code": "if x\n    print(1)", "marks": [{"startLine": "없는 줄", "endLine": "없는 줄"}]}
         _, _, problems = practice.check_generated(r, 1)
@@ -92,6 +100,19 @@ class RuleReview(unittest.TestCase):
         self.assertEqual([e["kind"] for e in result["items"]], ["memo", "missing", "memo"])   # 코드 위치 순서
         self.assertEqual(result["items"][1]["model"], "모범2")
 
+    def test_retry_uses_same_rules_on_one_memo(self):
+        better = review.rule_retry(self.ITEM, {"start": 10, "end": 12, "text": "할인을 적용해요"})
+        self.assertEqual(better["mark"], "correct")
+        self.assertEqual(review.rule_retry(self.ITEM, {"start": 10, "end": 12, "text": "몰라"})["mark"], "wrong")
+        prompt = review.build_retry_prompt(self.ITEM, {"start": 10, "end": 12, "marked": True, "memo": "", "mark": "missing",
+                                                       "comment": "조건을 봐요", "model": "모범2"}, [], "할인을 적용해요")
+        self.assertIn("(처음에는 메모가 없었음)", prompt)
+        self.assertIn("<memo>할인을 적용해요</memo>", prompt)
+
+    def test_review_keys(self):
+        rv = {"sk": "REVIEW#0000000001"}
+        self.assertEqual(common.review_key(rv, "RETRY", 2), "RETRY#0000000001#002")
+
     def test_read_memos_drops_empty_and_sorts(self):
         memos = review.read_memos({"memos": [{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]}, self.ITEM["code"])
         self.assertEqual(memos, [{"start": 5, "end": 9, "text": "뒤"}])
@@ -141,7 +162,7 @@ class Entry(unittest.TestCase):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
-            "POST /inspect", "POST /inspect/start", "POST /review", "POST /tutor", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
+            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /admin/overview", "POST /admin/ai", "POST /admin/code"})
 
 
 if __name__ == "__main__":
