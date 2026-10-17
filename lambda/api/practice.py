@@ -1,6 +1,6 @@
 import random
 
-from common import (LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
+from common import (CONCEPTS, LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
                     get_learner, latest_review, load_reading, log_ai_event, public_reading, remember_topic, save_reading)
 from samples import SAMPLES
 from review import retries_for
@@ -48,6 +48,7 @@ SYSTEM_PROMPT = """너는 프로그래밍 입문자와 비개발자가 '코드�
 - why: 왜 꼭 설명해야 하는지 한 줄.
 - explanation: 이 부분의 흐름을 실제 값과 함께 2~3문장으로 설명한 모범 설명 (첨삭할 때 기준이 됨).
 - keywords: 모범 설명의 핵심 표현 3~5개 (짧게).
+- concept: 이 지점이 어떤 흐름을 읽는 곳인지 하나 — branch(조건 분기) · loop_update(반복이 값을 바꿈) · call_flow(함수가 함수를 부름) · data_update(딕셔너리·리스트 다루기) · class_state(객체 상태 바뀜) · exception(예외 흐름) · recursion(재귀·거꾸로 따라가기) · algorithm(정렬·탐색·최단 경로·동적 계획법의 중심)
 모든 문장은 한국어 존댓말("~해요")."""
 
 SCHEMA = {
@@ -62,6 +63,7 @@ SCHEMA = {
                 "startNo": {"type": "integer", "description": "첫 줄 번호 (1부터)"}, "endNo": {"type": "integer", "description": "끝 줄 번호"},
                 "why": {"type": "string"},
                 "explanation": {"type": "string"}, "keywords": {"type": "array", "items": {"type": "string"}},
+                "concept": {"type": "string", "description": "branch · loop_update · call_flow · data_update · class_state · exception · recursion · algorithm 중 하나 (모르면 서버가 규칙으로 정함)"},
             },
             "required": ["startLine", "endLine", "startNo", "endNo", "why", "explanation", "keywords"],
         }},
@@ -76,13 +78,14 @@ def start_practice(req):
     topic = field(req["body"], "topic", "str", required=True, max_len=50).strip()
     if not topic:
         raise ApiError(400, "주제를 골라 주세요.")
+    focus = field(req["body"], "focus", "str", choices=list(CONCEPTS))   # '내 공부'의 '이 개념 집중 연습'
     learner = get_learner(req)
 
     # 2. 코드 만들기 (AI → 안 되면 예시 코드)
-    made = make_code(req, level, topic, learner, prompt_extra="")
+    made = make_code(req, level, topic, learner, prompt_extra=focus_prompt(focus), focus=focus)
 
     # 3. 저장하고, 최근 주제·난이도 기억
-    item = save_reading(learner, source="practice", level=level, topic=topic, **made)
+    item = save_reading(learner, source="practice", level=level, topic=topic, focus=focus, **made)
     remember_topic(learner, topic, level)
     count_event("practices")
     return public_reading(item)
@@ -110,11 +113,12 @@ def adjust(req):
         f"학습자가 어려웠던 이유: {why}" if direction == "easier" else "흐름을 한 단계 더 따라가야 하는 코드로 만들어 주세요.",
         f"<current_code>\n{old['code']}\n</current_code>",
     ])
-    made = make_code(req, level, old["topic"], learner, prompt_extra=extra)
+    made = make_code(req, level, old["topic"], learner, prompt_extra="\n".join(p for p in [extra, focus_prompt(old.get("focus"))] if p),
+                     focus=old.get("focus"))
 
     # 4. 새 코드로 저장 (처음 코드를 기준으로 몇 번째 다시 만들기인지 이어서 센다)
     item = save_reading(learner, source="practice", level=level, topic=old["topic"], rootId=old["rootId"],
-                        regenCount=old.get("regenCount", 0) + 1, **made)
+                        regenCount=old.get("regenCount", 0) + 1, focus=old.get("focus"), **made)
     count_event("adjusts")
     return public_reading(item)
 
@@ -137,9 +141,18 @@ ROUTES = {
 # ───────────────────────── 코드 만들기 ─────────────────────────
 
 
-def make_code(req, level, topic, learner, prompt_extra):
+def focus_prompt(focus):
+    """집중 연습: 약한 개념이 ※ 지점의 중심이 되도록"""
+    if not focus:
+        return ""
+    c = CONCEPTS[focus]
+    return (f"집중 개념: {c['name']} ({c['description']}). 학습자가 이 흐름을 어려워해요. "
+            f"이 흐름이 코드 곳곳에 자연스럽게 나오게 짜고, ※ 꼭 설명할 곳의 절반 이상을 이 개념(concept={focus})으로 골라 주세요.")
+
+
+def make_code(req, level, topic, learner, prompt_extra, focus=None):
     """AI 로 코드 + ※ 지점을 만든다. 형식이 틀리면 이유를 알려 주고 한 번 더, 그래도 안 되면 예시 코드"""
-    sample = pick_sample(level, topic, learner)
+    sample = pick_sample(level, topic, learner, focus)
     if not ai_allowed(req):
         return from_sample(sample, "AI 를 잠깐 많이 써서 준비된 예시 코드를 드려요.")
     feedback = ""
@@ -203,9 +216,12 @@ def find_line(lines, text, from_index, hint=None):
     return min(hits, key=lambda n: abs(n - hint)) if isinstance(hint, int) else hits[0]
 
 
-def pick_sample(level, topic, learner):
-    """예시 코드 고르기: 같은 난이도에서 같은 주제 → 최근에 안 푼 주제 → 아무거나"""
+def pick_sample(level, topic, learner, focus=None):
+    """예시 코드 고르기: 같은 난이도에서 (집중 개념이 있으면 그 개념이 든 것 먼저) 같은 주제 → 최근에 안 푼 주제 → 아무거나"""
     same = [s for s in SAMPLES if s["level"] == level]
+    if focus:
+        same = [s for s in same if any(m.get("concept") == focus for m in s["marks"])] or \
+               [s for s in SAMPLES if any(m.get("concept") == focus for m in s["marks"])] or same
     for s in same:
         if s["topic"] in topic or topic in s["topic"]:
             return s
@@ -224,4 +240,4 @@ def sample_as_ai(sample):
     return {"_mock": True, "title": sample["title"], "code": sample["code"],
             "marks": [{"startLine": lines[m["start"] - 1].strip(), "endLine": lines[m["end"] - 1].strip(),
                        "startNo": m["start"], "endNo": m["end"], "why": m["why"],
-                       "explanation": m["explanation"], "keywords": m["keywords"]} for m in sample["marks"]]}
+                       "explanation": m["explanation"], "keywords": m["keywords"], "concept": m.get("concept")} for m in sample["marks"]]}

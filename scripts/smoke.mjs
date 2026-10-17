@@ -89,6 +89,14 @@ try {
   const withRetry = await call("GET", `/reading?id=${reading.id}`);
   check(withRetry.retries[String(missingIndex)]?.attempts.length === 3 && withRetry.retries[String(missingIndex)].left === 0, "다시 열면 다시 쓴 기록이 남아 있음");
 
+  // ── 내 공부 (study.py): 첨삭·다시 쓰기가 기록되고 개념별로 모임
+  const studied = await call("GET", "/study");
+  check(studied.summary.codes >= 1 && studied.concepts.items.length === 8 && studied.levels.byLevel.length === 4, `내 공부 기록 (코드 ${studied.summary.codes}개, 항목 ${studied.summary.items}개)`);
+  check(result.items.every((e) => e.concept), "첨삭 항목마다 개념 꼬리표");
+  const focused = await call("POST", "/practice", { level: 2, topic: "편의점 재고", focus: "loop_update" });
+  check(focused.focus === "loop_update", "약한 개념 집중 연습 코드");
+  await call("POST", "/practice", { level: 2, topic: "x", focus: "없는개념" }, {}, 400);
+
   // ── AI 튜터 (tutor_chat.py): 첨삭 항목마다 대화, 10번까지, 다시 열면 대화가 남아 있음
   const t1 = await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "왜 이렇게 판정했나요?" });
   check(t1.turns.length === 2 && t1.turns[1].role === "tutor" && t1.turns[1].text && t1.turnsLeft === 9, "튜터에게 묻기 → 답");

@@ -39,7 +39,12 @@ MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
-SESSION_HOURS = 12            # 마지막 사용 후 이 시간이 지나면 학습자가 사라진다 (로그인 없는 임시 학습자)
+# 보관 기간: 학습자가 로그인했는지(member)에 따라 다르다. 지금은 로그인이 없어 모두 '로그인 안 한 학습자'
+#   로그인 안 함: 학습자 id 는 브라우저 탭(sessionStorage)에만 → 탭·브라우저를 닫으면 다시 찾을 수 없으니 서버 기록도 짧게
+#   로그인 (Google·GitHub, 추가 예정): 계정에 묶여 오래 남는다 — keep_seconds() 한 곳에서 정한다
+ANON_HOURS = 12               # 로그인 안 한 학습자: 마지막 사용 후 이 시간이 지나면 학습자·기록이 사라진다
+ANON_READING_HOURS = 24       # 로그인 안 한 학습자의 연습 코드·첨삭·'내 공부' 기록
+MEMBER_DAYS = 365             # 로그인 학습자 (추가 예정): 학습자·'내 공부' 기록
 SESSION_REFRESH_SEC = 15 * 60  # 학습자의 '마지막 사용 시각'은 이 간격마다만 고쳐 쓴다 (요청마다 쓰지 않아 빠르고 쌈)
 MOCK_DELAY_SEC = float(os.environ.get("MOCK_DELAY_SEC", "0.8"))   # 목업 응답을 기다리는 시간 (화면 확인용)
 MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (300줄 코드 + 메모 → 수십 KB)
@@ -47,14 +52,26 @@ MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (300줄 코드 + 메
 # 서비스 숫자 (바꾸면 바로 반영)
 MAX_CODE_LINES = 300          # 내 코드 점검: 올릴 수 있는 최대 줄 수
 REGEN_LIMIT = 5               # 같은 코드에서 '더 쉽게·더 어렵게'로 다시 만들 수 있는 횟수
-READING_KEEP_DAYS = 7         # 연습 코드·첨삭 기록 보관 기간 (지나면 DynamoDB 가 자동 삭제)
-UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (짧게)
+READING_KEEP_DAYS = 30        # 로그인 학습자 (추가 예정): 연습 코드 원본·첨삭·튜터 대화
+UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (로그인해도 짧게 — 개인정보)
 MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
 MAX_TUTOR_TURNS = 10          # 첨삭 결과의 메모 하나에 AI 튜터에게 물을 수 있는 횟수
 MAX_TUTOR_CHARS = 300         # 튜터 질문 하나의 최대 글자 수
 MAX_RETRIES = 3               # 첨삭 뒤 힌트를 보고 메모 하나를 다시 써 볼 수 있는 횟수
 LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
+
+# 개념 꼬리표: ※ 지점(과 메모 범위)이 어떤 '흐름'을 읽는 곳인지. '내 공부'의 개념별 약점 지도·집중 연습에 쓴다
+CONCEPTS = {
+    "branch": {"name": "조건 분기", "description": "if·elif·else 로 길이 갈리는 곳"},
+    "loop_update": {"name": "반복이 값을 바꾸는 곳", "description": "반복할 때마다 합계·목록·개수가 쌓이거나 바뀌는 곳"},
+    "call_flow": {"name": "함수가 함수를 부름", "description": "값이 함수 사이로 넘어가고 돌아오는 곳"},
+    "data_update": {"name": "자료구조 다루기", "description": "딕셔너리·리스트에서 찾고 넣고 바꾸는 곳"},
+    "class_state": {"name": "객체 상태 바뀜", "description": "클래스의 self 값이 메서드로 바뀌는 곳"},
+    "exception": {"name": "예외 흐름", "description": "raise·try·except 로 흐름이 건너뛰는 곳"},
+    "recursion": {"name": "재귀·되돌아가기", "description": "자기 자신을 부르거나 기록을 거꾸로 따라가는 곳"},
+    "algorithm": {"name": "알고리즘 핵심", "description": "정렬·탐색·최단 경로·동적 계획법의 중심 계산"},
+}
 
 # 난이도 4단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
 LEVELS = {
@@ -380,7 +397,17 @@ RECENT_TOPICS = 10   # 랜덤 주제에서 빼는 최근 주제 수
 
 
 def learner_from_item(item):
-    return {"id": item["sk"], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0)}
+    return {"id": item["sk"], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0),
+            "member": bool(item.get("member"))}   # 로그인 학습자인지 (로그인 추가 전까지 늘 False)
+
+
+def keep_seconds(learner, what):
+    """보관 기간(초). what: learner(학습자) · reading(연습 코드·첨삭) · study('내 공부' 기록) · upload(올린 코드)"""
+    if what == "upload":
+        return UPLOAD_KEEP_DAYS * 86400
+    if (learner or {}).get("member"):
+        return {"learner": MEMBER_DAYS, "reading": READING_KEEP_DAYS, "study": MEMBER_DAYS}[what] * 86400
+    return (ANON_HOURS if what == "learner" else ANON_READING_HOURS) * 3600
 
 
 def get_learner(req):
@@ -388,7 +415,7 @@ def get_learner(req):
     if req.get("learner"):
         return req["learner"]
     sid = req["headers"].get(SESSION_HEADER) or ""
-    session_ttl = SESSION_HOURS * 3600
+    session_ttl = keep_seconds(None, "learner")   # 새로 만들거나 이어 쓰는 학습자는 아직 모두 로그인 안 함
     if SESSION_ID.match(sid):
         found = get_item("LEARNER", sid)
         if found and alive(found):
@@ -711,20 +738,56 @@ def clean_marks(code, marks, limit=4):
         start, end = max(1, int(m["start"])), min(total, int(m["end"]))
         if start > end or (out and start <= out[-1]["end"]):
             continue
-        out.append({"id": f"m{len(out) + 1}", "start": start, "end": end, "why": str(m.get("why", ""))[:80],
+        concept = m.get("concept") if m.get("concept") in CONCEPTS else guess_concept(code, start, end)
+        out.append({"id": f"m{len(out) + 1}", "start": start, "end": end, "why": str(m.get("why", ""))[:80], "concept": concept,
                     "explanation": str(m.get("explanation", ""))[:600], "keywords": [str(k)[:30] for k in m.get("keywords", [])][:8]})
         if len(out) >= limit:
             break
     return out
 
 
+# 개념 추정 규칙 (AI 가 꼬리표를 빠뜨렸을 때, 예전 코드, 메모 범위). 위에서부터 먼저 맞는 것
+_CONCEPT_RULES = [
+    ("exception", r"\b(raise|try|except)\b"),
+    ("algorithm", r"\b(heapq|heappush|heappop|bisect\w*|deque)\b|\bbest\[|\bdp\[|\bmemo\["),
+    ("class_state", r"\bself\.\w+\s*(\+|-)?=(?!=)"),
+    ("loop_update", r"^\s*(for|while)\b"),
+    ("branch", r"^\s*(if|elif|else)\b"),
+    ("data_update", r"\w\[[^\]]+\]\s*(\+|-)?=(?!=)|\.(append|pop|setdefault|update|remove|extend|insert)\("),
+]
+
+
+def guess_concept(code, start, end):
+    """줄 범위 안의 문법으로 개념을 추정 (AI 없음). 자기 함수를 다시 부르면 재귀, 다른 함수를 부르면 함수 호출"""
+    lines = code.split("\n")
+    chunk = "\n".join(lines[max(0, start - 1):end])
+    # 이 범위를 감싸는 함수 (범위 첫 줄보다 덜 들여 쓴 가장 가까운 def). 맨 바깥 코드면 없음
+    first = next((l for l in lines[max(0, start - 1):end] if l.strip()), "")
+    indent = len(first) - len(first.lstrip())
+    owner = None
+    for i in range(min(start, len(lines)) - 1, -1, -1):
+        m = re.match(r"(\s*)def\s+(\w+)", lines[i])
+        if m and len(m.group(1)) < indent:
+            owner = m.group(2)
+            break
+    if owner and re.search(rf"\b{owner}\(", "\n".join(l for l in chunk.split("\n") if not re.match(r"\s*def\s", l))):
+        return "recursion"
+    for concept, pattern in _CONCEPT_RULES:
+        if re.search(pattern, chunk, re.M):
+            return concept
+    defined = set(re.findall(r"^\s*def\s+(\w+)", code, re.M))
+    if any(re.search(rf"\b{name}\(", chunk) for name in defined):
+        return "call_flow"
+    return "data_update"
+
+
 def save_reading(learner, **fields):
-    """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keepDays"""
+    """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keep(upload 면 짧게)"""
     reading_id = str(uuid.uuid4())
-    keep_days = fields.pop("keepDays", READING_KEEP_DAYS)
+    keep = min(keep_seconds(learner, fields.pop("keep", "reading")), keep_seconds(learner, "reading"))
     item = {"pk": f"READ#{reading_id}", "sk": "CODE", "id": reading_id, "owner": learner["id"], "language": "python",
             "createdAt": now_ms(), "rootId": fields.pop("rootId", None) or reading_id, "regenCount": fields.pop("regenCount", 0),
-            TTL_ATTR: ttl_after(keep_days * 86400), **fields}
+            TTL_ATTR: ttl_after(keep), **fields}
     put_item(item)
     return item
 
@@ -758,5 +821,5 @@ def public_reading(item):
         "topic": item.get("topic", ""), "title": item.get("title", ""), "code": item["code"],
         "marks": [{"id": m["id"], "start": m["start"], "end": m["end"]} for m in item.get("marks", [])],
         "regenLeft": max(0, REGEN_LIMIT - item.get("regenCount", 0)), "note": item.get("note"),
-        "functions": item.get("functions"), "levelReason": item.get("levelReason"),
+        "functions": item.get("functions"), "levelReason": item.get("levelReason"), "focus": item.get("focus"),
     }

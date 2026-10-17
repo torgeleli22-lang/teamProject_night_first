@@ -7,7 +7,7 @@ import { CodeView, type Range } from "@/components/CodeView";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
-import { ADJUST_REASONS, type AdjustReason, type Memo, type Reading, type ReadingWithReview, type ReviewResult } from "@/lib/api-types";
+import { ADJUST_REASONS, CONCEPT_NAMES, type AdjustReason, type Memo, type Reading, type ReadingWithReview, type ReviewResult } from "@/lib/api-types";
 import { circled, loadMemos, overlaps, saveMemos } from "@/lib/memos";
 
 const MAX_MEMOS = 20;
@@ -157,6 +157,7 @@ function Reader({ reading }: { reading: Reading }) {
         </div>
       </div>
       {reading.levelReason && <p className="hand mt-1 text-pen-red">{reading.levelReason}</p>}
+      {reading.focus && <p className="hand mt-1 text-pen-red">집중 연습: {CONCEPT_NAMES[reading.focus]} — 이 흐름이 나오는 곳을 특히 꼼꼼히 설명해 봐요.</p>}
       {reading.note && <p className="mt-1 text-xs text-ink-500">{reading.note}</p>}
       {practice && reading.regenLeft <= 0 && <p className="mt-1 text-xs text-ink-500">이 코드에서 다시 만들기를 다 썼어요. 새 코드는 &lsquo;연습 모드&rsquo;에서 받아 주세요.</p>}
 

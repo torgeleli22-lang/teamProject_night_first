@@ -23,3 +23,12 @@ test("화면의 민감 정보 모양이 Lambda 와 같음", () => {
     assert.ok(py.includes(`"${kind}"`) && ts.includes(`"${kind}"`), kind);
   }
 });
+
+test("개념 꼬리표가 Lambda 와 같음", () => {
+  const py = fs.readFileSync("lambda/api/common.py", "utf8");
+  const ts = fs.readFileSync("src/lib/api-types.ts", "utf8");
+  for (const [key, name] of [...py.matchAll(/"(\w+)": \{"name": "([^"]+)", "description"/g)].map((m) => [m[1], m[2]])) {
+    if (!["branch", "loop_update", "call_flow", "data_update", "class_state", "exception", "recursion", "algorithm"].includes(key)) continue;
+    assert.ok(ts.includes(`${key}: "${name}"`), `${key} → ${name}`);
+  }
+});

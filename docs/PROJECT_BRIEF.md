@@ -54,6 +54,7 @@
 | 03 메모하며 읽기 | `/read/?id=` | **2장**: 줄 번호·문법 색칠 코드, ※ 꼭 설명할 곳(진행 n / m), 줄을 누르면 한 줄·누른 채 끌면 범위에 형광펜(범위끼리 겹쳐도 됨, 겹친 곳은 더 진하게) → 포스트잇 메모 ①② 가 **고른 줄 바로 옆**에 붙고, 윗부분을 잡아 **자기 범위 안에서 위아래로 끌어 옮김**(키보드 ↑↓, 겹치면 아래로 밀림, 위치는 `anchor` 로 브라우저에만 저장). 쓰는 중에 −/+ 로 범위 조정. 휴대폰 너비에서는 코드 아래에 차례로, 더 쉽게(이유 고르기)·더 어렵게(메모가 사라진다는 경고), ※ 가 비어도 첨삭 받기 가능 | `GET /reading`, `POST /practice/adjust`, `POST /review` |
 | 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 왼쪽에 전체 코드(따라 내려옴, 첨삭에 마우스를 올리면 그 범위 표시), 오른쪽에 메모별 첨삭 + 정확(○)이 아닌 항목마다 **힌트를 보고 다시 써 보기**(그 항목만 다시 채점, 3번까지, 처음 → 다시 쓴 판정 변화 표시) + 메모마다 **AI 튜터와 더 깊게 알아보기**(질문 10번까지, 튜터가 알려 준 줄을 누르면 왼쪽 코드에 표시)(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
 | 05 내 코드 점검 | `/check/` | 파일 올리기(1개) / 붙여넣기 → 민감 정보 가리기(분홍 포스트잇) → 점검할 함수 고르기 → 훑어본 난이도 도장 → 메모하러 가기 (이후 03·04 와 같음, 더 쉽게/어렵게 없음) | `POST /inspect`, `POST /inspect/start` |
+| 내 공부 | `/study/` | **난이도 추천**(같은 난이도 최근 첨삭 5개의 ○ 비율: 80%↑ 올리기, 40%↓ 내리기, 3개 이상부터) · **개념별 약점 지도**(개념 8가지마다 처음 설명의 ○ 비율·다시 써서 ○ 된 수, 가장 약한 개념에 '이 개념 집중 연습') · **내 설명 노트**(○ 받은 내 설명을 개념별로, 코드 몇 줄과 함께) · 최근 공부 10개. AI 없음 | `GET /study` |
 | 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량(설명·성공·실패·비용·마지막 실패 이유, 예전 서비스 기록은 따로), 최근 AI 호출 기록(50건), 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
 
 **정한 값**: 업로드 최대 **300줄**, 지원 언어 **Python** (JS·Java 는 "곧 열려요" 안내), 점수는 **○△✕ 개수**, 같은 코드에서 다시 만들기 **5번**.
@@ -70,7 +71,11 @@
 코드마다 2~4곳 (고급은 5곳). 흐름을 이해해야만 설명할 수 있는 곳(조건 분기, 값을 바꾸는 반복, 함수가 다른 함수를 부르는 곳, 예외·재귀). 각 지점은 `start`·`end`(줄 범위), `why`, `explanation`(모범 설명, 첨삭 기준), `keywords`(핵심 표현 3~5개, 규칙 첨삭용) 를 가진다.
 AI 는 줄 번호를 자주 잘못 세서, 생성 응답은 **줄의 글자(`startLine`·`endLine`)** 로 받고 서버가 코드에서 그 줄을 찾는다 (같은 줄이 여러 개면 AI 가 적은 번호에 가장 가까운 줄, `practice.find_line`).
 
-### 4.3 첨삭 판정
+### 4.3 개념 꼬리표 (`common.CONCEPTS`)
+※ 지점마다 개념 하나: 조건 분기(branch) · 반복이 값을 바꾸는 곳(loop_update) · 함수가 함수를 부름(call_flow) · 자료구조 다루기(data_update) · 객체 상태 바뀜(class_state) · 예외 흐름(exception) · 재귀·되돌아가기(recursion) · 알고리즘 핵심(algorithm).
+AI 가 코드를 만들 때(내 코드 분석 때) 함께 정하고, 없거나 틀리면 `common.guess_concept` 가 줄 범위의 문법으로 추정. 첨삭 항목마다 붙어 '내 공부'의 개념별 약점 지도·집중 연습에 쓴다.
+
+### 4.4 첨삭 판정
 | 표시 | 뜻 | 누가 |
 | --- | --- | --- |
 | ○ correct | 흐름과 결과를 정확히 설명 | AI (안 되면 규칙: 핵심 표현 절반 이상) |
@@ -119,9 +124,10 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 ## 7. 사용자와 기록 정책 (로그인 없음)
 
-- Lambda 가 발급한 세션 id 를 브라우저 `sessionStorage` 에 둔다 (`x-session-id` 헤더). 탭을 닫으면 사라지고, 서버의 학습자는 마지막 사용 12시간 뒤 TTL 로 지워진다.
-- 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 연습 코드는 7일, 올린 코드는 1일 보관.
-- 붙인 메모는 첨삭을 받기 전까지 브라우저(`src/lib/memos.ts`, sessionStorage)에만 있다.
+- Lambda 가 발급한 학습자 id 를 브라우저 `sessionStorage` 에 둔다 (`x-session-id` 헤더). **탭·브라우저를 닫으면 사라지고** 다시 열면 새로 시작한다. 서버의 기록도 다시 찾을 수 없으니 짧게 지운다 (학습자: 마지막 사용 12시간 뒤, 읽은 코드·첨삭·'내 공부': 1일).
+- **로그인(Google·GitHub, 추가 예정)**: 학습자 항목에 `member: true` 를 두면 `common.keep_seconds` 가 보관 기간을 늘린다 (학습자·'내 공부' 1년, 연습 코드 30일, 올린 코드는 그대로 1일). 로그인 기능은 이 표시와 학습자 id 를 계정에 묶는 부분만 더하면 된다.
+- 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 보관 기간은 `common.keep_seconds` 한 곳에서 정한다 (위).
+- 붙인 메모는 첨삭을 받기 전까지 이 탭(`src/lib/memos.ts`, sessionStorage)에만 있다.
 
 ## 8. 화면 디자인 (공부 노트)
 
@@ -150,13 +156,15 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `POST /inspect`, `POST /inspect/start` | `inspect_code.py` | 시작만 |
 | `POST /review`, `POST /review/retry` | `review.py` | ○ |
 | `POST /tutor` | `tutor_chat.py` | ○ |
+| `GET /study` | `study.py` | |
 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | `admin.py` (`x-admin-token`) | |
 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
-| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen | 마지막 사용 12시간 뒤 |
-| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 연습 7일 · 올린 코드 1일 |
+| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member(로그인 학습자, 추가 예정) | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
+| `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
+| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `READ#<uuid>` | `RETRY#<첨삭 시각>#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
 | `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
@@ -209,6 +217,7 @@ npm run smoke     # Lambda 전체 흐름 점검
 **다음 순서**
 1. 콘솔의 `jojo_api_py` 파일 바꾸기 (`docs/DEPLOY_LAMBDA.md` 2단계) → 화면 main 병합
 2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기
+3. Google·GitHub 로그인 → 로그인 학습자만 기록을 오래 남김 (`member`, `keep_seconds`)
 3. JavaScript·Java, 코드 실행 확인
 
 **팀이 정해야 할 것**

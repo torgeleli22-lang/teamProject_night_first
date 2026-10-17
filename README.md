@@ -21,6 +21,8 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 
 첨삭은 정답을 바로 알려 주지 않고 **다시 볼 줄**을 짚어요. 모범 설명은 첨삭을 받은 뒤 직접 눌러야 보여요.
 
+**내 공부** — 첨삭이 쌓이면 **어떤 흐름(개념)을 못 읽는지**(개념별 약점 지도 → '이 개념 집중 연습'), **언제 난이도를 올리고 내릴지**(난이도 추천), **내가 잘 쓴 설명**(내 설명 노트)을 보여 줘요. 모두 AI 없이 기록으로 계산해요.
+
 **두 가지 모드**
 - **연습 모드** — 난이도(입문 · 초급 · 중급 · 고급)와 주제(랜덤 / 직접 적기)를 고르면 AI 가 읽기 연습용 Python 코드와 ※ 꼭 설명할 곳을 만들어요. 고급은 100~200줄에 자료구조·알고리즘(최단 경로·동적 계획법 등)이 들어가요.
 - **내 코드 점검** — 갖고 있는 Python 코드(파일 1개 또는 붙여넣기, 300줄까지)를 올리면 AI 가 난이도와 ※ 지점을 정해요. API 키·비밀번호 같은 값은 **보내기 전에 화면에서 가려요**.
@@ -45,6 +47,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | 다시 써 보기 | `/result/` | 다시 쓴 설명 하나만 다시 채점 | ○ |
 | AI 튜터 | `/result/` | 첨삭 항목 하나에 대해 묻고 답하기 (대화 저장) | ○ |
 | 내 코드 점검 | `/check/` | 민감 정보 다시 가리기 · 함수 목록 · 훑어본 난이도(규칙) → '메모하러 가기'에서 AI 가 난이도·※ | 시작할 때 |
+| 내 공부 | `/study/` | 첨삭 기록(이 탭에서만, 로그인 후 1년 예정)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
 | 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드 | — |
 
 **AI 가 없어도 동작해요.** 관리자가 AI 를 끄거나, 월 예산($10)에 닿거나, 요청 한도를 넘으면 예시 코드 · 규칙 판정 · 규칙 첨삭으로 바뀌고 화면에 안내가 나와요.
@@ -60,7 +63,8 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
 - **서버**: Lambda **하나**. 입구 파일이 경로를 보고 기능 파일로 보내요. 콘솔 코드 탭에 **그대로 붙여넣는 읽을 수 있는 코드**(Python + boto3)라 zip·빌드가 없어요.
-- **로그인 없음**: 브라우저 탭마다 세션 id(sessionStorage). 읽은 코드·첨삭은 만든 사람만 열 수 있고, 연습 코드는 7일·올린 코드는 1일 뒤 자동 삭제.
+- **로그인 없음 (지금)**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
+- **로그인 (Google·GitHub, 추가 예정)**: 로그인한 학습자만 기록을 오래 남겨요 (`common.keep_seconds` 한 곳에서 보관 기간을 정함).
 
 ---
 
@@ -78,11 +82,12 @@ src/
 │  ├─ read/ReadNote.tsx                03 메모하며 읽기  /read/?id=
 │  ├─ result/ResultNote.tsx            04 빨간펜 첨삭  /result/?id=
 │  ├─ check/CheckCode.tsx              05 내 코드 점검  /check/
+│  ├─ study/StudyNote.tsx              내 공부  /study/
 │  └─ admin/AdminNote.tsx              관리자  /admin/
 │     (각 폴더의 page.tsx 는 위 파일을 불러오기만 하는 껍데기 — 고칠 일 없음)
 ├─ components/                         여러 화면이 함께 쓰는 부품
 │  ├─ ui.tsx                           Page · Crumb · Sticky · Stamp · PenMark · Waiting · ErrorNote
-│  ├─ NoteHeader.tsx                   맨 위 제목 + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검)
+│  ├─ NoteHeader.tsx                   맨 위 제목 + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검 / 내 공부)
 │  ├─ CodeView.tsx                     줄 번호·문법 색칠·형광펜·※·①② 가 있는 코드
 │  ├─ MemoMargin.tsx                   코드 옆 포스트잇(끌어 옮기기) + DraftNote(메모 쓰는 칸)
 │  ├─ RetryBox.tsx                     "힌트를 보고 다시 써 보기"
@@ -104,6 +109,7 @@ src/
 | `read/ReadNote.tsx` | `Reader` 본체(제목·도장·버튼·안내 줄·코드+메모) / `AdjustDialog` 더 쉽게·어렵게 창 / `useWide` 넓은 화면 판별 | CodeView · MemoMargin · DraftNote · Stamp |
 | `result/ResultNote.tsx` | `ResultBody` 총평·○△✕ 개수·왼쪽 전체 코드 / `ItemRow` 메모별 첨삭 한 칸 | CodeView · PenMark · RetryBox · TutorChat |
 | `check/CheckCode.tsx` | 파일 올리기/붙여넣기 탭 · 분홍 경고 포스트잇 · 함수 체크 목록 · 훑어본 난이도 도장 | Sticky · Stamp · Waiting |
+| `study/StudyNote.tsx` | `LevelSection` 난이도 추천 · `ConceptSection`/`ConceptRow` 개념별 약점 지도 · `NotesSection` 내 설명 노트(개념 탭) · `RecentSection` 최근 공부 · `Bar` 형광펜 막대 | Sticky · Stamp · PenMark |
 | `admin/AdminNote.tsx` | AI 스위치 · 비용 · `UsageTable` 작업별 사용량 · 최근 AI 호출 기록 · 날짜별 수 · 관리자 코드 | Sticky |
 
 ### 4.3 이걸 바꾸려면 → 이 파일
@@ -126,6 +132,8 @@ src/
 | ○△✕ 이름, 더 쉽게 이유 | `src/lib/api-types.ts` → `MARK_NAMES`, `ADJUST_REASONS` |
 | 랜덤 주제 예시(손글씨 줄) | `practice/PracticeStart.tsx` → `EXAMPLES`, `ADVANCED_EXAMPLES` |
 | 튜터 첫 질문 버튼 | `components/TutorChat.tsx` → `STARTERS` |
+| 개념 이름 | `src/lib/api-types.ts` → `CONCEPT_NAMES` (서버 `common.CONCEPTS` 와 같게) |
+| 내 공부 화면(추천 문구·막대 색·노트 모양) | `app/study/StudyNote.tsx` |
 | 다시 써 보기 칸 문구 | `components/RetryBox.tsx` |
 | 각 화면의 문구·배치 | 4.1 의 해당 화면 파일 |
 
@@ -150,6 +158,7 @@ src/
 | `inspect_code.py` | 내 코드: 민감 정보 가리기 · 함수 찾기 · 난이도·※ | `POST /inspect`, `POST /inspect/start` | `code_inspection` |
 | `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 | `POST /review`, `POST /review/retry` | `review`, `review_retry` |
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
+| `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
 | `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | — |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 8개 · 랜덤 주제 목록 | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
@@ -168,7 +177,7 @@ src/
 | 6. 학습자(세션) | `get_learner`, `remember_topic` |
 | 7. AI 호출 | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, AI 끄기 스위치, 목업, 사용량(`USAGE`)·호출 기록(`AILOG`) |
 | 8. 설정 값 | `get_meta`, `set_meta` (AI 스위치·관리자 코드 해시) |
-| 9. 읽을 코드 | `save_reading`, `load_reading`(내 코드만), `public_reading`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
+| 9. 읽을 코드 | `CONCEPTS`·`guess_concept`(개념 꼬리표), `save_reading`, `load_reading`(내 코드만), `public_reading`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
 
 ### 5.3 이걸 바꾸려면 → 이 파일
 
@@ -186,6 +195,9 @@ src/
 | 예시 코드·랜덤 주제 | `samples.py` → `SAMPLES`, `TOPIC_POOL`, `ADVANCED_TOPIC_POOL` (고치면 `npm run verify`) |
 | 요청 한도·월 예산 | `common.py` → `LIMITS`, `MONTHLY_BUDGET_USD` 또는 Lambda 환경 변수 |
 | 관리자 화면의 작업 이름·실패 이유 문구 | `admin.py` → `TASKS`, `ERROR_REASONS` |
+| 개념 종류·이름, 개념 추정 규칙 | `common.py` → `CONCEPTS`, `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |
+| 난이도 추천 기준(80%·40%·최근 5개·3개 이상), 약점 기준 | `study.py` → `LEVEL_UP`, `LEVEL_DOWN`, `RECENT_PER_LEVEL`, `MIN_FOR_LEVEL`, `MIN_FOR_WEAK` |
+| 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `common.py` → `ANON_HOURS`, `ANON_READING_HOURS`, `MEMBER_DAYS`, `READING_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
 | 새 기능 경로 추가 | 기능 파일을 새로 만들고 `ROUTES` 를 둔 뒤 `lambda_function.py` 의 `for feature in (…)` 에 추가 (함수를 늘리지 않음) |
 
 ### 5.4 DynamoDB 항목 (테이블 `jojo_table`, pk / sk)
@@ -197,6 +209,7 @@ src/
 | `READ#<id>` | `REVIEW#<시각>` | 첨삭 결과 |
 | `READ#<id>` | `RETRY#<첨삭 시각>#<항목>` | 다시 써 본 기록 |
 | `READ#<id>` | `CHAT#<첨삭 시각>#<항목>` | 튜터 대화 |
+| `STUDY#<학습자>` | `R#<읽은 코드 id>` | 내 공부 기록: 개념·처음/가장 좋은 판정·내 설명 (로그인 안 함 1일 · 로그인 1년) |
 | `STATS` | `DAY#날짜` | 하루 사용 수 |
 | `USAGE` · `AILOG` | 월·작업·모델 / 시각 | AI 토큰·비용, AI 호출 기록 |
 | `META` | `ai_switch` · `admin_code_hash` | AI 스위치, 관리자 코드 |
@@ -244,4 +257,4 @@ docs/               PROJECT_BRIEF.md · ai-generation-policy.md · DEPLOY_LAMBDA
 ## 다음 단계
 - 내 코드 점검에 JavaScript · Java
 - AI 가 만든 코드의 실제 실행 확인
-- 로그인 + 기록 영구 저장
+- Google·GitHub 로그인 → 로그인한 학습자만 기록을 오래 남기기

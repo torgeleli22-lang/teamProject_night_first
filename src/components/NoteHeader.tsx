@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/practice", label: "연습 모드", color: "bg-sticky-yellow", match: ["/practice", "/read", "/result"] },
   { href: "/check", label: "내 코드 점검", color: "bg-sticky-mint", match: ["/check"] },
+  { href: "/study", label: "내 공부", color: "bg-sticky-pink", match: ["/study"] },
 ];
 
 export function NoteHeader() {
