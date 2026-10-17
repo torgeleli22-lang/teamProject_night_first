@@ -45,6 +45,13 @@
   .page-body {
     @apply py-8 pl-8 pr-5 sm:pl-16 sm:pr-10;
   }
+  /* 공책 너비: 보통 1440px, '넓게 보기'(html[data-wide="1"])면 브라우저 너비 그대로 */
+  .note-wrap {
+    max-width: 1440px;
+  }
+  html[data-wide="1"] .note-wrap {
+    max-width: none;
+  }
 
   /* 형광펜 (글자 아래쪽 절반만 칠한 느낌) */
   .marker {
