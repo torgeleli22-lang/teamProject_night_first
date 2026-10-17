@@ -1,8 +1,10 @@
 "use client";
 
+import type { Language } from "@/lib/api-types";
 import { highlightLine, type TokenKind } from "@/lib/highlight";
 
-const COLOR: Record<TokenKind, string> = {
+/** 문법 색칠 종류 → 글자색 (내 공부의 코드 조각도 같이 씀) */
+export const TOKEN_COLOR: Record<TokenKind, string> = {
   kw: "text-code-kw",
   str: "text-code-str",
   num: "text-code-num",
@@ -26,9 +28,11 @@ export interface Range {
  * - from·to: 일부 줄만 보여 줄 때 (첨삭 결과)
  * - tint: 연분홍으로 칠할 줄 (다시 볼 곳)
  * - focus: 지금 보고 있는 범위 (형광펜보다 위에, 분홍 + 왼쪽 빨간 줄)
+ * - language: 문법 색칠 언어 (기본 Python)
  */
 export function CodeView({
   code,
+  language = "python",
   stars = [],
   highlights = [],
   labels = [],
@@ -42,6 +46,7 @@ export function CodeView({
   onLineEnter,
 }: {
   code: string;
+  language?: Language;
   stars?: number[];
   highlights?: Range[];
   labels?: string[];
@@ -79,8 +84,8 @@ export function CodeView({
         <span className="text-center font-sans text-base font-bold text-pen-red">{stars.includes(no) ? "※" : ""}</span>
         <span className="border-r border-margin pr-2 text-right text-ink-400">{no}</span>
         <span className="code-text whitespace-pre pl-3 pr-2 text-ink-900">
-          {highlightLine(lines[no - 1]).map((t, i) => (
-            <span key={i} className={COLOR[t.kind]}>
+          {highlightLine(lines[no - 1], language).map((t, i) => (
+            <span key={i} className={TOKEN_COLOR[t.kind]}>
               {t.text}
             </span>
           ))}

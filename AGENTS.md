@@ -11,8 +11,8 @@ AI 사용 기준(프롬프트·검사·대체 동작)은 `docs/ai-generation-pol
 - 구조: 화면은 정적 페이지(GitHub Pages), 서버는 **Python Lambda 하나** `jojo_api`(`lambda/api/`, 함수 URL 하나, 기능별 파일) + DynamoDB + Bedrock. 최소 비용·최고 속도가 목표라 기능마다 함수를 늘리지 않고 `lambda/api/` 에 기능 파일을 더한다. 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부르며, 응답 모양은 `src/lib/api-types.ts` 에 Lambda 와 같게 유지한다.
 - **Lambda 는 콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스로 유지한다**: zip·번들·압축·빌드 단계를 만들지 않는다. `lambda_handler` 와 처리 함수에 단계 번호 주석, 외부 라이브러리 없이 boto3 만. 공통 코드는 `lambda/api/common.py` 하나.
 - DynamoDB 항목 모양(pk·sk, 필드)을 바꾸면 그 항목을 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 바꾸고 `npm run smoke` 로 확인한다.
-- 예시 코드(`lambda/api/samples.py`)를 추가·수정하면 `npm run verify` 를 통과시킨다 (실제 실행 + ※ 줄 범위 확인).
-- 정한 값: 업로드 최대 300줄, 지원 언어 Python(JS·Java 는 나중에), 점수는 ○△✕ 개수, 같은 코드 다시 만들기 5번 (`common.py` 1번 설정).
+- 예시 코드(`lambda/api/samples.py`, JavaScript 는 `samples_js.py`)를 추가·수정하면 `npm run verify` 를 통과시킨다 (실제 실행(Python·node) + ※ 줄 범위 확인).
+- 정한 값: 업로드 최대 300줄, 연습 모드 언어 Python·JavaScript(`common.LANGUAGES`, Java 는 나중에) · 내 코드 점검은 Python 만, 점수는 ○△✕ 개수, 같은 코드 다시 만들기 5번 (`common.py` 1번 설정).
 - 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이. 디자인은 공부 노트(줄 공책·여백선·형광펜·포스트잇·빨간펜·도장·인덱스 탭), 그라데이션·둥근 카드·이모지·파란 버튼은 쓰지 않는다. ○△✕⬚ 는 늘 빨간펜 그림(`ui.tsx` 의 `PenMark`, 문장은 `MarkText`)으로 — 글자로 쓰지 않는다.
 - AWS 는 `docs/PROJECT_BRIEF.md` §10 에 확정된 범위만: Lambda(실행 역할 SafeRole, VPC 없음) + DynamoDB `jojo_table` + Bedrock Claude Haiku 4.5(us-east-1). S3 등은 요청 없이 넣지 않는다. 비밀 값은 코드·문서에 쓰지 않는다.
 

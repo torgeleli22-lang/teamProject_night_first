@@ -7,9 +7,9 @@ import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
 import { RetryBox } from "@/components/RetryBox";
 import { TutorChat } from "@/components/TutorChat";
-import { Crumb, ErrorNote, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, LangTag, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
-import { CONCEPT_NAMES, MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
+import { CONCEPT_NAMES, type Language, MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
 
 const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
@@ -61,6 +61,7 @@ function ResultBody({
           <h1 className="mt-2 flex flex-wrap items-center gap-3 text-2xl sm:text-3xl">
             {reading.title || reading.topic}
             <Stamp>{reading.levelName}</Stamp>
+            <LangTag language={reading.language} />
           </h1>
           <p className="hand mt-3 text-2xl text-pen-red">
             <MarkText text={review.summary} />
@@ -87,6 +88,7 @@ function ResultBody({
           </p>
           <CodeView
             code={reading.code}
+            language={reading.language}
             stars={review.items.filter((it) => it.marked).map((it) => it.start)}
             highlights={memoItems}
             labels={memoItems.map((_, i) => circled(i + 1))}
@@ -104,6 +106,7 @@ function ResultBody({
                 key={i}
                 item={item}
                 code={reading.code}
+                language={reading.language}
                 label={item.kind === "memo" ? circled(memoItems.indexOf(item) + 1) : "※"}
                 onFocus={() => setActive(item)}
                 talking={!!chats[String(i)]?.turns.length}
@@ -145,6 +148,7 @@ function ResultBody({
 function ItemRow({
   item,
   code,
+  language,
   label,
   onFocus,
   talking = false,
@@ -153,6 +157,7 @@ function ItemRow({
 }: {
   item: ReviewItem;
   code: string;
+  language: Language;
   label: string;
   onFocus: () => void;
   /** 이미 나눈 대화가 있으면 펼친 채로 */
@@ -171,7 +176,7 @@ function ItemRow({
         {item.marked && <b className="text-pen-red"> · ※ 꼭 설명할 곳</b>}
         {item.concept && <span className="ml-2 border border-ink-400 bg-paper px-1.5 py-0.5 text-[11px] text-ink-700">{CONCEPT_NAMES[item.concept]}</span>}
       </p>
-      <CodeView code={code} from={item.start} to={item.end} tint={item.lookAt} />
+      <CodeView code={code} language={language} from={item.start} to={item.end} tint={item.lookAt} />
       <div className="mt-3 flex items-start gap-3">
         {item.kind === "memo" ? (
           <Sticky className="flex-1 p-3" tilt={-0.4}>

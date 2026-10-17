@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CodeView, type Range } from "@/components/CodeView";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
-import { Crumb, ErrorNote, Page, Stamp, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
 import { ADJUST_REASONS, CONCEPT_NAMES, type AdjustReason, type Memo, type Reading, type ReadingWithReview, type ReviewResult } from "@/lib/api-types";
 import { circled, loadMemos, overlaps, saveMemos } from "@/lib/memos";
@@ -133,6 +133,7 @@ function Reader({ reading }: { reading: Reading }) {
         <h1 className="flex flex-wrap items-center gap-3 text-2xl sm:text-3xl">
           {reading.title || reading.topic}
           <Stamp>{reading.levelName}</Stamp>
+          <LangTag language={reading.language} />
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           {practice && (
@@ -190,6 +191,7 @@ function Reader({ reading }: { reading: Reading }) {
       <div className="mt-4 grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <CodeView
           code={reading.code}
+          language={reading.language}
           stars={reading.marks.map((m) => m.start)}
           highlights={memos}
           labels={labels}

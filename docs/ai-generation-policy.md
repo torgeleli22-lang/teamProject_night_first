@@ -7,7 +7,7 @@
 | 작업 (`USAGE` 이름) | 파일 | 언제 | AI 없을 때 |
 | --- | --- | --- | --- |
 | 주제 판정 `topic_check` | `topics.py` | '직접 적기' 주제를 낼 때 | `rule_check`: 금지어 → 부적절, 막연한 말 → 제안 3개, 큰 단어(입문·초급은 엄격) → 좁힌 주제 |
-| 연습 코드 만들기 `code_generation` | `practice.py` | 코드 받기, 더 쉽게·더 어렵게 | `samples.py` 의 예시 코드 (같은 난이도, 같은 주제 → 최근에 안 푼 주제) |
+| 연습 코드 만들기 `code_generation` | `practice.py` | 코드 받기, 더 쉽게·더 어렵게 | `samples.py`·`samples_js.py` 의 예시 코드 (같은 언어·난이도, 같은 주제 → 최근에 안 푼 주제) |
 | 내 코드 분석 `code_inspection` | `inspect_code.py` | '메모하러 가기' | `rule_analysis`: 문법 요소로 난이도, 함수마다 조건·반복 덩어리를 ※ 로 |
 | 빨간펜 첨삭 `review` | `review.py` | '첨삭 받기' | `rule_review`: 겹치는 ※ 지점의 핵심 표현이 메모에 얼마나 있는지로 ○△✕ |
 | 다시 써 보기 채점 `review_retry` | `review.py` | 첨삭 뒤 '다시 채점 받기' | `rule_retry`: 첫 첨삭과 같은 핵심 표현 규칙 |

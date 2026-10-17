@@ -8,7 +8,9 @@ AI 가 만드는 코드와 모양이 같아요:
 모범 설명(explanation)과 핵심 표현(keywords)은 첨삭을 받은 뒤에만 화면에 보여요.
 concept 는 그 ※ 지점의 개념 꼬리표 (common.CONCEPTS) — '내 공부'의 개념별 약점 지도에 쓰여요.
 코드를 고치면 npm run verify 로 실제 실행·※ 줄 범위를 확인하세요.
+JavaScript 예시 코드는 samples_js.py 에 있어요 (아래에서 SAMPLES 에 합쳐요).
 """
+from samples_js import JS_SAMPLES
 
 SAMPLES = [
     {
@@ -560,6 +562,7 @@ print("동적 계획법이 더 번 금액:", dp_total - greedy_total, "원")""",
         ],
     },
 ]
+SAMPLES += JS_SAMPLES   # JavaScript 예시 코드 (samples_js.py, language: "javascript"). 위 Python 예시 코드는 language 를 적지 않으면 python
 
 # 랜덤으로 뽑기: 생활 속 주제 (최근에 푼 주제는 빼고 뽑아요)
 TOPIC_POOL = [

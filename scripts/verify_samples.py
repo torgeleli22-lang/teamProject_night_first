@@ -1,10 +1,11 @@
 """
 예시 코드 검증 (npm run verify): lambda/api/samples.py 의 코드를 실제로 실행해 보고 ※ 지점을 확인한다.
-- 실행: 오류 없이 끝나고 무언가를 출력해야 한다 (5초 제한, 따로 띄운 Python 에서)
+- 실행: 오류 없이 끝나고 무언가를 출력해야 한다 (5초 제한, 따로 띄운 Python · JavaScript 는 node 에서)
 - ※ 지점: 코드 줄 범위 안, 겹치지 않음, 빈 줄로 시작·끝나지 않음, 모범 설명·핵심 표현이 있음
 - 목업 AI 응답으로 바꿨다가 다시 줄 번호를 찾으면 같은 범위가 나와야 한다
 """
 import os
+import shutil
 import subprocess
 import sys
 
@@ -13,7 +14,7 @@ sys.path.insert(0, os.path.join(ROOT, "lambda", "api"))
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 import practice  # noqa: E402
-from common import LEVELS, clean_marks  # noqa: E402
+from common import LANGUAGES, LEVELS, clean_marks  # noqa: E402
 from samples import ADVANCED_TOPIC_POOL, SAMPLES, TOPIC_POOL  # noqa: E402
 
 failures = []
@@ -26,8 +27,16 @@ def fail(sample_id, message):
 for s in SAMPLES:
     sid = s["id"]
     # 1. 실제 실행
-    run = subprocess.run([sys.executable, "-I", "-c", s["code"]], capture_output=True, text=True, timeout=5,
-                         env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+    language = s.get("language", "python")
+    if language == "javascript":
+        node = shutil.which("node")
+        if not node:
+            fail(sid, "node 가 없어 JavaScript 예시 코드를 실행해 보지 못했어요")
+            continue
+        run = subprocess.run([node, "-e", s["code"]], capture_output=True, text=True, timeout=5)
+    else:
+        run = subprocess.run([sys.executable, "-I", "-c", s["code"]], capture_output=True, text=True, timeout=5,
+                             env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     if run.returncode != 0:
         fail(sid, "실행 오류\n" + run.stderr.strip())
     elif not run.stdout.strip():
@@ -51,11 +60,15 @@ for s in SAMPLES:
         if not m.get("explanation") or not m.get("keywords") or not m.get("why"):
             fail(sid, f"※ {m['start']}~{m['end']}번 줄에 why·explanation·keywords 가 필요해요")
     # 4. 목업 AI 응답 왕복
-    _, marks, problems = practice.check_generated(practice.sample_as_ai(s), s["level"])
+    _, marks, problems = practice.check_generated(practice.sample_as_ai(s), s["level"], language)
     if problems or [(m["start"], m["end"]) for m in marks] != [(m["start"], m["end"]) for m in s["marks"]]:
         fail(sid, f"줄 글자로 ※ 지점을 다시 찾지 못했어요 {problems}")
-    print(f"{'✗' if any(f.startswith(sid + ':') for f in failures) else '✓'} {sid} ({LEVELS.get(s['level'], {}).get('name')}, {len(lines)}줄, ※ {len(s['marks'])}곳)")
+    print(f"{'✗' if any(f.startswith(sid + ':') for f in failures) else '✓'} {sid} ({language}, {LEVELS.get(s['level'], {}).get('name')}, {len(lines)}줄, ※ {len(s['marks'])}곳)")
 
+for language in LANGUAGES:   # 언어마다 난이도별 예시 코드가 하나 이상 (AI 를 못 쓸 때 대신 낼 코드)
+    missing = [lv for lv in LEVELS if not any(s.get("language", "python") == language and s["level"] == lv for s in SAMPLES)]
+    if missing:
+        failures.append(f"{language} 예시 코드가 없는 난이도: {missing}")
 if len(set(s["id"] for s in SAMPLES)) != len(SAMPLES):
     failures.append("예시 코드 id 가 겹쳐요")
 if any(len(set(p)) != len(p) or any(len(t) > 50 for t in p) for p in (TOPIC_POOL, ADVANCED_TOPIC_POOL)):
