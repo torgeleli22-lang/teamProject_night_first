@@ -1,8 +1,9 @@
 import random
 
-from common import (LEVELS, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
-                    get_learner, load_reading, public_reading, query_all, remember_topic, save_reading)
+from common import (LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, count_event, field,
+                    get_learner, load_reading, log_ai_event, public_reading, remember_topic, save_reading)
 from samples import SAMPLES
+from tutor_chat import chats_for, latest_review
 
 # ─────────────────────────────────────────────────────────────
 # 연습 모드 (practice.py) — jojo_api 의 기능 파일
@@ -113,8 +114,9 @@ def adjust(req):
 def get_reading(req):
     learner = get_learner(req)
     item = load_reading(req["query"].get("id", ""), learner)
-    reviews = [r for r in query_all(f"READ#{item['id']}", prefix="REVIEW#")]
-    return {"reading": public_reading(item), "review": reviews[-1]["result"] if reviews else None}
+    review = latest_review(item["id"])
+    return {"reading": public_reading(item), "review": review["result"] if review else None,
+            "chats": chats_for(item["id"], review)}   # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
 
 
 ROUTES = {
@@ -150,6 +152,8 @@ def make_code(req, level, topic, learner, prompt_extra):
                     "note": "(목업) 고른 주제와 다른 예시 코드일 수 있어요." if r.get("_mock") else None}
         feedback = "방금 만든 코드에 문제가 있었어요. 고쳐서 다시 만들어 주세요:\n" + "\n".join(f"- {p}" for p in problems)
         print("[generate] 다시 만듦:", problems)
+        # AI 는 답했지만 서버 검사에서 걸린 것도 관리자 화면 'AI 호출 기록'에 남긴다
+        log_ai_event("code_generation", f"mock:{MODEL_ID}" if r.get("_mock") else MODEL_ID, False, error="; ".join(problems), stage="check")
     return from_sample(sample, "AI 가 만든 코드가 검사를 통과하지 못해 준비된 예시 코드를 드려요.")
 
 

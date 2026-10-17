@@ -83,6 +83,8 @@ export const ADJUST_REASONS: Record<AdjustReason, string> = {
 export interface ReadingWithReview {
   reading: Reading;
   review: ReviewResult | null;
+  /** 첨삭 항목 번호(문자열) → AI 튜터와 나눈 대화 */
+  chats?: Record<string, TutorChat>;
 }
 
 // ───────────────────────── 내 코드 점검 (inspect_code.py) ─────────────────────────
@@ -146,17 +148,64 @@ export interface ReviewResult {
   createdAt: number;
 }
 
+// ───────────────────────── AI 튜터 (tutor_chat.py) ─────────────────────────
+
+export interface TutorTurn {
+  role: "user" | "tutor";
+  text: string;
+  /** 튜터가 다시 보라고 한 줄 */
+  lookAt: number[];
+  at: number;
+}
+
+export interface TutorChat {
+  turns: TutorTurn[];
+  turnsLeft: number;
+}
+
+/** POST /tutor */
+export interface TutorReply extends TutorChat {
+  item: number;
+  byAi: boolean;
+}
+
 // ───────────────────────── 관리자 (admin.py) ─────────────────────────
 
+/** 이번 달 AI 사용량: 작업 × 모델 한 줄 */
 export interface UsageRow {
   task: string;
   taskName: string;
+  /** 지금 서비스가 쓰는 작업인지 (false 면 예전 서비스의 기록) */
+  current: boolean;
+  description: string;
   model: string;
+  modelName: string;
+  mock: boolean;
   calls: number;
+  successes: number;
+  failures: number;
   input: number;
   output: number;
   cacheRead: number;
-  failures: number;
+  costUsd: number;
+  lastAt: number | null;
+  /** 마지막 실패 이유 (관리자가 읽을 말 — 원래 오류) */
+  lastError: string;
+  lastErrorAt: number | null;
+}
+
+/** AI 호출 하나 (최근 50개, 14일 보관). stage=check 는 AI 는 답했지만 서버 검사에서 걸린 것 */
+export interface AiLogRow {
+  at: number;
+  task: string;
+  taskName: string;
+  modelName: string;
+  ok: boolean;
+  stage: "ai" | "check";
+  input: number;
+  output: number;
+  ms: number;
+  error: string;
 }
 
 export interface DayCount {
@@ -166,6 +215,7 @@ export interface DayCount {
   topicChecks: number;
   inspections: number;
   reviews: number;
+  tutorChats: number;
 }
 
 export interface AdminOverview {
@@ -174,6 +224,7 @@ export interface AdminOverview {
   model: string;
   budget: { monthlyUsd: number; monthToDateUsd: number; realUsd: number; percent: number };
   usage: UsageRow[];
+  recent: AiLogRow[];
   days: DayCount[];
   adminCode: { custom: boolean; recovery: boolean };
 }

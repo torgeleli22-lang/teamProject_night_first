@@ -147,7 +147,7 @@ function Reader({ reading }: { reading: Reading }) {
       {busy === "review" && <Waiting text="빨간펜으로 메모를 첨삭하고 있어요…" />}
       {(busy === "easier" || busy === "harder") && <Waiting text={`${busy === "easier" ? "더 쉬운" : "더 어려운"} 코드로 다시 쓰고 있어요…`} />}
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_300px]">
+      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <CodeView
           code={reading.code}
           stars={reading.marks.map((m) => m.start)}

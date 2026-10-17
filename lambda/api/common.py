@@ -50,6 +50,8 @@ READING_KEEP_DAYS = 7         # 연습 코드·첨삭 기록 보관 기간 (지�
 UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (짧게)
 MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
+MAX_TUTOR_TURNS = 10          # 첨삭 결과의 메모 하나에 AI 튜터에게 물을 수 있는 횟수
+MAX_TUTOR_CHARS = 300         # 튜터 질문 하나의 최대 글자 수
 LANGUAGES = {"python": "Python"}   # 지원 언어 (추후 javascript, java)
 
 # 난이도 3단계 (고정 기준이 아니라 출발점. 사용자가 '더 쉽게·더 어렵게'로 조정)
@@ -473,13 +475,33 @@ def month_cost_usd(include_mock=False):
     return estimate_cost([u for u in usage_summary(month_key()) if include_mock or not u["model"].startswith("mock:")])
 
 
-def log_usage(task, model, inp, out, cache_read, ok):
+AI_LOG_DAYS = 14   # 관리자 화면의 'AI 호출 기록' 보관 기간
+
+
+def log_usage(task, model, inp, out, cache_read, ok, error=None, ms=0):
+    """AI 호출 한 번을 기록한다: USAGE(이번 달 합계) + AILOG(호출 하나하나, 14일 보관)"""
     month = month_key()
+    now = now_ms()
     try:
-        update_item("USAGE", f"{month}#{task}#{model}", set_values={"task": task, "model": model, "month": month},
+        latest = {"task": task, "model": model, "month": month, "lastAt": now}
+        if error:
+            latest.update(lastError=error[:200], lastErrorAt=now)
+        update_item("USAGE", f"{month}#{task}#{model}", set_values=latest,
                     add_values={"calls": 1, "input": inp, "output": out, "cacheRead": cache_read, "failures": 0 if ok else 1})
+        log_ai_event(task, model, ok, inp, out, ms, error)
     except Exception as e:  # 사용량 기록 실패가 학습을 막지 않도록
         print("[usage]", repr(e))
+
+
+def log_ai_event(task, model, ok, inp=0, out=0, ms=0, error=None, stage="ai"):
+    """AILOG / <시각>: 관리자 화면에서 어떤 작업이 언제 성공·실패했는지 보여 준다.
+    stage: ai(AI 호출 자체) · check(AI 는 답했지만 서버 검사에서 걸림 — 예: 만든 코드의 문법 오류)"""
+    try:
+        put_item({"pk": "AILOG", "sk": pad(time_id()), "task": task, "model": model, "ok": ok, "stage": stage,
+                  "input": inp, "output": out, "ms": int(ms), "error": (error or "")[:300], "createdAt": now_ms(),
+                  TTL_ATTR: ttl_after(AI_LOG_DAYS * 86400)})
+    except Exception as e:
+        print("[ailog]", repr(e))
 
 
 def check_budget(input_chars, max_tokens):
@@ -508,19 +530,21 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
     """AI 에게 정해진 형식(schema, JSON Schema)의 답을 받는다. 형식이 어긋나면 흔한 실수를 고치고, 그래도 틀리면 AiUnavailable"""
     if not ai_enabled():
         raise AiUnavailable("AI is off")
+    started = time.time()
     if AI_MODE == "mock":
         if not mock:
             raise AiUnavailable("no mock for this task")
         time.sleep(MOCK_DELAY_SEC if mock_delay is None else mock_delay)
         result = mock()
-        log_usage(task, f"mock:{MODEL_ID}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, 0, True)
+        log_usage(task, f"mock:{MODEL_ID}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, 0, True,
+                  ms=(time.time() - started) * 1000)
         return result
     if AI_MODE != "live":
         raise AiUnavailable("AI is off")
     messages = build_messages(history, prompt)
     input_chars = len(system) + sum(len(m["content"][0]["text"]) for m in messages)
     check_budget(input_chars, max_tokens)
-    ok, usage = False, {}
+    ok, usage, error = False, {}, None
     try:
         try:
             response = bedrock().converse(
@@ -559,8 +583,12 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
             raise AiUnavailable("could not parse response: " + "; ".join(issues[:3]))
         ok = True
         return value
+    except AiUnavailable as e:
+        error = str(e)
+        raise
     finally:
-        log_usage(task, MODEL_ID, usage.get("inputTokens", 0), usage.get("outputTokens", 0), usage.get("cacheReadInputTokens", 0), ok)
+        log_usage(task, MODEL_ID, usage.get("inputTokens", 0), usage.get("outputTokens", 0), usage.get("cacheReadInputTokens", 0), ok,
+                  error=error, ms=(time.time() - started) * 1000)
 
 
 def _allows(schema, kind):

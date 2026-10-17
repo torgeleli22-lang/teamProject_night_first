@@ -8,8 +8,8 @@
 ## 0. AI 작업자에게: 먼저 지켜야 할 것
 
 1. **정체성을 지킨다.** 이 서비스는 "코드를 대신 작성해 주는 AI"가 아니라 "코드를 스스로 읽고 흐름을 설명하도록 가르치는 AI"다. 코드 에디터·자동 완성·코드 고쳐 주기 기능을 넣지 않는다. 첨삭은 정답을 바로 알려 주지 않고 **다시 볼 곳을 짚는다**.
-2. **AI 는 네 곳에서만 쓴다** (§6): 연습 코드 만들기, 직접 적은 주제 판정, 내 코드 분석(난이도·※ 지점), 빨간펜 첨삭. 누락(※ 지점에 메모 없음) 판정, 개수 세기, 민감 정보 가리기, 함수 찾기, 통계는 **일반 코드로** 한다.
-3. **AI 가 없어도 동작한다.** 모든 AI 작업에 목업(mock)과 대체 경로가 있다: 예시 코드(`samples.py`), 규칙 판정(`topics.rule_check`), 규칙 분석(`inspect_code.rule_analysis`), 규칙 첨삭(`review.rule_review`). 새 AI 작업을 더하면 둘 다 만든다.
+2. **AI 는 다섯 곳에서만 쓴다** (§6): 연습 코드 만들기, 직접 적은 주제 판정, 내 코드 분석(난이도·※ 지점), 빨간펜 첨삭, 첨삭 뒤 AI 튜터 대화. 누락(※ 지점에 메모 없음) 판정, 개수 세기, 민감 정보 가리기, 함수 찾기, 통계는 **일반 코드로** 한다.
+3. **AI 가 없어도 동작한다.** 모든 AI 작업에 목업(mock)과 대체 경로가 있다: 예시 코드(`samples.py`), 규칙 판정(`topics.rule_check`), 규칙 분석(`inspect_code.rule_analysis`), 규칙 첨삭(`review.rule_review`), 규칙 튜터 답(`tutor_chat.rule_answer`). 새 AI 작업을 더하면 둘 다 만든다.
 4. **모범 설명은 첨삭 전에 화면으로 보내지 않는다.** 읽는 동안 화면에 가는 것은 `common.public_reading`(※ 지점은 줄 범위만)뿐이다. 모범 설명·핵심 표현은 `POST /review` 결과에만 들어 있다.
 5. **올린 코드는 민감 정보를 가린 뒤에만 서버로 간다.** 화면(`src/lib/secrets.ts`)에서 먼저 가리고 Lambda(`inspect_code.mask_secrets`)에서 한 번 더 가린다. 두 파일의 패턴을 같게 유지한다. 올린 코드는 하루 뒤 TTL 로 지워진다.
 6. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다. Lambda 를 바꿨다면 `npm run smoke` 도.
@@ -52,9 +52,9 @@
 | 01 첫 화면 | `/` | 소개, 연습 모드 / 내 코드 점검 고르기, 공부하는 순서 | 없음 |
 | 02 연습 모드 | `/practice/` | **1장 · 주제 고르기**: 난이도(입문·초급·중급) + 주제(랜덤으로 뽑기 / 직접 적기 50자) | `GET /topic/random`, `POST /topic/check`, `POST /practice` |
 | 03 메모하며 읽기 | `/read/?id=` | **2장**: 줄 번호·문법 색칠 코드, ※ 꼭 설명할 곳(진행 n / m), 첫 줄·끝 줄을 눌러 형광펜 범위 → 포스트잇 메모 ①②, 더 쉽게(이유 고르기)·더 어렵게(메모가 사라진다는 경고), ※ 가 비어도 첨삭 받기 가능 | `GET /reading`, `POST /practice/adjust`, `POST /review` |
-| 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 메모별 첨삭(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
+| 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 왼쪽에 전체 코드(따라 내려옴, 첨삭에 마우스를 올리면 그 범위 표시), 오른쪽에 메모별 첨삭 + 메모마다 **AI 튜터와 더 깊게 알아보기**(질문 10번까지, 튜터가 알려 준 줄을 누르면 왼쪽 코드에 표시)(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
 | 05 내 코드 점검 | `/check/` | 파일 올리기(1개) / 붙여넣기 → 민감 정보 가리기(분홍 포스트잇) → 점검할 함수 고르기 → 훑어본 난이도 도장 → 메모하러 가기 (이후 03·04 와 같음, 더 쉽게/어렵게 없음) | `POST /inspect`, `POST /inspect/start` |
-| 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량, 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
+| 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량(설명·성공·실패·비용·마지막 실패 이유, 예전 서비스 기록은 따로), 최근 AI 호출 기록(50건), 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
 
 **정한 값**: 업로드 최대 **300줄**, 지원 언어 **Python** (JS·Java 는 "곧 열려요" 안내), 점수는 **○△✕ 개수**, 같은 코드에서 다시 만들기 **5번**.
 
@@ -85,7 +85,7 @@ AI 는 줄 번호를 자주 잘못 세서, 생성 응답은 **줄의 글자(`sta
 src/app/                    화면: page.tsx(01) practice/(02) read/(03) result/(04) check/(05) admin/
 src/components/             NoteHeader(제목·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
 src/lib/                    api.ts(서버 부르기) api-types.ts(응답 모양) secrets.ts(민감 정보 가리기) highlight.ts(문법 색칠) memos.ts(메모 임시 저장)
-lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·admin.py(기능) samples.py(예시 코드)
+lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·tutor_chat·admin.py(기능) samples.py(예시 코드)
 lambda/tests/               Python 단위 테스트
 tests/                      TypeScript 단위 테스트 (민감 정보·문법 색칠·경계)
 scripts/                    local-api.mjs + local_lambdas.py(로컬 실행), smoke.mjs(전체 흐름), verify_samples.py(예시 코드 실행 검증)
@@ -105,6 +105,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | 내 코드 분석 (난이도·이유·※ 지점) | `inspect_code.start` (작업 `code_inspection`), 고른 함수 범위 안의 ※ 만 | 1회 |
 | 누락 판정 · ○△✕ 개수 | `review.review` — 규칙 | 없음 |
 | 메모 첨삭 (판정·코멘트·다시 볼 줄·모범 설명·총평) | `review.review` (작업 `review`) | 1회 |
+| AI 튜터 대화 (첨삭 항목 하나에 대해 묻고 답하기, 다시 볼 줄) | `tutor_chat.ask_tutor` (작업 `tutor_chat`), 메모 하나에 10번까지 | 질문마다 1회 |
 | 비용·사용량·날짜별 사용 수 | `admin.overview` — 일반 로직 | 없음 |
 
 ### 6.2 구현 규칙
@@ -146,6 +147,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `POST /practice`, `POST /practice/adjust`, `GET /reading` | `practice.py` | 만들기 |
 | `POST /inspect`, `POST /inspect/start` | `inspect_code.py` | 시작만 |
 | `POST /review` | `review.py` | ○ |
+| `POST /tutor` | `tutor_chat.py` | ○ |
 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | `admin.py` (`x-admin-token`) | |
 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
@@ -154,8 +156,10 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen | 마지막 사용 12시간 뒤 |
 | `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language, level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 연습 7일 · 올린 코드 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
-| `STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews (하루 사용 수) | 90일 |
-| `USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰) | |
+| `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
+| `STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews, tutorChats (하루 사용 수) | 90일 |
+| `USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰), lastAt, lastError, lastErrorAt | |
+| `AILOG` | `<시각>` | task, model, ok, stage(ai·check), input, output, ms, error — 관리자 화면 '최근 AI 호출 기록' | 14일 |
 | `META` | `ai_switch` · `admin_code_hash` | AI 끄기 스위치, 관리자 코드(scrypt 해시) | |
 | `RL` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 | 시간 칸이 지나면 |
 

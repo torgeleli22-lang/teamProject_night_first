@@ -5,9 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
+import { TutorChat } from "@/components/TutorChat";
 import { Crumb, ErrorNote, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
-import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem } from "@/lib/api-types";
+import { MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
+import { circled } from "@/lib/memos";
 
 const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
 
@@ -32,7 +34,13 @@ export function ResultNote() {
     );
   }
   if (!data) return <Page><Waiting text="첨삭지를 펼치는 중이에요…" /></Page>;
-  const { reading, review } = data as { reading: Reading; review: NonNullable<ReadingWithReview["review"]> };
+  return <ResultBody reading={data.reading} review={data.review!} chats={data.chats ?? {}} />;
+}
+
+function ResultBody({ reading, review, chats }: { reading: Reading; review: ReviewResult; chats: Record<string, TutorChatData> }) {
+  /** 왼쪽 전체 코드에서 분홍으로 보여 줄 범위 (첨삭에 마우스를 올리거나, 튜터가 알려 준 줄을 누를 때) */
+  const [active, setActive] = useState<{ start: number; end: number } | null>(null);
+  const memoItems = review.items.filter((it) => it.kind === "memo");
 
   return (
     <Page>
@@ -57,12 +65,41 @@ export function ResultNote() {
         </div>
       </div>
 
-      <h2 className="mt-10 text-lg">메모별 첨삭</h2>
-      {review.items.length === 0 && <p className="mt-3 text-sm text-ink-500">첨삭할 메모가 없어요.</p>}
-      <div className="mt-2 divide-y divide-dashed divide-ink-300">
-        {review.items.map((item, i) => (
-          <ItemRow key={i} item={item} code={reading.code} />
-        ))}
+      <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        {/* 왼쪽: 전체 코드 (내 메모 범위는 형광펜, 고른 첨삭 범위는 분홍) — 넓은 화면에서는 따라 내려온다 */}
+        <aside className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
+          <h2 className="text-lg">전체 코드</h2>
+          <p className="mb-2 mt-1 text-xs text-ink-500">
+            <span className="marker">형광펜</span>은 내 메모, <b className="text-pen-red">※</b> 는 꼭 설명할 곳이에요. 오른쪽 첨삭에 마우스를 올리면 그 범위가 분홍색으로 보여요.
+          </p>
+          <CodeView
+            code={reading.code}
+            stars={review.items.filter((it) => it.marked).map((it) => it.start)}
+            highlights={memoItems}
+            labels={memoItems.map((_, i) => circled(i + 1))}
+            focus={active}
+          />
+        </aside>
+
+        {/* 오른쪽: 메모별 첨삭 */}
+        <div>
+          <h2 className="text-lg">메모별 첨삭</h2>
+          {review.items.length === 0 && <p className="mt-3 text-sm text-ink-500">첨삭할 메모가 없어요.</p>}
+          <div className="mt-2 divide-y divide-dashed divide-ink-300">
+            {review.items.map((item, i) => (
+              <ItemRow
+                key={i}
+                item={item}
+                code={reading.code}
+                label={item.kind === "memo" ? circled(memoItems.indexOf(item) + 1) : "※"}
+                onFocus={() => setActive(item)}
+                talking={!!chats[String(i)]?.turns.length}
+              >
+                <TutorChat readingId={reading.id} item={i} initial={chats[String(i)]} onLook={(n) => setActive({ start: n, end: n })} />
+              </ItemRow>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-dashed border-ink-300 pt-5">
@@ -77,42 +114,62 @@ export function ResultNote() {
   );
 }
 
-function ItemRow({ item, code }: { item: ReviewItem; code: string }) {
+function ItemRow({
+  item,
+  code,
+  label,
+  onFocus,
+  talking = false,
+  children,
+}: {
+  item: ReviewItem;
+  code: string;
+  label: string;
+  onFocus: () => void;
+  /** 이미 나눈 대화가 있으면 펼친 채로 */
+  talking?: boolean;
+  children: React.ReactNode;
+}) {
   const [open, setOpen] = useState(false);
+  const [talk, setTalk] = useState(talking);
   return (
-    <section className="grid gap-5 py-6 md:grid-cols-[1fr_1fr]">
-      <div>
-        <p className="mb-2 text-xs text-ink-500">
-          {item.start === item.end ? `${item.start}번 줄` : `${item.start}~${item.end}번 줄`}
-          {item.marked && <b className="text-pen-red"> · ※ 꼭 설명할 곳</b>}
-        </p>
-        <CodeView code={code} from={item.start} to={item.end} tint={item.lookAt} />
-      </div>
-      <div>
-        <div className="flex items-start gap-3">
-          {item.kind === "memo" ? (
-            <Sticky className="flex-1 p-3" tilt={-0.4}>
-              <p className="text-xs text-ink-500">내 메모</p>
-              <p className="hand mt-1 whitespace-pre-wrap break-words text-pen-blue">{item.memo}</p>
-            </Sticky>
-          ) : (
-            <div className="flex flex-1 items-center justify-center border border-dashed border-ink-400 p-5 text-sm text-ink-500">이 자리에 메모가 없어요</div>
-          )}
-          <div className="flex w-12 flex-col items-center">
-            <PenMark kind={item.mark} size={36} />
-            <span className="hand text-pen-red">{MARK_NAMES[item.mark]}</span>
-          </div>
-        </div>
-        <p className="hand mt-3 text-pen-red">{item.comment}</p>
-        {item.lookAt.length > 0 && <p className="mt-1 text-xs text-ink-500">다시 볼 줄: {item.lookAt.map((n) => `${n}번`).join(", ")}</p>}
-        {item.model && (
-          <>
-            <button type="button" className="mt-2 text-xs text-pen-blue underline" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-              {open ? "모범 설명 접기" : "모범 설명 보기"}
-            </button>
-            {open && <p className="mt-2 border-l-2 border-pen-blue pl-3 text-sm leading-relaxed text-ink-700">{item.model}</p>}
-          </>
+    <section className="py-6" onMouseEnter={onFocus} onFocus={onFocus} tabIndex={-1}>
+      <p className="mb-2 text-xs text-ink-500">
+        <span className="mr-1 text-base text-pen-blue">{label}</span>
+        {item.start === item.end ? `${item.start}번 줄` : `${item.start}~${item.end}번 줄`}
+        {item.marked && <b className="text-pen-red"> · ※ 꼭 설명할 곳</b>}
+      </p>
+      <CodeView code={code} from={item.start} to={item.end} tint={item.lookAt} />
+      <div className="mt-3 flex items-start gap-3">
+        {item.kind === "memo" ? (
+          <Sticky className="flex-1 p-3" tilt={-0.4}>
+            <p className="text-xs text-ink-500">내 메모</p>
+            <p className="hand mt-1 whitespace-pre-wrap break-words text-pen-blue">{item.memo}</p>
+          </Sticky>
+        ) : (
+          <div className="flex flex-1 items-center justify-center border border-dashed border-ink-400 p-5 text-sm text-ink-500">이 자리에 메모가 없어요</div>
         )}
+        <div className="flex w-12 flex-col items-center">
+          <PenMark kind={item.mark} size={36} />
+          <span className="hand text-pen-red">{MARK_NAMES[item.mark]}</span>
+        </div>
+      </div>
+      <p className="hand mt-3 text-pen-red">{item.comment}</p>
+      {item.lookAt.length > 0 && <p className="mt-1 text-xs text-ink-500">다시 볼 줄: {item.lookAt.map((n) => `${n}번`).join(", ")}</p>}
+      {item.model && (
+        <>
+          <button type="button" className="mt-2 text-xs text-pen-blue underline" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+            {open ? "모범 설명 접기" : "모범 설명 보기"}
+          </button>
+          {open && <p className="mt-2 border-l-2 border-pen-blue pl-3 text-sm leading-relaxed text-ink-700">{item.model}</p>}
+        </>
+      )}
+      <div className="mt-3">
+        <button type="button" className={talk ? "btn-small" : "btn-line py-1.5 text-xs"} onClick={() => setTalk((v) => !v)} aria-expanded={talk}>
+          {talk ? "튜터 대화 접기" : "AI 튜터와 더 깊게 알아보기"}
+        </button>
+        {/* 접어도 대화가 사라지지 않게 숨기기만 한다 */}
+        <div hidden={!talk}>{children}</div>
       </div>
     </section>
   );

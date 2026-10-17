@@ -38,10 +38,11 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
    | `practice.py` | 연습 코드 만들기 · 더 쉽게/어렵게 · 다시 읽기 |
    | `inspect_code.py` | 내 코드 점검 |
    | `review.py` | 빨간펜 첨삭 |
+   | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화 |
    | `admin.py` | 관리자 (AI 사용량·비용·AI 끄기) |
    | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드 |
 
-   - **지울 파일** (예전 기능, 남아 있어도 불리지 않지만 헷갈리니 지우기): `questions.py`, `submit_answer.py`, `tutor_chat.py`, `my_page.py`, `learner_analysis.py`, `generate_theory.py`, `load_content.py`, `content.json`, `test_events.json`
+   - **지울 파일** (예전 기능, 남아 있어도 불리지 않지만 헷갈리니 지우기): `questions.py`, `submit_answer.py`, `my_page.py`, `learner_analysis.py`, `generate_theory.py`, `load_content.py`, `content.json`, `test_events.json`
    - 각 파일은 GitHub 에서 열고 **Raw** → 전체 선택·복사 → 콘솔의 같은 이름 파일에 **전체를 바꿔** 붙여넣기 (없으면 **파일 → 새 파일**로 이름 그대로) → **Deploy**
    - 붙여넣기가 중간에 끊기면 `module 'xxx' has no attribute 'ROUTES'` 처럼 파일 이름을 알려 주는 오류가 나요. 그 파일만 다시 붙여넣으면 됩니다.
 3. **구성 → 일반 구성 → 편집**: 메모리 **512MB**, 제한 시간 **2분**

@@ -24,6 +24,7 @@ export interface Range {
  * - pending: 고르는 중인 범위 (옅게)
  * - from·to: 일부 줄만 보여 줄 때 (첨삭 결과)
  * - tint: 연분홍으로 칠할 줄 (다시 볼 곳)
+ * - focus: 지금 보고 있는 범위 (형광펜보다 위에, 분홍 + 왼쪽 빨간 줄)
  */
 export function CodeView({
   code,
@@ -34,6 +35,7 @@ export function CodeView({
   from = 1,
   to,
   tint = [],
+  focus = null,
   onLineClick,
 }: {
   code: string;
@@ -44,6 +46,7 @@ export function CodeView({
   from?: number;
   to?: number;
   tint?: number[];
+  focus?: Range | null;
   onLineClick?: (line: number) => void;
 }) {
   const lines = code.split("\n");
@@ -53,7 +56,8 @@ export function CodeView({
     const hi = highlights.findIndex((h) => no >= h.start && no <= h.end);
     const firstOf = highlights.findIndex((h) => h.start === no);
     const inPending = pending && no >= pending.start && no <= pending.end;
-    const bg = hi >= 0 ? "bg-marker" : inPending ? "bg-ink-200/70" : tint.includes(no) ? "bg-pen-redSoft/70" : "";
+    const focused = focus && no >= focus.start && no <= focus.end;
+    const bg = focused ? "bg-pen-redSoft shadow-[inset_3px_0_0_#c0392b]" : hi >= 0 ? "bg-marker" : inPending ? "bg-ink-200/70" : tint.includes(no) ? "bg-pen-redSoft/70" : "";
     rows.push(
       <div
         key={no}

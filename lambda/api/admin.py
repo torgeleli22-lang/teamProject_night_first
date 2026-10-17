@@ -5,13 +5,13 @@ from datetime import datetime, timedelta, timezone
 
 import common
 from common import (AI_MODE, MODEL_ID, MONTHLY_BUDGET_USD, ApiError, ai_switch_on, bump_counter, estimate_cost, field, get_item, get_meta,
-                    month_cost_usd, month_key, read_counter, set_meta, usage_summary)
+                    month_cost_usd, month_key, normalize_model, query_all, read_counter, set_meta)
 
 # ─────────────────────────────────────────────────────────────
 # 관리자 (admin.py) — jojo_api 의 기능 파일
 #   관리자 화면(/admin)이 부른다. 모든 요청에 x-admin-token 헤더(관리자 코드)가 필요하다.
 #
-#   GET  /admin/overview   현황: AI 모드·AI 스위치·이번 달 비용·예산·작업별 사용량·날짜별 사용 수
+#   GET  /admin/overview   현황: AI 모드·AI 스위치·이번 달 비용·예산·작업별 사용량(성공·실패·마지막 실패 이유)·최근 AI 호출 기록·날짜별 사용 수
 #   POST /admin/ai         AI 켜기/끄기 {"enabled": false}  → 끄면 예시 코드·규칙 판정·규칙 첨삭으로 (비용 0)
 #   POST /admin/code       관리자 코드 바꾸기 {"code": "8자 이상"}
 #
@@ -67,22 +67,88 @@ def code_matches(code, stored):
 
 # ───────────────────────── 경로별 처리 ─────────────────────────
 
-TASK_NAMES = {"code_generation": "연습 코드 만들기", "topic_check": "주제 판정", "code_inspection": "내 코드 분석", "review": "빨간펜 첨삭"}
-EVENT_NAMES = ["practices", "adjusts", "topicChecks", "inspections", "reviews"]
+# 지금 쓰는 AI 작업 (USAGE 의 작업 이름 → 화면 이름 · 설명). 여기 없는 이름은 예전 서비스의 기록이다
+TASKS = {
+    "code_generation": ("연습 코드 만들기", "연습 모드 '코드 받기'와 더 쉽게·더 어렵게. 검사에 걸리면 한 번 더 불러요"),
+    "topic_check": ("주제 판정", "'직접 적기'로 낸 주제가 괜찮은지 봐요"),
+    "code_inspection": ("내 코드 분석", "내 코드 점검 '메모하러 가기'. 난이도와 ※ 지점을 정해요"),
+    "review": ("빨간펜 첨삭", "'첨삭 받기'. 메모가 하나도 없으면 AI 없이 규칙으로 해요"),
+    "tutor_chat": ("AI 튜터 대화", "첨삭 결과에서 메모마다 묻는 대화 (메모 하나에 10번까지)"),
+}
+OLD_TASKS = {"content_generation": "문제 생성", "learner_analysis": "학습자 분석",
+             "short_answer_eval": "주관식 평가", "theory_generation": "개념 문제 생성", "theory_review": "개념 문제 검수"}
+EVENT_NAMES = ["practices", "adjusts", "topicChecks", "inspections", "reviews", "tutorChats"]
+RECENT_LOGS = 50
+
+# 실패 이유 (common.ask_ai 가 남기는 영어 오류 → 관리자가 읽을 말)
+ERROR_REASONS = [
+    ("AccessDenied", "Bedrock 권한이 없어요 (실행 역할 또는 모델 사용 신청 확인)"),
+    ("Throttling", "요청이 몰려 AWS 가 잠시 거절했어요"),
+    ("ServiceQuota", "Bedrock 사용 한도에 닿았어요"),
+    ("Validation", "요청 형식이 맞지 않아요 (MODEL_ID 확인)"),
+    ("ResourceNotFound", "모델을 찾지 못했어요 (MODEL_ID·리전 확인)"),
+    ("Timeout", "응답이 너무 늦었어요"),
+    ("EndpointConnection", "Bedrock 에 연결하지 못했어요"),
+    ("truncated", "답이 너무 길어서 잘렸어요"),
+    ("could not parse", "AI 답의 형식이 맞지 않았어요"),
+    ("budget", "이번 달 예산에 닿았어요"),
+]
+
+
+def reason(error):
+    """오류 → 관리자가 읽을 짧은 이유. 서버 검사(stage=check) 문구는 이미 한국어라 그대로"""
+    if not error:
+        return ""
+    for key, text in ERROR_REASONS:
+        if key.lower() in error.lower():
+            return f"{text} — {error}"
+    return error
+
+
+def task_name(task):
+    if task in TASKS:
+        return TASKS[task][0]
+    return OLD_TASKS.get(task, task)
+
+
+def short_model(model):
+    return ("목업 · " if model.startswith("mock:") else "") + normalize_model(model)
 
 
 def overview(req):
-    # 1. 이번 달 AI 사용량 (작업·모델별)
-    usage = usage_summary(month_key())
-    real = [u for u in usage if not u["model"].startswith("mock:")]
-    # 2. 최근 날짜별 사용 수 (STATS / DAY#날짜)
+    # 1. 이번 달 AI 사용량: 작업 × 모델 한 줄씩 (지금 쓰는 작업 먼저)
+    rows = []
+    for r in query_all("USAGE", prefix=month_key()):
+        calls, failures = int(r.get("calls", 0)), int(r.get("failures", 0))
+        rows.append({
+            "task": r.get("task"), "taskName": task_name(r.get("task")), "current": r.get("task") in TASKS,
+            "description": TASKS.get(r.get("task"), ("", "예전 서비스(문제 풀이)에서 쓰던 작업이에요. 지금은 부르지 않아요"))[1],
+            "model": r.get("model"), "modelName": short_model(r.get("model", "")), "mock": r.get("model", "").startswith("mock:"),
+            "calls": calls, "successes": calls - failures, "failures": failures,
+            "input": int(r.get("input", 0)), "output": int(r.get("output", 0)), "cacheRead": int(r.get("cacheRead", 0)),
+            "costUsd": round(estimate_cost([{"model": r.get("model", ""), "input": r.get("input", 0), "output": r.get("output", 0),
+                                              "cacheRead": r.get("cacheRead", 0)}]), 4),
+            "lastAt": r.get("lastAt"), "lastError": reason(r.get("lastError")), "lastErrorAt": r.get("lastErrorAt"),
+        })
+    order = list(TASKS)
+    rows.sort(key=lambda u: (not u["current"], order.index(u["task"]) if u["current"] else 0, -u["calls"]))
+    real = [u for u in rows if not u["mock"]]
+
+    # 2. 최근 AI 호출 하나하나 (14일 보관)
+    recent = [{"at": r.get("createdAt"), "task": r.get("task"), "taskName": task_name(r.get("task")), "modelName": short_model(r.get("model", "")),
+               "ok": bool(r.get("ok")), "stage": r.get("stage", "ai"), "input": int(r.get("input", 0)), "output": int(r.get("output", 0)),
+               "ms": int(r.get("ms", 0)), "error": reason(r.get("error"))}
+              for r in query_all("AILOG", descending=True, limit=RECENT_LOGS)]
+
+    # 3. 최근 날짜별 사용 수 (STATS / DAY#날짜)
     days = []
     today = datetime.now(timezone.utc) + timedelta(hours=9)
     for i in range(STATS_DAYS):
         day = (today - timedelta(days=i)).strftime("%Y-%m-%d")
         row = get_item("STATS", f"DAY#{day}") or {}
         days.append({"day": day, **{k: int(row.get(k, 0)) for k in EVENT_NAMES}})
-    # 3. 화면에 보여 줄 값
+
+    # 4. 화면에 보여 줄 값
     month = month_cost_usd(include_mock=AI_MODE == "mock")
     return {
         "mode": AI_MODE if AI_MODE in ("live", "mock") else "off",
@@ -90,7 +156,8 @@ def overview(req):
         "model": MODEL_ID,
         "budget": {"monthlyUsd": MONTHLY_BUDGET_USD, "monthToDateUsd": round(month, 4),
                    "realUsd": round(estimate_cost(real), 4), "percent": round(100 * month / MONTHLY_BUDGET_USD, 1) if MONTHLY_BUDGET_USD else 0},
-        "usage": [{**u, "taskName": TASK_NAMES.get(u["task"], u["task"])} for u in usage],
+        "usage": rows,
+        "recent": recent,
         "days": days,
         "adminCode": {"custom": bool(get_meta("admin_code_hash")), "recovery": bool(os.environ.get("ADMIN_TOKEN"))},
     }
