@@ -107,7 +107,8 @@
 /* 코드 줄 */
 .code-line {
   @apply grid cursor-pointer select-none font-mono text-[13px] leading-7;
-  grid-template-columns: 28px 40px 1fr 28px;
+  grid-template-columns: 28px 40px 1fr minmax(28px, auto);
+  touch-action: pan-y; /* 손가락으로 끌면 화면은 세로로만 */
 }
 .code-line:hover .code-text {
   background-color: rgba(253, 230, 138, 0.25);

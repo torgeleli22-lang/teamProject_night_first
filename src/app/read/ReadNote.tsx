@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CodeView, type Range } from "@/components/CodeView";
+import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
 import { ADJUST_REASONS, type AdjustReason, type Memo, type Reading, type ReadingWithReview, type ReviewResult } from "@/lib/api-types";
@@ -26,51 +27,74 @@ export function ReadNote() {
 function Reader({ reading }: { reading: Reading }) {
   const router = useRouter();
   const [memos, setMemos] = useState<Memo[]>([]);
-  /** 형광펜: 첫 줄을 누른 상태(start만) → 끝 줄을 누르면 범위 완성 → 메모 쓰기 */
-  const [pick, setPick] = useState<{ start: number; end: number | null } | null>(null);
-  const [draft, setDraft] = useState("");
-  const [editing, setEditing] = useState<number | null>(null);
+  /** 형광펜 고르기: 줄을 누르면 한 줄, 누른 채 끌면 범위 (다른 메모와 겹쳐도 됨) */
+  const [selecting, setSelecting] = useState<{ a: number; b: number } | null>(null);
+  /** 쓰는 중인 메모 (새 메모 또는 고치는 메모) */
+  const [draft, setDraft] = useState<Draft | null>(null);
+  /** 마우스를 올린 포스트잇 → 코드에서 그 범위를 분홍으로 */
+  const [hover, setHover] = useState<number | null>(null);
+  const wide = useWide();
   const [dialog, setDialog] = useState<"easier" | "harder" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const total = reading.code.split("\n").length;
 
   useEffect(() => setMemos(loadMemos(reading.id)), [reading.id]);
   const update = (next: Memo[]) => {
-    const sorted = [...next].sort((a, b) => a.start - b.start);
+    const sorted = [...next].sort((a, b) => a.start - b.start || a.end - b.end);
     setMemos(sorted);
     saveMemos(reading.id, sorted);
   };
 
   const covered = reading.marks.filter((m) => memos.some((x) => overlaps(x, m))).length;
   const left = reading.marks.length - covered;
-  const range: Range | null = pick ? { start: Math.min(pick.start, pick.end ?? pick.start), end: Math.max(pick.start, pick.end ?? pick.start) } : null;
+  const pending: Range | null = selecting
+    ? { start: Math.min(selecting.a, selecting.b), end: Math.max(selecting.a, selecting.b) }
+    : draft
+      ? { start: draft.start, end: draft.end }
+      : null;
 
-  function clickLine(no: number) {
+  // 형광펜: 누른 줄에서 시작 → 끌면 범위가 늘어남 → 손을 떼면 그 범위로 메모 쓰기 (쓰던 글은 그대로 두고 범위만 바꿈)
+  function lineDown(no: number) {
     if (busy) return;
-    if (!pick || pick.end !== null) {
-      // 새 범위 시작 (메모를 쓰던 중이면 그 범위를 버린다)
-      setPick({ start: no, end: null });
-      setDraft("");
-      setEditing(null);
-    } else {
-      setPick({ ...pick, end: no });
-    }
+    setSelecting({ a: no, b: no });
   }
+  useEffect(() => {
+    if (!selecting) return;
+    const up = () => {
+      const start = Math.min(selecting.a, selecting.b);
+      const end = Math.max(selecting.a, selecting.b);
+      setDraft((d) => ({ start, end, text: d?.text ?? "", editing: d?.editing ?? null }));
+      setSelecting(null);
+    };
+    window.addEventListener("pointerup", up, { once: true });
+    return () => window.removeEventListener("pointerup", up);
+  }, [selecting]);
 
   function attach() {
-    if (!range || !draft.trim()) return;
-    const memo = { ...range, text: draft.trim().slice(0, MAX_MEMO_CHARS) };
-    update(editing !== null ? memos.map((m, i) => (i === editing ? memo : m)) : [...memos, memo]);
-    setPick(null);
-    setDraft("");
-    setEditing(null);
+    if (!draft || !draft.text.trim()) return;
+    const old = draft.editing !== null ? memos[draft.editing] : null;
+    const anchor = old?.anchor && old.anchor >= draft.start && old.anchor <= draft.end ? old.anchor : draft.start;
+    const memo: Memo = { start: draft.start, end: draft.end, text: draft.text.trim().slice(0, MAX_MEMO_CHARS), anchor };
+    update(draft.editing !== null ? memos.map((m, i) => (i === draft.editing ? memo : m)) : [...memos, memo]);
+    setDraft(null);
   }
 
-  function edit(i: number) {
-    setPick({ start: memos[i].start, end: memos[i].end });
-    setDraft(memos[i].text);
-    setEditing(i);
-  }
+  const edit = (i: number) => setDraft({ start: memos[i].start, end: memos[i].end, text: memos[i].text, editing: i });
+  const remove = (i: number) => {
+    update(memos.filter((_, j) => j !== i));
+    setHover(null);
+    if (draft?.editing === i) setDraft(null);
+  };
+  const move = useCallback(
+    (i: number, anchor: number) =>
+      setMemos((cur) => {
+        const next = cur.map((m, j) => (j === i ? { ...m, anchor } : m));
+        saveMemos(reading.id, next);
+        return next;
+      }),
+    [reading.id],
+  );
 
   async function submit() {
     setBusy("review");
@@ -132,14 +156,21 @@ function Reader({ reading }: { reading: Reading }) {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border border-dashed border-ink-300 bg-paper px-3 py-2 text-xs text-ink-700">
         <span>
-          줄을 눌러 <span className="marker">형광펜</span>을 그어요. 첫 줄과 끝 줄을 차례로 누르면 범위가 돼요.
+          줄을 누르면 한 줄, <b>누른 채 끌면 범위</b>에 <span className="marker">형광펜</span>을 그어요. 범위는 겹쳐도 돼요. 메모는 그 줄 옆에 붙고, 윗부분을 잡아 범위 안에서 위아래로 옮길 수 있어요.
         </span>
-        <span>
-          <b className="text-pen-red">※</b> 꼭 설명할 곳{" "}
-          <b>
-            {covered} / {reading.marks.length}
-          </b>{" "}
-          메모함
+        <span className="flex items-center gap-3">
+          <span>
+            <b className="text-pen-red">※</b> 꼭 설명할 곳{" "}
+            <b>
+              {covered} / {reading.marks.length}
+            </b>{" "}
+            메모함 · 내 메모 {memos.length}장
+          </span>
+          {memos.length > 0 && (
+            <button type="button" className="text-ink-500 underline" onClick={() => window.confirm("붙인 메모를 모두 지울까요?") && (update([]), setDraft(null))}>
+              형광펜 지우기
+            </button>
+          )}
         </span>
       </div>
 
@@ -147,93 +178,73 @@ function Reader({ reading }: { reading: Reading }) {
       {busy === "review" && <Waiting text="빨간펜으로 메모를 첨삭하고 있어요…" />}
       {(busy === "easier" || busy === "harder") && <Waiting text={`${busy === "easier" ? "더 쉬운" : "더 어려운"} 코드로 다시 쓰고 있어요…`} />}
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-4 grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <CodeView
           code={reading.code}
           stars={reading.marks.map((m) => m.start)}
           highlights={memos}
           labels={labels}
-          pending={range}
-          onLineClick={clickLine}
+          pending={pending}
+          focus={hover !== null && memos[hover] ? memos[hover] : null}
+          onLineDown={lineDown}
+          onLineEnter={(no) => selecting && no !== selecting.b && setSelecting({ ...selecting, b: no })}
+          // 키보드(Enter·Space)로 한 줄 고르기. 마우스는 위의 누르기·떼기가 처리한다
+          onLineClick={(no) => !selecting && setDraft((d) => ({ start: no, end: no, text: d?.text ?? "", editing: d?.editing ?? null }))}
         />
 
-        <aside>
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-lg">내 메모 {memos.length}장</h2>
-            {memos.length > 0 && (
-              <button
-                type="button"
-                className="text-xs text-ink-500 underline"
-                onClick={() => window.confirm("붙인 메모를 모두 지울까요?") && (update([]), setPick(null))}
-              >
-                형광펜 지우기
-              </button>
+        {wide ? (
+          // 넓은 화면: 포스트잇을 고른 줄 바로 옆에 (스크롤하지 않고 그 자리에서 쓰기)
+          <MemoMargin
+            lines={total}
+            memos={memos}
+            labels={labels}
+            draft={draft}
+            maxChars={MAX_MEMO_CHARS}
+            canAdd={memos.length < MAX_MEMOS}
+            onDraftChange={(text) => setDraft((d) => d && { ...d, text })}
+            onDraftRange={(start, end) => setDraft((d) => d && { ...d, start, end })}
+            onSave={attach}
+            onCancel={() => setDraft(null)}
+            onEdit={edit}
+            onDelete={remove}
+            onMove={move}
+            onHover={setHover}
+          />
+        ) : (
+          // 좁은 화면(휴대폰): 코드 아래에 차례로
+          <aside className="space-y-4">
+            {draft && (
+              <DraftNote
+                draft={draft}
+                lines={total}
+                maxChars={MAX_MEMO_CHARS}
+                canAdd={memos.length < MAX_MEMOS}
+                onChange={(text) => setDraft((d) => d && { ...d, text })}
+                onRange={(start, end) => setDraft((d) => d && { ...d, start, end })}
+                onSave={attach}
+                onCancel={() => setDraft(null)}
+              />
             )}
-          </div>
-
-          {pick && (
-            <Sticky tape className="mt-5 p-4">
-              {pick.end === null ? (
-                <p className="text-sm text-ink-700">
-                  <b>{pick.start}번 줄</b>부터 시작해요. 끝 줄을 눌러 주세요. (한 줄이면 같은 줄을 한 번 더)
-                </p>
-              ) : (
-                <>
-                  <p className="text-xs text-ink-700">
-                    <b>
-                      {range!.start}~{range!.end}번 줄
-                    </b>
-                    의 흐름을 적어 주세요
-                  </p>
-                  <textarea
-                    autoFocus
-                    className="hand mt-2 h-28 w-full resize-y border-0 bg-transparent text-pen-blue outline-none placeholder:text-ink-400"
-                    style={{ backgroundImage: "repeating-linear-gradient(transparent 0 27px, rgba(36,35,31,.12) 27px 28px)", lineHeight: "28px" }}
-                    maxLength={MAX_MEMO_CHARS}
-                    placeholder="이 부분은 무엇을 받아서, 어디로 흘러가고, 무엇을 돌려주나요?"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                  />
-                </>
-              )}
-              <div className="mt-2 flex items-center justify-end gap-3">
-                <button type="button" className="text-xs text-ink-700" onClick={() => (setPick(null), setEditing(null), setDraft(""))}>
-                  취소
-                </button>
-                {pick.end !== null && (
-                  <button type="button" className="btn-ink py-1.5 text-xs" disabled={!draft.trim() || (editing === null && memos.length >= MAX_MEMOS)} onClick={attach}>
-                    {editing !== null ? "메모 고치기" : "메모 붙이기"}
-                  </button>
-                )}
-              </div>
-            </Sticky>
-          )}
-
-          <div className="mt-5 space-y-4">
             {memos.map((m, i) => (
               <Sticky key={`${m.start}-${m.end}-${i}`} tilt={i % 2 ? 0.6 : -0.5} className="p-3">
                 <div className="flex items-center justify-between text-xs text-ink-500">
                   <button type="button" onClick={() => edit(i)} className="flex items-center gap-1 hover:underline" title="눌러서 고치기">
-                    <span className="text-base text-pen-blue">{labels[i]}</span> {m.start}~{m.end}번 줄
+                    <span className="text-base text-pen-blue">{labels[i]}</span> {m.start === m.end ? `${m.start}번 줄` : `${m.start}~${m.end}번 줄`}
                   </button>
-                  <button type="button" aria-label={`${labels[i]} 메모 떼기`} className="px-1 text-base text-ink-500 hover:text-pen-red" onClick={() => update(memos.filter((_, j) => j !== i))}>
+                  <button type="button" aria-label={`${labels[i]} 메모 떼기`} className="px-1 text-base text-ink-500 hover:text-pen-red" onClick={() => remove(i)}>
                     ×
                   </button>
                 </div>
                 <p className="hand mt-1 whitespace-pre-wrap break-words text-pen-blue">{m.text}</p>
               </Sticky>
             ))}
-          </div>
-
-          {left > 0 ? (
-            <p className="hand mt-5 text-pen-red">
-              ※ 꼭 설명할 곳이 {left}곳 남았어요. 비워도 낼 수는 있어요.
-            </p>
-          ) : (
-            <p className="hand mt-5 text-pen-red">※ 표시된 곳을 모두 메모했어요. 첨삭을 받아 볼까요?</p>
-          )}
-        </aside>
+          </aside>
+        )}
       </div>
+
+      <p className="hand mt-5 text-pen-red">
+        {left > 0 ? `※ 꼭 설명할 곳이 ${left}곳 남았어요. 비워도 낼 수는 있어요.` : "※ 표시된 곳을 모두 메모했어요. 첨삭을 받아 볼까요?"}
+      </p>
 
       {dialog && <AdjustDialog direction={dialog} hasMemos={memos.length > 0} left={reading.regenLeft} onCancel={() => setDialog(null)} onConfirm={adjust} />}
     </Page>
@@ -308,4 +319,17 @@ export function BackLinks() {
       </Link>
     </div>
   );
+}
+
+/** 넓은 화면(lg, 1024px 이상)인지 — 포스트잇을 코드 옆에 붙일 수 있는지 */
+function useWide() {
+  const [wide, setWide] = useState(true);
+  useEffect(() => {
+    const q = window.matchMedia("(min-width: 1024px)");
+    const on = () => setWide(q.matches);
+    on();
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
+  return wide;
 }

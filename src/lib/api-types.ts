@@ -119,6 +119,8 @@ export interface Memo {
   start: number;
   end: number;
   text: string;
+  /** 화면에서만: 포스트잇을 붙인 줄 (start~end 안, 끌어서 옮김). 서버는 쓰지 않음 */
+  anchor?: number;
 }
 
 /** ○ correct 정확 · △ partial 부분 · ✕ wrong 오해 · ⬚ missing 누락(※ 지점에 메모 없음) */
