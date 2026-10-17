@@ -20,7 +20,8 @@ export interface Range {
 /**
  * 줄 번호가 있는 코드 (문법 색칠).
  * - stars: ※ 꼭 설명할 곳의 첫 줄 (왼쪽에 빨간 ※)
- * - highlights: 형광펜 범위 (오른쪽에 번호 ①②)
+ * - highlights: 형광펜 범위 (오른쪽에 번호 ①②). 겹치면 더 진하게
+ * - onLineDown·onLineEnter: 눌러서 끌어 범위 고르기 (읽기 화면)
  * - pending: 고르는 중인 범위 (옅게)
  * - from·to: 일부 줄만 보여 줄 때 (첨삭 결과)
  * - tint: 연분홍으로 칠할 줄 (다시 볼 곳)
@@ -37,6 +38,8 @@ export function CodeView({
   tint = [],
   focus = null,
   onLineClick,
+  onLineDown,
+  onLineEnter,
 }: {
   code: string;
   stars?: number[];
@@ -48,21 +51,26 @@ export function CodeView({
   tint?: number[];
   focus?: Range | null;
   onLineClick?: (line: number) => void;
+  onLineDown?: (line: number) => void;
+  onLineEnter?: (line: number) => void;
 }) {
   const lines = code.split("\n");
+  const interactive = onLineClick || onLineDown;
   const last = Math.min(to ?? lines.length, lines.length);
   const rows = [];
   for (let no = from; no <= last; no++) {
-    const hi = highlights.findIndex((h) => no >= h.start && no <= h.end);
-    const firstOf = highlights.findIndex((h) => h.start === no);
+    const depth = highlights.filter((h) => no >= h.start && no <= h.end).length;
+    const startsHere = highlights.map((h, i) => (h.start === no ? labels[i] : "")).filter(Boolean).join("");
     const inPending = pending && no >= pending.start && no <= pending.end;
     const focused = focus && no >= focus.start && no <= focus.end;
-    const bg = focused ? "bg-pen-redSoft shadow-[inset_3px_0_0_#c0392b]" : hi >= 0 ? "bg-marker" : inPending ? "bg-ink-200/70" : tint.includes(no) ? "bg-pen-redSoft/70" : "";
+    const bg = focused ? "bg-pen-redSoft shadow-[inset_3px_0_0_#c0392b]" : depth >= 2 ? "bg-marker-strong" : depth === 1 ? "bg-marker" : inPending ? "bg-ink-200/70" : tint.includes(no) ? "bg-pen-redSoft/70" : "";
     rows.push(
       <div
         key={no}
-        className={`code-line ${onLineClick ? "" : "cursor-default"} ${bg}`}
+        className={`code-line ${interactive ? "" : "cursor-default"} ${bg}`}
         onClick={onLineClick ? () => onLineClick(no) : undefined}
+        onPointerDown={onLineDown ? (e) => e.button === 0 && (e.preventDefault(), onLineDown(no)) : undefined}
+        onPointerEnter={onLineEnter ? () => onLineEnter(no) : undefined}
         role={onLineClick ? "button" : undefined}
         tabIndex={onLineClick ? 0 : undefined}
         aria-label={onLineClick ? `${no}번 줄` : undefined}
@@ -78,7 +86,7 @@ export function CodeView({
           ))}
         </span>
         {/* 메모 번호는 가로로 밀어도 보이게 오른쪽에 붙여 둔다 */}
-        <span className="sticky right-0 text-center font-sans text-base text-pen-blue">{firstOf >= 0 ? labels[firstOf] : ""}</span>
+        <span className={`sticky right-0 whitespace-nowrap px-1 text-center font-sans text-base text-pen-blue ${startsHere ? "bg-paper/90" : ""}`}>{startsHere}</span>
       </div>,
     );
   }
