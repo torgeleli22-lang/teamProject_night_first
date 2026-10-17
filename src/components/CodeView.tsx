@@ -29,10 +29,13 @@ export interface Range {
  * - tint: 연분홍으로 칠할 줄 (다시 볼 곳)
  * - focus: 지금 보고 있는 범위 (형광펜보다 위에, 분홍 + 왼쪽 빨간 줄)
  * - language: 문법 색칠 언어 (기본 Python)
+ * - wrap: 긴 줄을 접어서 (가로 스크롤 없이, 크게 보기 창) · dense: 줄 간격을 좁혀서 (크게 보기 창)
  */
 export function CodeView({
   code,
   language = "python",
+  wrap = false,
+  dense = false,
   stars = [],
   highlights = [],
   labels = [],
@@ -47,6 +50,8 @@ export function CodeView({
 }: {
   code: string;
   language?: Language;
+  wrap?: boolean;
+  dense?: boolean;
   stars?: number[];
   highlights?: Range[];
   labels?: string[];
@@ -72,7 +77,7 @@ export function CodeView({
     rows.push(
       <div
         key={no}
-        className={`code-line ${interactive ? "" : "cursor-default"} ${bg}`}
+        className={`code-line ${dense ? "!text-[12px] !leading-5" : ""} ${interactive ? "" : "cursor-default"} ${bg}`}
         onClick={onLineClick ? () => onLineClick(no) : undefined}
         onPointerDown={onLineDown ? (e) => e.button === 0 && (e.preventDefault(), onLineDown(no)) : undefined}
         onPointerEnter={onLineEnter ? () => onLineEnter(no) : undefined}
@@ -83,7 +88,7 @@ export function CodeView({
       >
         <span className="text-center font-sans text-base font-bold text-pen-red">{stars.includes(no) ? "※" : ""}</span>
         <span className="border-r border-margin pr-2 text-right text-ink-400">{no}</span>
-        <span className="code-text whitespace-pre pl-3 pr-2 text-ink-900">
+        <span className={`code-text pl-3 pr-2 text-ink-900 ${wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}`}>
           {highlightLine(lines[no - 1], language).map((t, i) => (
             <span key={i} className={TOKEN_COLOR[t.kind]}>
               {t.text}
@@ -97,7 +102,7 @@ export function CodeView({
   }
   return (
     <div className="overflow-x-auto border border-ink-300 bg-paper py-1">
-      <div className="min-w-max">{rows}</div>
+      <div className={wrap ? "" : "min-w-max"}>{rows}</div>
     </div>
   );
 }

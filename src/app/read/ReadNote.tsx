@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CodeView, type Range } from "@/components/CodeView";
 import { MakingCode } from "@/components/MakingCode";
+import { WideCodeButton } from "@/components/WideCode";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
@@ -175,6 +176,14 @@ function Reader({ reading }: { reading: Reading }) {
             </b>{" "}
             메모함 · 내 메모 {memos.length}장
           </span>
+          <WideCodeButton
+            title={reading.title || reading.topic}
+            code={reading.code}
+            language={reading.language}
+            stars={reading.marks.map((m) => m.start)}
+            highlights={memos}
+            labels={labels}
+          />
           {memos.length > 0 && (
             <button type="button" className="text-ink-500 underline" onClick={() => window.confirm("붙인 메모를 모두 지울까요?") && (update([]), setDraft(null))}>
               형광펜 지우기
