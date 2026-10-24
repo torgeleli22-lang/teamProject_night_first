@@ -4,7 +4,7 @@
 2. pk·sk 를 어떻게 만들어 저장까지 하는지 (항목마다 코드와 실제 저장 모양)
 3. 화면이 Lambda 함수 URL 로 JSON 요청을 보내는 방법 (주소·헤더·본문·응답·오류)
 
-줄 번호는 지금 main 기준이에요. 함께 보면 좋은 문서: `docs/CODE_TOUR.md` (코드 따라 읽기), `docs/PROJECT_BRIEF.md` §9.2 (필드 표).
+줄 번호는 지금 main 기준이에요. 함께 보면 좋은 문서: `docs/DB_STRUCTURE.md` (ERD 그림·관계), `docs/CODE_TOUR.md` (코드 따라 읽기), `docs/PROJECT_BRIEF.md` §9.2 (필드 표).
 
 ---
 
