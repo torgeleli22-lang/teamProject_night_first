@@ -7,7 +7,7 @@
   2. AWS 연결 (DynamoDB·Bedrock)          6. 학습자(세션)
   3. 요청 읽기·응답 만들기 (CORS 포함)     7. AI 호출 (Bedrock, 월 예산·사용량 기록·목업·AI 끄기)
   4. DynamoDB 읽기·쓰기 도구              8. 설정 값 (META)
-                                          9. 읽을 코드 (READ#) · 최근 첨삭 · 하루 사용 수
+  9. 읽을 코드 (READ#) · 최근 첨삭 · 하루 사용 수   10. id 만들기 (시간순 UUID)
 
 콘솔에서 이 파일을 고쳤다면 GitHub(lambda/api/common.py)에도 같이 반영해 주세요.
 """
@@ -438,7 +438,7 @@ def get_learner(req):
         raise ApiError(429, "새로 시작하는 요청이 너무 많아요. 잠시 뒤(최대 1시간)에 다시 시도해 주세요.")
     # 3. 처음이거나 기한이 지났으면 새 학습자 (로그인 안 함)
     now = now_ms()
-    item = {"pk": "LEARNER", "sk": str(uuid.uuid4()), "level": None, "recentTopics": [],
+    item = {"pk": "LEARNER", "sk": new_id(), "level": None, "recentTopics": [],
             "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(keep_seconds(None, "learner"))}
     put_item(item)
     req["learner"] = learner_from_item(item)
@@ -819,7 +819,7 @@ def guess_concept(code, start, end):
 
 def save_reading(learner, **fields):
     """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keep(upload 면 짧게)"""
-    reading_id = str(uuid.uuid4())
+    reading_id = new_id()   # 시간순 UUID: id 앞부분만 봐도 언제 만든 코드인지 알 수 있다
     keep = min(keep_seconds(learner, fields.pop("keep", "reading")), keep_seconds(learner, "reading"))
     item = {"pk": f"READ#{reading_id}", "sk": "CODE", "id": reading_id, "owner": learner["id"], "language": fields.pop("language", None) or "python",
             "createdAt": now_ms(), "rootId": fields.pop("rootId", None) or reading_id, "regenCount": fields.pop("regenCount", 0),
@@ -859,3 +859,18 @@ def public_reading(item):
         "regenLeft": max(0, REGEN_LIMIT - item.get("regenCount", 0)), "note": item.get("note"),
         "functions": item.get("functions"), "levelReason": item.get("levelReason"), "focus": item.get("focus"),
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# 10. id 만들기 — 시간순 UUID (버전 7)
+#     학습자 id(LEARNER/<id>)·읽을 코드 id(READ#<id>) 에 쓴다. 로그인 토큰은 비밀번호 같은 값이라 전부 무작위(uuid4)
+# ─────────────────────────────────────────────────────────────
+
+
+def new_id(ms=None):
+    """시간순 UUID: 앞 12글자 = 만든 시각(밀리초), 나머지 = 무작위 74비트. 예) 019a1b2c-3d4e-7f01-8a2b-…
+    36글자 uuid 모양 그대로라 id 검사(SESSION_ID)·화면 주소·예전 uuid4 데이터와 함께 쓸 수 있고, 문자열로 정렬하면 만든 순서가 된다"""
+    value = ((ms or now_ms()) & (2 ** 48 - 1)) << 80 | int.from_bytes(os.urandom(10), "big")   # 시각 48비트 + 무작위 80비트
+    value = value & ~(0xF << 76) | 0x7 << 76                                                 # 버전 7 (13번째 글자가 7)
+    value = value & ~(0x3 << 62) | 0x2 << 62                                                 # 변형 표시 (17번째 글자가 8~b)
+    return str(uuid.UUID(int=value))

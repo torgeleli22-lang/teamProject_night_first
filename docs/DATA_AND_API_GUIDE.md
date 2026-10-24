@@ -101,11 +101,16 @@ DB 도구는 모두 `common.py` 4번 구역에 있어요:
 
 | 재료 | 만드는 코드 | 예 | 쓰는 곳 |
 |---|---|---|---|
-| 무작위 id | `str(uuid.uuid4())` (파이썬 표준) | `3c90fba9-a5c3-4c44-b98e-e363f1dae667` | 학습자 id, 코드 id, 로그인 토큰 |
+| 시간순 id | `new_id()` `common.py` 10번 구역 — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
+| 무작위 id | `str(uuid.uuid4())` (파이썬 표준, 전부 무작위) | `3c90fba9-a5c3-4c44-b98e-e363f1dae667` | 로그인 토큰 (비밀번호 같은 값이라 시각을 넣지 않음) · 예전에 만든 학습자·코드 id |
 | 시간순 번호 | `pad(time_id())` `common.py:279`, `:284` — 밀리초×1000 + 0~999, 앞을 0으로 16자리 | `1792592284764123` | `REVIEW#…`, `AILOG` |
 | 한국 날짜 | `day_key()` `common.py:737` (UTC+9) | `2026-10-24` | `STATS` |
 | 월 | `month_key()` `common.py:495` | `2026-10` | `USAGE` |
 | 첨삭 항목 키 | `review_key(review, kind, index)` `common.py:847` | `CHAT#1792592284764123#003` | `CHAT#`, `RETRY#` |
+
+> **시간순 UUID (`new_id`)**: 지금처럼 36글자 uuid 모양이라 id 검사(`SESSION_ID`, `load_reading`)·화면 주소·예전 uuid4 데이터를 그대로 함께 쓸 수 있어요.
+> 앞 12글자(하이픈 빼고)가 만든 시각(밀리초, 16진수)이라 콘솔에서 id 를 정렬하면 만든 순서가 되고, `int("019a1b2c3d4e", 16)` 로 시각을 꺼낼 수 있어요.
+> 무작위 부분 74비트가 남아 있어 추측은 사실상 불가능해요 (그래도 코드는 owner 확인을 한 번 더 해요).
 
 > 시각을 0으로 채워 자릿수를 맞추는 이유: sk 는 **글자 순서**로 정렬돼요. `"9"` 가 `"10"` 보다 뒤에 오는 일을 막아야 "가장 최근"을 정렬로 찾을 수 있어요.
 
@@ -115,7 +120,7 @@ DB 도구는 모두 `common.py` 4번 구역에 있어요:
 
 ```python
 # lambda/api/common.py:441
-item = {"pk": "LEARNER", "sk": str(uuid.uuid4()),          # ① pk 는 고정 글자, sk 는 새 uuid
+item = {"pk": "LEARNER", "sk": new_id(),                   # ① pk 는 고정 글자, sk 는 새 시간순 UUID
         "level": None, "recentTopics": [],
         "createdAt": now, "lastSeen": now,
         TTL_ATTR: ttl_after(keep_seconds(None, "learner"))}  # ② 12시간 뒤 삭제
@@ -157,7 +162,7 @@ key = f"{provider}:{profile['id']}"                          # auth.py:191  "goo
 account = get_item("ACCOUNT", key)                           # 전에 로그인한 적이 있나?
 if 있으면:  update_item("LEARNER", account["learnerId"], set_values={"name": …, "lastSeen": …, "jojo_ttl": 1년})
 else:
-    learner_id = str(uuid.uuid4())
+    learner_id = new_id()
     put_item({"pk": "LEARNER", "sk": learner_id, "member": True, "name": "오준희", "provider": "google",
               "level": None, "recentTopics": [], …, TTL_ATTR: 1년})          # auth.py:199
     put_item({"pk": "ACCOUNT", "sk": key, "learnerId": learner_id, …})      # auth.py:201
@@ -189,7 +194,7 @@ put_item({"pk": "LOGIN", "sk": token, "learnerId": learner_id, "provider": "goog
 
 ```python
 # lambda/api/common.py:820  save_reading
-reading_id = str(uuid.uuid4())                                         # ① 새 코드 id
+reading_id = new_id()                                                  # ① 새 코드 id (시간순 UUID)
 keep = min(keep_seconds(learner, fields.pop("keep", "reading")), keep_seconds(learner, "reading"))
 item = {"pk": f"READ#{reading_id}", "sk": "CODE",                      # ② pk = READ# + id, sk = 고정 "CODE"
         "id": reading_id, "owner": learner["id"],                      #    owner = 만든 학습자 (나중에 내 것인지 확인)

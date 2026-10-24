@@ -174,7 +174,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | --- | --- | --- | --- |
 | `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
 | `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, language, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
-| `READ#<uuid>` | `CODE` | id, owner, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
+| `READ#<uuid>` | `CODE` | id(시간순 UUID — `common.new_id`), owner, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
 | `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `READ#<uuid>` | `RETRY#<첨삭 시각>#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
 | `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |

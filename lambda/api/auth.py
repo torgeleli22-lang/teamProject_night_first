@@ -7,7 +7,7 @@ import urllib.request
 import uuid
 
 from common import (ALLOWED_ORIGINS, LIMITS, LOGIN_DAYS, SESSION_HEADER, SESSION_ID, TTL_ATTR, ApiError, alive, delete_item, get_item,
-                    get_learner, hit_limit, keep_seconds, now_ms, put_item, query_all, ttl_after, update_item)
+                    get_learner, hit_limit, keep_seconds, new_id, now_ms, put_item, query_all, ttl_after, update_item)
 
 # ─────────────────────────────────────────────────────────────
 # 로그인 (auth.py) — jojo_api 의 기능 파일. Google · GitHub OAuth (외부 라이브러리 없이 urllib)
@@ -95,7 +95,7 @@ def callback(req, provider):
         learner_id = account_learner(provider, profile)
         if saved.get("anonSid"):
             adopt_anonymous(saved["anonSid"], learner_id)
-        token = str(uuid.uuid4())
+        token = str(uuid.uuid4())   # 로그인 토큰은 비밀번호 같은 값이라 시각 없이 전부 무작위 (uuid4)
         put_item({"pk": "LOGIN", "sk": token, "learnerId": learner_id, "provider": provider, "createdAt": now_ms(),
                   TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
         return {"_redirect": f"{back}#{urllib.parse.urlencode({'login': token})}"}
@@ -195,7 +195,7 @@ def account_learner(provider, profile):
         update_item("LEARNER", account["learnerId"], set_values={"name": profile["name"], "lastSeen": now_ms(),
                                                                  TTL_ATTR: ttl_after(keep_seconds(member, "learner"))})
         return account["learnerId"]
-    learner_id = str(uuid.uuid4())
+    learner_id = new_id()
     put_item({"pk": "LEARNER", "sk": learner_id, "member": True, "name": profile["name"], "provider": provider, "level": None,
               "recentTopics": [], "createdAt": now_ms(), "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "learner"))})
     put_item({"pk": "ACCOUNT", "sk": key, "learnerId": learner_id, "createdAt": now_ms()})
