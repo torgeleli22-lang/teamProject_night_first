@@ -101,7 +101,7 @@ sequenceDiagram
 | 8~9 사용자 확인 | `auth.py` → `fetch_profile` | client_secret 은 Lambda 환경 변수에만, 화면에 오지 않음. 이메일은 받지 않음 |
 | 10 계정 찾기 | `auth.py` → `account_learner` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT/google:<sub>`, `ACCOUNT/github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
 | 11 기록 옮기기 | `auth.py` → `adopt_anonymous` | 옮긴 익명 id 는 `formerIds` 에 남겨 예전 코드도 열림. 올린 코드는 그대로 1일 |
-| 12~14 토큰 | `auth.py` → `callback`, 화면 `src/lib/api.ts` → `takeLoginFromUrl` | 토큰은 무작위 uuid, 학습자 id 자체를 보내도 회원으로 받지 않음 |
+| 12~14 토큰 | `auth.py` → `callback`, 화면 `src/lib/api.ts` → `takeLoginFromUrl` | 토큰은 무작위 uuid4 (시각 없음), 학습자 id 자체를 보내도 회원으로 받지 않음 |
 | 15~16 이후 요청 | `common.py` → `get_learner`, `use_learner` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
 
 ---
@@ -210,7 +210,7 @@ src/
 
 모든 기능 파일은 맨 위에 **설명 블록**(경로·요청·응답 모양), 처리 함수에 **단계 번호 주석**(1. 2. 3. …), 맨 아래에 **도움 함수**가 있어요. 파일마다 `ROUTES = {"POST /경로": 함수}` 표가 있고, 입구가 이 표를 합쳐요.
 
-### 5.2 `common.py` 안 (9개 구역)
+### 5.2 `common.py` 안 (10개 구역)
 
 | 구역 | 들어 있는 것 |
 |---|---|
@@ -223,6 +223,7 @@ src/
 | 7. AI 호출 | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, AI 끄기 스위치, 목업, 사용량(`USAGE`)·호출 기록(`AILOG`) |
 | 8. 설정 값 | `get_meta`, `set_meta` (AI 스위치·관리자 코드 해시) |
 | 9. 읽을 코드 | `CONCEPTS`·`guess_concept`(개념 꼬리표), `save_reading`, `load_reading`(내 코드만), `public_reading`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
+| 10. id 만들기 | `new_id()` — 시간순 UUID(버전 7): 앞 12글자가 만든 시각, 나머지 무작위. 학습자 id·코드 id 에 씀 (로그인 토큰은 전부 무작위 uuid4) |
 
 ### 5.3 이걸 바꾸려면 → 이 파일
 

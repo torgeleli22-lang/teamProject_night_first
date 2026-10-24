@@ -72,13 +72,13 @@
 ### 1-4. 항목마다 "누가 쓰고 누가 읽나"
 
 #### 학습자 `LEARNER`
-- **만들기**: `common.py:421` `get_learner(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 uuid 로 `put_item` (`:441`)
+- **만들기**: `common.py:421` `get_learner(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:441`)
 - **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `LEARNER/<id>` 직접, 로그인은 `LOGIN/<토큰>` → `learnerId` → `LEARNER`
 - **고치기**: `common.py:448` `use_learner` (15분마다 lastSeen·기한 늘리기), `:459` `remember_topic` (최근 주제·난이도)
 - **로그인 계정**: `auth.py:189` `account_learner` (member 학습자 만들기), `auth.py:205` `adopt_anonymous` (익명 기록을 계정으로 옮기고 익명 학습자 지우기)
 
 #### 읽을 코드 `READ#<id> / CODE`
-- **쓰기**: `common.py:820` `save_reading` — 연습 모드(`practice.py:139` `start_practice`, `:159` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
+- **쓰기**: `common.py:820` `save_reading` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:139` `start_practice`, `:159` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
 - **읽기**: `common.py:831` `load_reading(id, learner)` — **owner 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
 - **화면으로 보낼 모양**: `common.py:852` `public_reading` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
 

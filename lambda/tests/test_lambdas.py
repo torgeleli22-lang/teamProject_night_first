@@ -314,6 +314,20 @@ def study_row(level, marks, source="practice", at=0):
     return {"readingId": f"r{at}", "source": source, "level": level, "title": "t", "counts": {}, "items": items, "reviewedAt": at}
 
 
+class TimeOrderedId(unittest.TestCase):
+    def test_new_id_is_uuid7_sorted_by_time(self):
+        import re
+        import uuid
+        early, late = common.new_id(ms=1_700_000_000_000), common.new_id(ms=1_800_000_000_000)
+        for i in (early, late):
+            self.assertEqual(uuid.UUID(i).version, 7)
+            self.assertTrue(common.SESSION_ID.match(i))                # 학습자 id 헤더 검사를 그대로 통과
+            self.assertTrue(re.fullmatch(r"[0-9a-f-]{36}", i))         # load_reading 의 코드 id 검사도
+        self.assertLess(early, late)                                   # 문자열 정렬 = 만든 순서
+        self.assertEqual(int(late.replace("-", "")[:12], 16), 1_800_000_000_000)   # 앞 12글자 = 밀리초 시각
+        self.assertNotEqual(common.new_id(ms=1), common.new_id(ms=1))  # 같은 밀리초여도 무작위 부분이 다름
+
+
 class KeepTime(unittest.TestCase):
     def test_anonymous_is_short_member_is_long(self):
         anon, member = {"member": False}, {"member": True}
