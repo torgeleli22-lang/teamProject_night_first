@@ -1,12 +1,12 @@
 from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_learner, keep_seconds, now_ms, put_item,
-                    query_all, ttl_after)
+                    query_all, studyrec_sk, ttl_after, user_pk)
 
 # ─────────────────────────────────────────────────────────────
 # 내 공부 (study.py) — jojo_api 의 기능 파일. AI 를 쓰지 않는다 (모두 규칙)
 #
 #   GET /study  → {"levels": 난이도 추천, "concepts": 개념별 약점 지도, "notes": 내 설명 노트, "recent": 최근 공부, "summary": 요약}
 #
-#   기록: 첨삭을 받을 때(review.py) 읽은 코드 하나마다 STUDY#<학습자> / R#<읽은 코드 id> 한 줄을 쓰고,
+#   기록: 첨삭을 받을 때(review.py) 읽은 코드 하나마다 USER#<학습자> / STUDYREC#<읽은 코드 id> 한 줄을 쓰고,
 #         힌트 보고 다시 써서 나아지면 그 항목을 고친다. 코드 원본은 넣지 않아 작다.
 #         보관: 로그인 안 한 학습자는 하루(탭을 닫으면 다시 찾을 수 없음), 로그인 학습자는 1년 — common.keep_seconds
 #         (연습 코드는 잘라 낸 몇 줄을 함께 저장해 원본이 지워져도 노트에서 볼 수 있다. 올린 코드는 개인정보라 저장하지 않음)
@@ -27,7 +27,7 @@ MAX_NOTES = 60
 def overview(req):
     # 1. 내 기록 전부 (1년 치, 첨삭 하나당 한 줄이라 작다)
     learner = get_learner(req)
-    rows = sorted((r for r in query_all(f"STUDY#{learner['id']}", prefix="R#") if alive(r)), key=lambda r: -r.get("reviewedAt", 0))
+    rows = sorted((r for r in query_all(user_pk(learner["id"]), prefix="STUDYREC#") if alive(r)), key=lambda r: -r.get("reviewedAt", 0))
 
     # 2. 난이도 추천 / 개념별 약점 / 내 설명 노트 (모두 규칙)
     return {
@@ -49,7 +49,7 @@ ROUTES = {"GET /study": overview}
 def record_review(learner, reading, result):
     """첨삭 하나 → 읽은 코드 하나의 기록 (같은 코드를 다시 첨삭 받으면 최신 결과로 바꾸고 횟수를 센다)"""
     try:
-        key = {"pk": f"STUDY#{learner['id']}", "sk": f"R#{reading['id']}"}
+        key = {"pk": user_pk(learner["id"]), "sk": studyrec_sk(reading["id"])}
         old = get_item(key["pk"], key["sk"]) or {}
         lines = reading["code"].split("\n")
         items = []
@@ -72,7 +72,7 @@ def record_review(learner, reading, result):
 def record_retry(learner, reading, index, mark, text):
     """다시 써서 더 좋은 판정을 받으면 그 항목의 best·bestText 를 바꾼다"""
     try:
-        row = get_item(f"STUDY#{learner['id']}", f"R#{reading['id']}")
+        row = get_item(user_pk(learner["id"]), studyrec_sk(reading["id"]))
         if not row or index >= len(row.get("items", [])):
             return
         item = row["items"][index]

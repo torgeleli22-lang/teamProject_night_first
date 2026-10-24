@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Crumb, ErrorNote, Page, Sticky, Waiting } from "@/components/ui";
 import { ApiError, apiGet, apiPost } from "@/lib/api";
-import type { AdminOverview, DayCount, UsageRow } from "@/lib/api-types";
+import type { AdminOverview, DayCount, MigrateResult, UsageRow } from "@/lib/api-types";
 
 const TOKEN_KEY = "codereading.admin";
 const MODE_LABEL = { live: "실제 AI (Bedrock)", mock: "목업 (비용 없음)", off: "꺼짐 (AI_MODE=off)" };
@@ -80,6 +80,7 @@ export function AdminNote() {
   const [busy, setBusy] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [migrated, setMigrated] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -122,6 +123,21 @@ export function AdminNote() {
       load();
     } catch (e) {
       setError((e as Error).message);
+    }
+    setBusy(false);
+  }
+
+  /** 예전 키 이름 데이터를 새 이름으로 옮기기 (한 번, 다시 눌러도 안전) */
+  async function migrate() {
+    if (!window.confirm("예전 이름(LEARNER, READ#, STUDY# …)으로 저장된 데이터를 새 이름(USER#, CODE# …)으로 옮길까요? 다시 눌러도 안전해요.")) return;
+    setBusy(true);
+    setMigrated(null);
+    try {
+      const r = await apiPost<MigrateResult>("/admin/migrate", {}, { headers: headers() });
+      const kinds = Object.entries(r.byKind).map(([k, n]) => `${k} ${n}`).join(", ");
+      setMigrated(r.moved === 0 ? "옮길 예전 데이터가 없어요. 모두 새 이름이에요." : `${r.moved}개를 옮겼어요 (${kinds}). 요청 수 제한 기록 ${r.removed}개는 지웠어요.`);
+    } catch (err) {
+      setMigrated((err as Error).message);
     }
     setBusy(false);
   }
@@ -296,6 +312,19 @@ export function AdminNote() {
               </button>
             </form>
             {message && <p className="hand mt-2 text-pen-red">{message}</p>}
+          </section>
+
+          {/* 예전 키 이름 → 새 키 이름 (한 번) */}
+          <section className="mt-10">
+            <h2 className="text-lg">예전 데이터 옮기기</h2>
+            <p className="mt-1 text-xs text-ink-500">
+              DynamoDB 키 이름을 정리했어요 (LEARNER → USER#·PROFILE, READ# → CODE#, STUDY# → USER#·STUDYREC#, 운영 데이터 → OPS#). Lambda 를 새 코드로 바꾼 뒤 한 번 눌러
+              주세요. 예전 이름으로 남은 학습자·코드·첨삭·로그인을 새 이름으로 옮겨요.
+            </p>
+            <button type="button" className="btn-line mt-3 py-1.5" onClick={migrate} disabled={busy}>
+              예전 데이터 옮기기
+            </button>
+            {migrated && <p className="hand mt-2 text-pen-red">{migrated}</p>}
           </section>
         </>
       )}

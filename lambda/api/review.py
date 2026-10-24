@@ -2,7 +2,7 @@ import re
 
 from study import record_retry, record_review
 from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
-                    get_item, get_learner, guess_concept, latest_review, load_reading, now_ms, pad, put_item, query_all, review_key,
+                    code_pk, get_learner, guess_concept, latest_review, load_reading, now_ms, pad, put_item, review_children, review_key, review_rows,
                     time_id, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavaila
 #
 #   POST /review/retry   {"readingId": "...", "item": 2, "text": "힌트를 보고 다시 쓴 설명"}
 #   → 첨삭 항목 하나만 다시 채점 {"item", "attempts": [{"text", "mark", "comment", "lookAt", "byAi", "at"}], "left": 남은 횟수}
-#     힌트(첨삭 코멘트)를 보고 이해한 만큼 다시 써 보는 기회. 항목 하나에 MAX_RETRIES(3)번, READ#<id> / RETRY#<첨삭 시각>#<항목>
+#     힌트(첨삭 코멘트)를 보고 이해한 만큼 다시 써 보는 기회. 항목 하나에 MAX_RETRIES(3)번, CODE#<id> / REVIEW#<첨삭 시각>#RETRY#<항목>
 # ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """너는 프로그래밍 입문자의 '코드 흐름 설명 메모'를 빨간펜으로 첨삭하는 선생님이야.
@@ -86,7 +86,7 @@ def review(req):
 
     # 4. 결과 모으기 (코드 위치 순서) + 저장
     result = build_result(item, memos, missing, graded, by_ai)
-    put_item({"pk": f"READ#{item['id']}", "sk": f"REVIEW#{pad(time_id())}", "memos": memos, "result": result, "createdAt": now_ms(),
+    put_item({"pk": code_pk(item["id"]), "sk": f"REVIEW#{pad(time_id())}", "memos": memos, "result": result, "createdAt": now_ms(),
               TTL_ATTR: ttl_after(max(1, int(item.get(TTL_ATTR, 0) - now_ms() / 1000)))})
 
     # 5. '내 공부' 기록 (개념별 약점 지도·난이도 추천·내 설명 노트, 1년 보관)
@@ -123,14 +123,15 @@ def retry(req):
     text = field(body, "text", "str", required=True, max_len=MAX_MEMO_CHARS * 2).strip()[:MAX_MEMO_CHARS]
     if not text:
         raise ApiError(400, "다시 쓴 설명을 적어 주세요.")
-    rv = latest_review(item["id"])
+    rows = review_rows(item["id"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
+    rv = latest_review(item["id"], rows)
     if not rv or index >= len(rv["result"]["items"]):
         raise ApiError(404, "첨삭을 먼저 받아 주세요.")
     entry = rv["result"]["items"][index]
 
     # 2. 항목 하나에 MAX_RETRIES 번까지
     key = review_key(rv, "RETRY", index)
-    attempts = (get_item(f"READ#{item['id']}", key) or {}).get("attempts", [])
+    attempts = review_children(rv, "RETRY", rows).get(index, {}).get("attempts", [])
     if len(attempts) >= MAX_RETRIES:
         raise ApiError(429, f"이 메모는 {MAX_RETRIES}번까지 다시 써 볼 수 있어요. 'AI 튜터'에게 물어보거나 모범 설명을 확인해 보세요.")
 
@@ -152,7 +153,7 @@ def retry(req):
     # 4. 저장 (읽을 코드와 같이 지워짐)
     attempts = attempts + [{"text": text, "mark": graded["mark"], "comment": graded["comment"].strip()[:600],
                             "lookAt": [n for n in graded.get("lookAt", []) if 1 <= n <= total][:3], "byAi": by_ai, "at": now_ms()}]
-    put_item({"pk": f"READ#{item['id']}", "sk": key, "attempts": attempts, "updatedAt": now_ms(),
+    put_item({"pk": code_pk(item["id"]), "sk": key, "attempts": attempts, "updatedAt": now_ms(),
               TTL_ATTR: item.get(TTL_ATTR) or ttl_after(86400)})
 
     # 5. '내 공부' 기록에 나아진 판정·설명 반영
@@ -262,10 +263,9 @@ def rule_retry(item, memo):
     return {"mark": g["mark"], "comment": g["comment"], "lookAt": g["lookAt"]}
 
 
-def retries_for(reading_id, review):
-    """GET /reading 이 함께 돌려줄 다시 쓴 기록: {항목 번호: {"attempts", "left"}}"""
+def retries_for(review, rows):
+    """GET /reading 이 함께 돌려줄 다시 쓴 기록: {항목 번호: {"attempts", "left"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
     if not review:
         return {}
-    prefix = review_key(review, "RETRY", 0)[:-3]
-    return {str(int(r["sk"][len(prefix):])): {"attempts": r.get("attempts", []), "left": MAX_RETRIES - len(r.get("attempts", []))}
-            for r in query_all(f"READ#{reading_id}", prefix=prefix)}
+    return {str(i): {"attempts": r.get("attempts", []), "left": MAX_RETRIES - len(r.get("attempts", []))}
+            for i, r in review_children(review, "RETRY", rows).items()}

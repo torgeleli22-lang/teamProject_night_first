@@ -218,7 +218,7 @@ class RuleReview(unittest.TestCase):
 
     def test_review_keys(self):
         rv = {"sk": "REVIEW#0000000001"}
-        self.assertEqual(common.review_key(rv, "RETRY", 2), "RETRY#0000000001#002")
+        self.assertEqual(common.review_key(rv, "RETRY", 2), "REVIEW#0000000001#RETRY#002")
 
     def test_read_memos_drops_empty_and_sorts(self):
         memos = review.read_memos({"memos": [{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]}, self.ITEM["code"])
@@ -242,7 +242,7 @@ class Tutor(unittest.TestCase):
         self.assertIn("△ 부분", text)
 
     def test_chat_key_follows_review(self):
-        self.assertEqual(tutor.chat_key({"sk": "REVIEW#0000000001"}, 3), "CHAT#0000000001#003")
+        self.assertEqual(tutor.chat_key({"sk": "REVIEW#0000000001"}, 3), "REVIEW#0000000001#CHAT#003")
 
 
 class Concepts(unittest.TestCase):
@@ -418,7 +418,7 @@ class Login(unittest.TestCase):
             self.assertNotEqual(kim1, kim2)
             self.assertEqual(kim1, again)
             self.assertNotIn(other, (kim1, kim2))
-            self.assertEqual(db[("LEARNER", kim1)]["name"], "김철수(새 이름)")
+            self.assertEqual(db[(common.user_pk(kim1), common.PROFILE)]["name"], "김철수(새 이름)")
         finally:
             auth.get_item, auth.put_item, auth.update_item = saved
 
@@ -427,12 +427,63 @@ class Login(unittest.TestCase):
             load_lambda("auth").provider_of("kakao")
 
 
+class KeyNames(unittest.TestCase):
+    """키 이름표 (common.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화 · 예전 이름 옮기기 (admin.migrate)"""
+
+    def test_review_children_live_under_their_review(self):
+        rv1 = {"sk": "REVIEW#0000000000000100", "result": {}}
+        rv2 = {"sk": "REVIEW#0000000000000200", "result": {}}
+        rows = [rv1, {"sk": common.review_key(rv1, "CHAT", 0)}, {"sk": common.review_key(rv1, "RETRY", 2), "attempts": [1]},
+                rv2, {"sk": common.review_key(rv2, "CHAT", 3), "turns": []}]
+        self.assertEqual(common.review_key(rv2, "CHAT", 3), "REVIEW#0000000000000200#CHAT#003")
+        self.assertIs(common.latest_review("x", rows), rv2)                      # 대화·다시 쓰기는 첨삭으로 치지 않음
+        self.assertEqual(list(common.review_children(rv2, "CHAT", rows)), [3])  # 최신 첨삭에 딸린 것만
+        self.assertEqual(list(common.review_children(rv1, "RETRY", rows)), [2])
+
+    def test_old_names_map_to_new_names(self):
+        k = admin.new_key
+        self.assertEqual(k("LEARNER", "u1"), ("USER#u1", "PROFILE"))
+        self.assertEqual(k("STUDY#u1", "R#c1"), ("USER#u1", "STUDYREC#c1"))
+        self.assertEqual(k("READ#c1", "CODE"), ("CODE#c1", "INFO"))
+        self.assertEqual(k("READ#c1", "REVIEW#0001"), ("CODE#c1", "REVIEW#0001"))
+        self.assertEqual(k("READ#c1", "RETRY#0001#002"), ("CODE#c1", "REVIEW#0001#RETRY#002"))
+        self.assertEqual(k("READ#c1", "CHAT#0001#000"), ("CODE#c1", "REVIEW#0001#CHAT#000"))
+        self.assertEqual(k("LOGIN", "t1"), ("LOGIN#t1", "USER"))
+        self.assertEqual(k("ACCOUNT", "google:9"), ("ACCOUNT#google:9", "USER"))
+        self.assertEqual(k("AUTH", "s1"), ("AUTH#s1", "STATE"))
+        self.assertEqual(k("STATS", "DAY#2026-10-24"), ("OPS#STATS", "DAY#2026-10-24"))
+        self.assertEqual(k("META", "ai_switch"), ("OPS#CONFIG", "ai_switch"))
+        self.assertEqual(k("RL", "all:1.2.3.4#1"), "drop")
+        self.assertIsNone(k("USER#u1", "PROFILE"))        # 이미 새 이름
+        self.assertIsNone(k("QUESTION#1", "X"))           # 예전 서비스 항목은 그대로
+
+    def test_migrate_moves_then_deletes_and_is_repeatable(self):
+        table = {("LEARNER", "u1"): {"pk": "LEARNER", "sk": "u1", "level": 2},
+                 ("READ#c1", "CODE"): {"pk": "READ#c1", "sk": "CODE", "owner": "u1"},
+                 ("RL", "all:x#1"): {"pk": "RL", "sk": "all:x#1", "n": 3},
+                 ("OPS#STATS", "DAY#1"): {"pk": "OPS#STATS", "sk": "DAY#1"}}
+        saved = admin.scan_table, admin.batch_put, admin.batch_delete
+        admin.scan_table = lambda: [dict(v) for v in table.values()]
+        admin.batch_put = lambda items: table.update({(i["pk"], i["sk"]): i for i in items})
+        admin.batch_delete = lambda keys: [table.pop((i["pk"], i["sk"]), None) for i in keys]
+        try:
+            first = admin.migrate({})
+            self.assertEqual((first["moved"], first["removed"], first["untouched"]), (2, 1, 1))
+            self.assertEqual(table[("USER#u1", "PROFILE")]["level"], 2)
+            self.assertEqual(table[("CODE#c1", "INFO")]["owner"], "u1")
+            self.assertNotIn(("LEARNER", "u1"), table)
+            again = admin.migrate({})
+            self.assertEqual((again["moved"], again["removed"]), (0, 0))   # 다시 눌러도 아무것도 바뀌지 않음
+        finally:
+            admin.scan_table, admin.batch_put, admin.batch_delete = saved
+
+
 class Entry(unittest.TestCase):
     def test_every_path_has_a_feature(self):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
-            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code",
+            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate",
             "GET /me", "GET /auth/start", "GET /auth/callback/google", "GET /auth/callback/github", "POST /auth/logout"})
 
 

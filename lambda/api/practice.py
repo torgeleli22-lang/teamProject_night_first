@@ -4,7 +4,7 @@ import random
 import re
 
 from common import (CONCEPTS, LANGUAGES, LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, code_for_ai, count_event, field,
-                    get_learner, latest_review, load_reading, log_ai_event, numbered, public_reading, remember_topic, save_reading)
+                    get_learner, latest_review, load_reading, log_ai_event, numbered, public_reading, remember_topic, review_rows, save_reading)
 from samples import SAMPLES
 from review import retries_for
 from tutor_chat import chats_for
@@ -192,10 +192,11 @@ def adjust(req):
 def get_reading(req):
     learner = get_learner(req)
     item = load_reading(req["query"].get("id", ""), learner)
-    review = latest_review(item["id"])
+    rows = review_rows(item["id"])   # 첨삭·다시 쓰기·튜터 대화를 한 번에 읽는다 (CODE#<id> 의 REVIEW#…)
+    review = latest_review(item["id"], rows)
     return {"reading": public_reading(item), "review": review["result"] if review else None,
-            "chats": chats_for(item["id"], review),       # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
-            "retries": retries_for(item["id"], review)}   # 첨삭 항목마다 힌트를 보고 다시 써 본 기록 (review.py)
+            "chats": chats_for(review, rows),       # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
+            "retries": retries_for(review, rows)}   # 첨삭 항목마다 힌트를 보고 다시 써 본 기록 (review.py)
 
 
 ROUTES = {

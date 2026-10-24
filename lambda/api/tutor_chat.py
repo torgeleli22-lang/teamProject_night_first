@@ -1,7 +1,7 @@
 import re
 
 from common import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
-                    get_item, get_learner, latest_review, load_reading, now_ms, put_item, query_all, review_key, ttl_after)
+                    code_pk, get_learner, latest_review, load_reading, now_ms, put_item, review_children, review_key, review_rows, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
 # AI 튜터 대화 (tutor_chat.py) — jojo_api 의 기능 파일
@@ -10,7 +10,7 @@ from common import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, AiUnavailable, A
 #   POST /tutor   {"readingId": "...", "item": 0, "message": "왜 부분 정답이에요?"}
 #        → {"item": 0, "turns": [{"role": "user"|"tutor", "text", "lookAt": [줄], "at"}], "turnsLeft": 9, "byAi": true}
 #
-#   - 대화는 가장 최근 첨삭(REVIEW#)의 항목 번호에 붙는다: READ#<id> / CHAT#<첨삭 sk>#<항목 번호 3자리>
+#   - 대화는 가장 최근 첨삭(REVIEW#)의 항목 번호에 붙는다: CODE#<id> / REVIEW#<첨삭 시각>#CHAT#<항목 번호 3자리>
 #   - 메모 하나에 MAX_TUTOR_TURNS(10)번까지. 읽을 코드와 같이 자동 삭제
 #   - 튜터는 바로 정답을 주기보다 질문·힌트로 이끌고, 학습자가 이미 시도했으면 줄 단위로 풀어 설명한다
 #   - AI 를 쓸 수 없으면 첨삭 코멘트·다시 볼 줄·모범 설명으로 규칙 답을 준다
@@ -57,14 +57,15 @@ def ask_tutor(req):
     message = re.sub(r"\s+", " ", field(body, "message", "str", required=True, max_len=MAX_TUTOR_CHARS * 2)).strip()[:MAX_TUTOR_CHARS]
     if not message:
         raise ApiError(400, "물어볼 말을 적어 주세요.")
-    review = latest_review(reading["id"])
+    rows = review_rows(reading["id"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
+    review = latest_review(reading["id"], rows)
     if not review or index >= len(review["result"]["items"]):
         raise ApiError(404, "첨삭을 먼저 받아 주세요.")
     entry = review["result"]["items"][index]
 
     # 2. 지금까지의 대화 (메모 하나에 MAX_TUTOR_TURNS 번까지)
     key = chat_key(review, index)
-    turns = (get_item(f"READ#{reading['id']}", key) or {}).get("turns", [])
+    turns = review_children(review, "CHAT", rows).get(index, {}).get("turns", [])
     asked = sum(1 for t in turns if t["role"] == "user")
     if asked >= MAX_TUTOR_TURNS:
         raise ApiError(429, f"이 메모에 대한 질문은 {MAX_TUTOR_TURNS}번까지예요. '같은 코드 다시 읽기'로 메모를 고쳐 보세요.")
@@ -90,7 +91,7 @@ def ask_tutor(req):
         {"role": "user", "text": message, "lookAt": [], "at": now},
         {"role": "tutor", "text": answer["reply"].strip()[:1500], "lookAt": [n for n in answer.get("lookAt", []) if 1 <= n <= total][:3], "at": now},
     ]
-    put_item({"pk": f"READ#{reading['id']}", "sk": key, "turns": turns, "updatedAt": now, TTL_ATTR: reading.get(TTL_ATTR) or ttl_after(86400)})
+    put_item({"pk": code_pk(reading["id"]), "sk": key, "turns": turns, "updatedAt": now, TTL_ATTR: reading.get(TTL_ATTR) or ttl_after(86400)})
     return {"item": index, "turns": turns, "turnsLeft": MAX_TUTOR_TURNS - asked - 1, "byAi": by_ai}
 
 
@@ -103,15 +104,14 @@ def chat_key(review, index):
     return review_key(review, "CHAT", index)
 
 
-def chats_for(reading_id, review):
-    """GET /reading 이 함께 돌려줄 대화: {항목 번호: {"turns", "turnsLeft"}}"""
+def chats_for(review, rows):
+    """GET /reading 이 함께 돌려줄 대화: {항목 번호: {"turns", "turnsLeft"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
     if not review:
         return {}
-    prefix = f"CHAT#{review['sk'][len('REVIEW#'):]}#"
     out = {}
-    for row in query_all(f"READ#{reading_id}", prefix=prefix):
+    for i, row in review_children(review, "CHAT", rows).items():
         turns = row.get("turns", [])
-        out[str(int(row["sk"][len(prefix):]))] = {"turns": turns, "turnsLeft": MAX_TUTOR_TURNS - sum(1 for t in turns if t["role"] == "user")}
+        out[str(i)] = {"turns": turns, "turnsLeft": MAX_TUTOR_TURNS - sum(1 for t in turns if t["role"] == "user")}
     return out
 
 

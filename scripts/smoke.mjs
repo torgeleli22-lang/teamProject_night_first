@@ -3,6 +3,7 @@
  * 로컬 DynamoDB 흉내 서버 + Python Lambda(npm run api 와 같음)를 띄우고, 화면이 보내는 요청을 차례로 보내 본다.
  * AI 는 목업(AI_MODE=mock)이라 비용이 없다.
  */
+import { BatchWriteItemCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { startLocalApi } from "./local-api.mjs";
 
 const api = await startLocalApi({ port: 18000 + Math.floor(Math.random() * 1000), quiet: !process.env.SMOKE_LOG, env: { AI_MODE: "mock", MOCK_DELAY_SEC: "0" } });
@@ -193,6 +194,36 @@ try {
   check((await call("GET", "/health")).ai === false, "AI 꺼짐 표시");
   await call("POST", "/admin/ai", { enabled: true });
   check((await call("GET", "/admin/overview")).aiSwitch === true, "AI 다시 켜기");
+
+  // ── 예전 키 이름 → 새 키 이름 옮기기 (POST /admin/migrate): 예전 이름으로 DB 에 직접 넣고 옮긴 뒤 화면 요청으로 확인
+  const oldUser = "0f0f0f0f-1111-4222-8333-444455556666";
+  const oldCode = "0e0e0e0e-1111-4222-8333-444455556666";
+  const ttl = Math.floor(Date.now() / 1000) + 86400;
+  const oldItems = [
+    { pk: "LEARNER", sk: oldUser, level: 1, recentTopics: ["카페 주문"], createdAt: 1, lastSeen: Date.now(), jojo_ttl: ttl },
+    { pk: `READ#${oldCode}`, sk: "CODE", id: oldCode, owner: oldUser, source: "practice", language: "python", level: 1, topic: "카페 주문",
+      title: "예전 코드", code: "total = 0\nfor x in [1, 2]:\n    total += x\nprint(total)", rootId: oldCode, regenCount: 0, createdAt: 1,
+      marks: [{ id: "m1", start: 2, end: 3, why: "w", explanation: "e", keywords: ["k"], concept: "loop_update" }], jojo_ttl: ttl },
+    { pk: `READ#${oldCode}`, sk: "REVIEW#0000000000000100", memos: [], createdAt: 1, jojo_ttl: ttl,
+      result: { readingId: oldCode, summary: "예전 첨삭", counts: { correct: 0, partial: 0, wrong: 0, missing: 1 }, byAi: false, createdAt: 1,
+                items: [{ kind: "missing", start: 2, end: 3, marked: true, memo: "", mark: "missing", comment: "c", lookAt: [2], model: "e", concept: "loop_update" }] } },
+    { pk: `READ#${oldCode}`, sk: "CHAT#0000000000000100#000", turns: [{ role: "user", text: "q", lookAt: [], at: 1 }, { role: "tutor", text: "a", lookAt: [], at: 1 }], jojo_ttl: ttl },
+    { pk: `READ#${oldCode}`, sk: "RETRY#0000000000000100#000", attempts: [{ text: "t", mark: "partial", comment: "c", lookAt: [], byAi: false, at: 1 }], jojo_ttl: ttl },
+    { pk: `STUDY#${oldUser}`, sk: `R#${oldCode}`, readingId: oldCode, source: "practice", level: 1, title: "예전 코드", reviews: 1, reviewedAt: 1,
+      counts: { correct: 0, partial: 0, wrong: 0, missing: 1 }, items: [], jojo_ttl: ttl },
+  ];
+  const toAttr = (v) =>
+    typeof v === "string" ? { S: v } : typeof v === "number" ? { N: String(v) } : typeof v === "boolean" ? { BOOL: v } : v === null ? { NULL: true }
+      : Array.isArray(v) ? { L: v.map(toAttr) } : { M: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, toAttr(x)])) };
+  const db = new DynamoDBClient({ region: "ap-northeast-2", endpoint: api.dbUrl, credentials: { accessKeyId: "local", secretAccessKey: "local" } });
+  await db.send(new BatchWriteItemCommand({ RequestItems: { jojo_table: oldItems.map((i) => ({ PutRequest: { Item: toAttr(i).M } })) } }));
+  const moved = await call("POST", "/admin/migrate", {});
+  check(moved.moved >= oldItems.length, `예전 이름 항목 옮기기 (${moved.moved}개 옮김, ${moved.removed}개 지움)`);
+  const migrated = await call("GET", `/reading?id=${oldCode}`, undefined, { "x-session-id": oldUser });
+  check(migrated.reading.title === "예전 코드" && migrated.review?.summary === "예전 첨삭" && migrated.chats["0"]?.turns.length === 2 && migrated.retries["0"]?.attempts.length === 1,
+    "옮긴 뒤에도 예전 학습자가 예전 코드·첨삭·튜터 대화·다시 쓰기를 그대로 엶");
+  check((await call("GET", "/study", undefined, { "x-session-id": oldUser })).summary.codes === 1, "옮긴 뒤에도 예전 '내 공부' 기록이 보임");
+  check((await call("POST", "/admin/migrate", {})).moved === 0, "다시 눌러도 더 옮길 것이 없음");
 
   // ── 관리자 코드: 정한 코드만 통과, 틀리면 401, 10번 틀리면 잠시 막힘
   await call("POST", "/admin/code", { code: "smoke-code-1234" });

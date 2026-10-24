@@ -7,7 +7,7 @@
   2. AWS 연결 (DynamoDB·Bedrock)          6. 학습자(세션)
   3. 요청 읽기·응답 만들기 (CORS 포함)     7. AI 호출 (Bedrock, 월 예산·사용량 기록·목업·AI 끄기)
   4. DynamoDB 읽기·쓰기 도구              8. 설정 값 (META)
-  9. 읽을 코드 (READ#) · 최근 첨삭 · 하루 사용 수   10. id 만들기 (시간순 UUID)
+  9. 읽을 코드 (CODE#) · 최근 첨삭 · 하루 사용 수   10. id 만들기 (시간순 UUID)
 
 콘솔에서 이 파일을 고쳤다면 GitHub(lambda/api/common.py)에도 같이 반영해 주세요.
 """
@@ -238,7 +238,54 @@ def field(body, name, kind, default=None, required=False, max_len=None, choices=
 # ─────────────────────────────────────────────────────────────
 # 4. DynamoDB 읽기·쓰기 도구
 #    DynamoDB 는 숫자를 Decimal 로 주고받아서, 읽을 때 int/float 로, 쓸 때 Decimal 로 바꾼다
+#
+#    키 이름표 — 테이블 하나(jojo_table)에 들어가는 모든 항목. 기능 파일은 아래 함수·이름으로만 pk·sk 를 만든다
+#      규칙 1  pk = 무엇의 것인가 + id      규칙 2  sk = 어떤 종류인가 (+ 시각·번호)      규칙 3  운영 데이터는 OPS# 로 시작
+#
+#      pk                         sk                                   무엇
+#      USER#<사용자 id>           PROFILE                              학습자 (난이도·최근 주제·회원 정보)
+#      USER#<사용자 id>           STUDYREC#<코드 id>                   내 공부 기록 (코드 하나당 한 줄)
+#      CODE#<코드 id>             INFO                                 읽을 코드 (코드·※ 지점·모범 설명·owner)
+#      CODE#<코드 id>             REVIEW#<시각>                        첨삭 결과
+#      CODE#<코드 id>             REVIEW#<시각>#RETRY#<항목 번호>      힌트 보고 다시 써 보기
+#      CODE#<코드 id>             REVIEW#<시각>#CHAT#<항목 번호>       AI 튜터 대화
+#      LOGIN#<토큰>               USER                                 로그인 토큰 → 사용자
+#      ACCOUNT#<제공자>:<번호>    USER                                 소셜 계정 → 사용자
+#      AUTH#<state>               STATE                                로그인 시작 기록 (10분)
+#      OPS#STATS                  DAY#<날짜>                           하루 사용 수
+#      OPS#USAGE                  <월>#<작업>#<모델>                   AI 사용량·비용
+#      OPS#AILOG                  <시각>                               AI 호출 기록
+#      OPS#CONFIG                 ai_switch · admin_code_hash          AI 끄기 · 관리자 코드
+#      OPS#LIMIT                  <종류>:<대상>#<시간 칸>              요청 수 제한
 # ─────────────────────────────────────────────────────────────
+
+PROFILE, INFO, USER, STATE = "PROFILE", "INFO", "USER", "STATE"
+OPS_STATS, OPS_USAGE, OPS_AILOG, OPS_CONFIG, OPS_LIMIT = "OPS#STATS", "OPS#USAGE", "OPS#AILOG", "OPS#CONFIG", "OPS#LIMIT"
+
+
+def user_pk(user_id):
+    return f"USER#{user_id}"
+
+
+def studyrec_sk(code_id):
+    return f"STUDYREC#{code_id}"
+
+
+def code_pk(code_id):
+    return f"CODE#{code_id}"
+
+
+def login_pk(token):
+    return f"LOGIN#{token}"
+
+
+def account_pk(provider_and_number):
+    return f"ACCOUNT#{provider_and_number}"
+
+
+def auth_pk(state):
+    return f"AUTH#{state}"
+
 
 
 def to_plain(value):
@@ -363,20 +410,20 @@ def batch_put(items):
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. 요청 수 제한 (함수가 여러 개 떠도 함께 세도록 DynamoDB 의 RL / 키#구간 항목에 센다)
+# 5. 요청 수 제한 (함수가 여러 개 떠도 함께 세도록 DynamoDB 의 OPS#LIMIT / 키#구간 항목에 센다)
 # ─────────────────────────────────────────────────────────────
 
 
 def bump_counter(key, window_sec):
     window_start = int(time.time() // window_sec * window_sec) * 1000
-    item = update_item("RL", f"{key}#{window_start}", set_values={TTL_ATTR: window_start // 1000 + window_sec + 60},
+    item = update_item(OPS_LIMIT, f"{key}#{window_start}", set_values={TTL_ATTR: window_start // 1000 + window_sec + 60},
                        add_values={"n": 1}, return_new=True)
     return int(item.get("n", 0))
 
 
 def read_counter(key, window_sec):
     window_start = int(time.time() // window_sec * window_sec) * 1000
-    return int((get_item("RL", f"{key}#{window_start}") or {}).get("n", 0))
+    return int((get_item(OPS_LIMIT, f"{key}#{window_start}") or {}).get("n", 0))
 
 
 def hit_limit(key, limit, window_sec):
@@ -396,7 +443,7 @@ AI_LIMIT_MESSAGE = "AI 를 잠깐 너무 많이 썼어요. 조금 쉬었다가(�
 
 # ─────────────────────────────────────────────────────────────
 # 6. 학습자 (세션) — 로그인 없이 브라우저 탭마다 한 명. 세션 id 는 x-session-id 헤더로 주고받는다
-#    LEARNER / <세션 id> : 고른 난이도, 최근 주제
+#    USER#<사용자 id> / PROFILE : 고른 난이도, 최근 주제, (로그인) 회원 정보
 # ─────────────────────────────────────────────────────────────
 
 SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -404,7 +451,7 @@ RECENT_TOPICS = 10   # 랜덤 주제에서 빼는 최근 주제 수
 
 
 def learner_from_item(item):
-    return {"id": item["sk"], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0),
+    return {"id": item["pk"][len("USER#"):], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0),
             "member": bool(item.get("member")), "name": item.get("name"), "provider": item.get("provider"),   # member: 로그인 학습자
             "formerIds": item.get("formerIds", [])}   # 로그인 전 탭의 학습자 id (그때 받은 코드도 계속 열 수 있게)
 
@@ -425,20 +472,20 @@ def get_learner(req):
     sid = req["headers"].get(SESSION_HEADER) or ""
     if SESSION_ID.match(sid):
         # 1. 로그인 안 한 학습자: 학습자 id 그대로 (계정의 학습자 id 를 직접 보내면 받지 않는다 — 로그인 토큰으로만)
-        found = get_item("LEARNER", sid)
+        found = get_item(user_pk(sid), PROFILE)
         if found and alive(found) and not found.get("member"):
             return use_learner(req, found, sid)
-        # 2. 로그인 학습자: 로그인 토큰 (LOGIN / <토큰> → 계정의 학습자, auth.py 가 만든다)
-        login = get_item("LOGIN", sid)
+        # 2. 로그인 학습자: 로그인 토큰 (LOGIN#<토큰> / USER → 계정의 학습자, auth.py 가 만든다)
+        login = get_item(login_pk(sid), USER)
         if login and alive(login):
-            member = get_item("LEARNER", login["learnerId"])
+            member = get_item(user_pk(login["learnerId"]), PROFILE)
             if member and alive(member):
                 return use_learner(req, member, sid, login)
     if not hit_limit(f"new:{req['ip']}", LIMITS["new_sessions_per_ip_hour"], 3600):
         raise ApiError(429, "새로 시작하는 요청이 너무 많아요. 잠시 뒤(최대 1시간)에 다시 시도해 주세요.")
     # 3. 처음이거나 기한이 지났으면 새 학습자 (로그인 안 함)
     now = now_ms()
-    item = {"pk": "LEARNER", "sk": new_id(), "level": None, "recentTopics": [],
+    item = {"pk": user_pk(new_id()), "sk": PROFILE, "level": None, "recentTopics": [],
             "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(keep_seconds(None, "learner"))}
     put_item(item)
     req["learner"] = learner_from_item(item)
@@ -449,9 +496,9 @@ def use_learner(req, item, sid, login=None):
     """찾은 학습자를 이 요청에 쓴다. 마지막 사용 시각(=자동 삭제 기한)은 15분마다만 늘린다 (요청마다 쓰지 않아 빠르고 쌈)"""
     learner = {**learner_from_item(item), "sid": sid}
     if now_ms() - item.get("lastSeen", 0) > SESSION_REFRESH_SEC * 1000:
-        update_item("LEARNER", item["sk"], set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(learner, "learner"))})
+        update_item(item["pk"], PROFILE, set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(learner, "learner"))})
         if login:   # 로그인 토큰도 쓰는 동안은 기한을 늘린다
-            update_item("LOGIN", sid, set_values={TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
+            update_item(login_pk(sid), USER, set_values={TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
     req["learner"] = learner
     return learner
 
@@ -459,7 +506,7 @@ def use_learner(req, item, sid, login=None):
 def remember_topic(learner, topic, level):
     """최근 주제(랜덤에서 빼기)와 고른 난이도를 기억한다"""
     recent = [t for t in learner["recentTopics"] if t != topic][-(RECENT_TOPICS - 1):] + [topic]
-    update_item("LEARNER", learner["id"], set_values={"recentTopics": recent, "level": level})
+    update_item(user_pk(learner["id"]), PROFILE, set_values={"recentTopics": recent, "level": level})
     learner["recentTopics"], learner["level"] = recent, level
 
 
@@ -506,7 +553,7 @@ def normalize_model(model):
 def usage_summary(since_month=""):
     """작업·모델별 사용량 합계 (since_month 부터)"""
     by = {}
-    for r in query_all("USAGE", start=since_month or None):
+    for r in query_all(OPS_USAGE, start=since_month or None):
         key = (r.get("task"), r.get("model"))
         cur = by.setdefault(key, {"task": r.get("task"), "model": r.get("model"), "calls": 0, "input": 0, "output": 0, "cacheRead": 0, "failures": 0})
         for k in ("calls", "input", "output", "cacheRead", "failures"):
@@ -538,7 +585,7 @@ def log_usage(task, model, inp, out, cache_read, ok, error=None, ms=0):
         latest = {"task": task, "model": model, "month": month, "lastAt": now}
         if error:
             latest.update(lastError=error[:200], lastErrorAt=now)
-        update_item("USAGE", f"{month}#{task}#{model}", set_values=latest,
+        update_item(OPS_USAGE, f"{month}#{task}#{model}", set_values=latest,
                     add_values={"calls": 1, "input": inp, "output": out, "cacheRead": cache_read, "failures": 0 if ok else 1})
         log_ai_event(task, model, ok, inp, out, ms, error)
     except Exception as e:  # 사용량 기록 실패가 학습을 막지 않도록
@@ -546,10 +593,10 @@ def log_usage(task, model, inp, out, cache_read, ok, error=None, ms=0):
 
 
 def log_ai_event(task, model, ok, inp=0, out=0, ms=0, error=None, stage="ai"):
-    """AILOG / <시각>: 관리자 화면에서 어떤 작업이 언제 성공·실패했는지 보여 준다.
+    """OPS#AILOG / <시각>: 관리자 화면에서 어떤 작업이 언제 성공·실패했는지 보여 준다.
     stage: ai(AI 호출 자체) · check(AI 는 답했지만 서버 검사에서 걸림 — 예: 만든 코드의 문법 오류)"""
     try:
-        put_item({"pk": "AILOG", "sk": pad(time_id()), "task": task, "model": model, "ok": ok, "stage": stage,
+        put_item({"pk": OPS_AILOG, "sk": pad(time_id()), "task": task, "model": model, "ok": ok, "stage": stage,
                   "input": inp, "output": out, "ms": int(ms), "error": (error or "")[:300], "createdAt": now_ms(),
                   TTL_ATTR: ttl_after(AI_LOG_DAYS * 86400)})
     except Exception as e:
@@ -715,20 +762,20 @@ def check_schema(value, schema, path="(전체)"):
 
 
 # ─────────────────────────────────────────────────────────────
-# 8. 설정 값 (META / <키>)
+# 8. 설정 값 (OPS#CONFIG / <키>)
 # ─────────────────────────────────────────────────────────────
 
 
 def get_meta(key):
-    return (get_item("META", key) or {}).get("value")
+    return (get_item(OPS_CONFIG, key) or {}).get("value")
 
 
 def set_meta(key, value):
-    put_item({"pk": "META", "sk": key, "value": value})
+    put_item({"pk": OPS_CONFIG, "sk": key, "value": value})
 
 
 # ─────────────────────────────────────────────────────────────
-# 9. 읽을 코드 (READ#<id> / CODE) — 연습 모드·내 코드 점검이 함께 쓴다
+# 9. 읽을 코드 (CODE#<id> / INFO) — 연습 모드·내 코드 점검이 함께 쓴다
 #    코드, 언어, 난이도, 주제, ※ 꼭 설명할 곳(marks: 줄 범위 + 모범 설명 + 핵심 표현)
 #    화면에는 public_reading() 만 보낸다 (모범 설명·핵심 표현은 첨삭 뒤에만)
 # ─────────────────────────────────────────────────────────────
@@ -740,9 +787,9 @@ def day_key(ms=None):
 
 
 def count_event(name):
-    """관리자 화면의 하루 사용 수 (STATS / DAY#날짜 에 더하기). 실패해도 학습은 계속"""
+    """관리자 화면의 하루 사용 수 (OPS#STATS / DAY#날짜 에 더하기). 실패해도 학습은 계속"""
     try:
-        update_item("STATS", f"DAY#{day_key()}", set_values={TTL_ATTR: ttl_after(90 * 86400)}, add_values={name: 1})
+        update_item(OPS_STATS, f"DAY#{day_key()}", set_values={TTL_ATTR: ttl_after(90 * 86400)}, add_values={name: 1})
     except Exception as e:
         print("[stats]", repr(e))
 
@@ -821,7 +868,7 @@ def save_reading(learner, **fields):
     """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keep(upload 면 짧게)"""
     reading_id = new_id()   # 시간순 UUID: id 앞부분만 봐도 언제 만든 코드인지 알 수 있다
     keep = min(keep_seconds(learner, fields.pop("keep", "reading")), keep_seconds(learner, "reading"))
-    item = {"pk": f"READ#{reading_id}", "sk": "CODE", "id": reading_id, "owner": learner["id"], "language": fields.pop("language", None) or "python",
+    item = {"pk": code_pk(reading_id), "sk": INFO, "id": reading_id, "owner": learner["id"], "language": fields.pop("language", None) or "python",
             "createdAt": now_ms(), "rootId": fields.pop("rootId", None) or reading_id, "regenCount": fields.pop("regenCount", 0),
             TTL_ATTR: ttl_after(keep), **fields}
     put_item(item)
@@ -832,21 +879,33 @@ def load_reading(reading_id, learner):
     """내 코드만 꺼낼 수 있다 (다른 사람의 id 를 알아도 못 봄)"""
     if not isinstance(reading_id, str) or not re.fullmatch(r"[0-9a-f-]{36}", reading_id):
         raise ApiError(400, "요청 값을 확인해 주세요.")
-    item = get_item(f"READ#{reading_id}", "CODE")
+    item = get_item(code_pk(reading_id), INFO)
     if not item or not alive(item) or item.get("owner") not in [learner["id"], *learner.get("formerIds", [])]:
         raise ApiError(404, "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요.")
     return item
 
 
-def latest_review(reading_id):
-    """가장 최근 첨삭 (READ#<id> / REVIEW#<시각>). 튜터 대화·다시 써 보기가 이 첨삭의 항목 번호에 붙는다"""
-    reviews = query_all(f"READ#{reading_id}", prefix="REVIEW#")
+def review_rows(reading_id):
+    """코드 하나의 첨삭과 거기 딸린 다시 쓰기·튜터 대화를 한 번에 (CODE#<id> 에서 sk 가 REVIEW# 로 시작하는 것, 시간순)"""
+    return query_all(code_pk(reading_id), prefix="REVIEW#")
+
+
+def latest_review(reading_id, rows=None):
+    """가장 최근 첨삭 (CODE#<id> / REVIEW#<시각>). 튜터 대화·다시 써 보기가 이 첨삭의 항목 번호에 붙는다
+    rows 에는 다시 쓰기·대화(REVIEW#<시각>#RETRY#…)도 섞여 있어서 sk 에 # 가 하나뿐인 첨삭만 고른다"""
+    reviews = [r for r in (review_rows(reading_id) if rows is None else rows) if r["sk"].count("#") == 1]
     return reviews[-1] if reviews else None
 
 
 def review_key(review, kind, index):
-    """첨삭 항목에 붙는 기록의 sk: CHAT#<첨삭 시각>#003 · RETRY#<첨삭 시각>#003"""
-    return f"{kind}#{review['sk'][len('REVIEW#'):]}#{index:03d}"
+    """첨삭 항목에 붙는 기록의 sk: REVIEW#<첨삭 시각>#CHAT#003 · REVIEW#<첨삭 시각>#RETRY#003"""
+    return f"{review['sk']}#{kind}#{index:03d}"
+
+
+def review_children(review, kind, rows):
+    """첨삭 하나에 딸린 다시 쓰기(RETRY)·튜터 대화(CHAT): {항목 번호: 항목}"""
+    prefix = f"{review['sk']}#{kind}#"
+    return {int(r["sk"][len(prefix):]): r for r in rows if r["sk"].startswith(prefix)}
 
 
 def public_reading(item):
@@ -863,7 +922,7 @@ def public_reading(item):
 
 # ─────────────────────────────────────────────────────────────
 # 10. id 만들기 — 시간순 UUID (버전 7)
-#     학습자 id(LEARNER/<id>)·읽을 코드 id(READ#<id>) 에 쓴다. 로그인 토큰은 비밀번호 같은 값이라 전부 무작위(uuid4)
+#     학습자 id(USER#<id>)·읽을 코드 id(CODE#<id>) 에 쓴다. 로그인 토큰은 비밀번호 같은 값이라 전부 무작위(uuid4)
 # ─────────────────────────────────────────────────────────────
 
 
