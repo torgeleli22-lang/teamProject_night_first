@@ -249,6 +249,10 @@ src/
 
 ### 5.4 DynamoDB 항목 (테이블 `jojo_table`, pk / sk)
 
+그림(ERD)·관계·화면 동작별 읽기/쓰기: **[`docs/DB_STRUCTURE.md`](docs/DB_STRUCTURE.md)**
+
+![jojo_table ERD](docs/images/jojo_table_erd.png)
+
 | pk | sk | 내용 |
 |---|---|---|
 규칙 3가지: **pk = 무엇의 것인지 + id**, **sk = 종류 (+ 시각·번호)**, **운영 데이터는 `OPS#`**. 이름은 `common.py` 4번 구역의 `user_pk`·`code_pk`·`studyrec_sk` 등으로만 만들어요.
