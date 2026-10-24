@@ -98,6 +98,7 @@ export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {
 
   return {
     url,
+    dbUrl, // DynamoDB 흉내 서버 주소 (smoke 가 예전 이름 항목을 직접 넣어 옮기기를 시험할 때)
     stop: () => {
       child.kill();
       db.close();

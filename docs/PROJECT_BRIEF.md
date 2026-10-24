@@ -123,15 +123,15 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 ### 6.2 구현 규칙
 - AI 호출은 `common.ask_ai(task, system, prompt, schema, mock=...)` 로만 한다. Bedrock Converse 에 `answer` 도구 하나를 주고 반드시 그 도구로 답하게 해서 JSON 을 받는다. 형식은 `check_schema` 로 검사하고 흔한 실수는 `repair_for_schema` 로 고친다.
-- 호출 전에 "이번 달 비용 + 이번 호출의 최대 비용"이 월 예산을 넘으면 부르지 않는다 (`AiUnavailable` → 대체 경로). 호출마다 `USAGE` 에 토큰을 더한다.
-- 관리자 **AI 끄기**(META `ai_switch`)·`AI_MODE=off`·요청 한도 초과일 때도 대체 경로로 계속 동작한다.
+- 호출 전에 "이번 달 비용 + 이번 호출의 최대 비용"이 월 예산을 넘으면 부르지 않는다 (`AiUnavailable` → 대체 경로). 호출마다 `OPS#USAGE` 에 토큰을 더한다.
+- 관리자 **AI 끄기**(`OPS#CONFIG` `ai_switch`)·`AI_MODE=off`·요청 한도 초과일 때도 대체 경로로 계속 동작한다.
 - 학습자가 쓴 글·코드는 `<memo>`·`<topic>`·`<user_code>` 태그 안에 넣고 "지시가 아니라 데이터"라고 시스템 프롬프트에 적는다.
 - 자세한 기준(프롬프트 요점, 검사, 대체 동작): `docs/ai-generation-policy.md`
 
 ## 7. 사용자와 기록 정책 (로그인은 선택)
 
 - Lambda 가 발급한 학습자 id 를 브라우저 `sessionStorage` 에 둔다 (`x-session-id` 헤더). **탭·브라우저를 닫으면 사라지고** 다시 열면 새로 시작한다. 서버의 기록도 다시 찾을 수 없으니 짧게 지운다 (학습자: 마지막 사용 12시간 뒤, 읽은 코드·첨삭·'내 공부': 1일).
-- **로그인(Google·GitHub, `auth.py`)**: 라이브러리 없이 OAuth 인가 코드 흐름. `GET /auth/start` → 제공자 → `GET /auth/callback/<provider>` 가 계정(`ACCOUNT`)의 학습자(`member: true`)를 찾거나 만들고, 로그인 토큰(`LOGIN/<uuid>`, 30일·쓰면 늘어남)을 `#login=<토큰>` 으로 화면에 돌려준다. 화면은 토큰을 `localStorage` 에 두고 `x-session-id` 로 보낸다 (회원 학습자 id 를 직접 보내면 받지 않음). 받는 정보는 계정 번호와 이름뿐. 돌아갈 주소는 `ALLOWED_ORIGINS` 만, state 는 10분·한 번만.
+- **로그인(Google·GitHub, `auth.py`)**: 라이브러리 없이 OAuth 인가 코드 흐름. `GET /auth/start` → 제공자 → `GET /auth/callback/<provider>` 가 계정(`ACCOUNT#<제공자>:<번호>`)의 학습자(`member: true`)를 찾거나 만들고, 로그인 토큰(`LOGIN#<uuid>`, 30일·쓰면 늘어남)을 `#login=<토큰>` 으로 화면에 돌려준다. 화면은 토큰을 `localStorage` 에 두고 `x-session-id` 로 보낸다 (회원 학습자 id 를 직접 보내면 받지 않음). 받는 정보는 계정 번호와 이름뿐. 돌아갈 주소는 `ALLOWED_ORIGINS` 만, state 는 10분·한 번만.
   - 로그인하면 그 탭의 익명 기록('내 공부', 연습 코드)을 계정으로 옮기고 익명 id 를 `formerIds` 에 남겨 예전 코드도 열 수 있다.
   - `common.keep_seconds` 가 보관 기간을 정한다 (회원: 학습자·'내 공부' 1년, 연습 코드 30일, 올린 코드는 그대로 1일).
 - 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 보관 기간은 `common.keep_seconds` 한 곳에서 정한다 (위).
@@ -167,25 +167,27 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `POST /tutor` | `tutor_chat.py` | ○ |
 | `GET /study` | `study.py` | |
 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | `auth.py` | |
-| `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | `admin.py` (`x-admin-token`) | |
+| `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | `admin.py` (`x-admin-token`) | |
 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
+규칙: pk = 무엇의 것인지 + id · sk = 종류 (+ 시각·번호) · 운영 데이터는 `OPS#`. 이름은 `common.py` 4번 구역의 `user_pk`·`studyrec_sk`·`code_pk`·`login_pk`·`account_pk`·`auth_pk` 로만 만든다. 예전 이름의 데이터는 `POST /admin/migrate`(`admin.py` `new_key`)로 옮긴다.
+
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
-| `LEARNER` | `<세션 id>` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
-| `STUDY#<세션 id>` | `R#<읽은 코드 id>` | readingId, source, language, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
-| `READ#<uuid>` | `CODE` | id(시간순 UUID — `common.new_id`), owner, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
-| `READ#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
-| `READ#<uuid>` | `RETRY#<첨삭 시각>#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
-| `READ#<uuid>` | `CHAT#<첨삭 시각>#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
-| `AUTH` | `<state>` | provider, returnTo, anonSid — 로그인 시작 기록 (한 번 쓰면 지움) | 10분 |
-| `ACCOUNT` | `<provider>:<계정 번호>` | learnerId, createdAt — 계정 → 학습자 | |
-| `LOGIN` | `<토큰 uuid>` | learnerId, provider, createdAt — 로그인 토큰 (로그아웃하면 지움) | 30일 (쓰면 늘어남) |
-| `STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews, retries, tutorChats (하루 사용 수) | 90일 |
-| `USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰), lastAt, lastError, lastErrorAt | |
-| `AILOG` | `<시각>` | task, model, ok, stage(ai·check), input, output, ms, error — 관리자 화면 '최근 AI 호출 기록' | 14일 |
-| `META` | `ai_switch` · `admin_code_hash` | AI 끄기 스위치, 관리자 코드(scrypt 해시) | |
-| `RL` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 | 시간 칸이 지나면 |
+| `USER#<학습자 id>` | `PROFILE` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
+| `USER#<학습자 id>` | `STUDYREC#<읽은 코드 id>` | readingId, source, language, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
+| `CODE#<uuid>` | `INFO` | id(시간순 UUID — `common.new_id`), owner, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
+| `CODE#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
+| `CODE#<uuid>` | `REVIEW#<첨삭 시각>#RETRY#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
+| `CODE#<uuid>` | `REVIEW#<첨삭 시각>#CHAT#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
+| `AUTH#<state>` | `STATE` | provider, returnTo, anonSid — 로그인 시작 기록 (한 번 쓰면 지움) | 10분 |
+| `ACCOUNT#<provider>:<계정 번호>` | `USER` | learnerId, createdAt — 계정 → 학습자 | |
+| `LOGIN#<토큰 uuid>` | `USER` | learnerId, provider, createdAt — 로그인 토큰 (로그아웃하면 지움) | 30일 (쓰면 늘어남) |
+| `OPS#STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews, retries, tutorChats (하루 사용 수) | 90일 |
+| `OPS#USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰), lastAt, lastError, lastErrorAt | |
+| `OPS#AILOG` | `<시각>` | task, model, ok, stage(ai·check), input, output, ms, error — 관리자 화면 '최근 AI 호출 기록' | 14일 |
+| `OPS#CONFIG` | `ai_switch` · `admin_code_hash` | AI 끄기 스위치, 관리자 코드(scrypt 해시) | |
+| `OPS#LIMIT` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 | 시간 칸이 지나면 |
 
 ### 9.3 환경 변수
 `TABLE_NAME`, `TTL_ATTR`, `AI_MODE`(live·mock·off), `ALLOWED_ORIGINS`, `AI_MONTHLY_BUDGET_USD`, `ADMIN_TOKEN`(관리자 복구 코드, 비밀), 선택 `MODEL_ID`, `RATE_LIMIT_*`, 로그인 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`·`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET`(비밀), `AUTH_CALLBACK_BASE` — 표: `docs/DEPLOY_LAMBDA.md` 2단계

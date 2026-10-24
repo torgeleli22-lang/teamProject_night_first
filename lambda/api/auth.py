@@ -6,8 +6,9 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from common import (ALLOWED_ORIGINS, LIMITS, LOGIN_DAYS, SESSION_HEADER, SESSION_ID, TTL_ATTR, ApiError, alive, delete_item, get_item,
-                    get_learner, hit_limit, keep_seconds, new_id, now_ms, put_item, query_all, ttl_after, update_item)
+from common import (ALLOWED_ORIGINS, INFO, LIMITS, LOGIN_DAYS, PROFILE, SESSION_HEADER, SESSION_ID, STATE, TTL_ATTR, USER, ApiError,
+                    account_pk, alive, auth_pk, code_pk, delete_item, get_item, get_learner, hit_limit, keep_seconds, login_pk, new_id,
+                    now_ms, put_item, query_all, ttl_after, update_item, user_pk)
 
 # ─────────────────────────────────────────────────────────────
 # 로그인 (auth.py) — jojo_api 의 기능 파일. Google · GitHub OAuth (외부 라이브러리 없이 urllib)
@@ -20,8 +21,8 @@ from common import (ALLOWED_ORIGINS, LIMITS, LOGIN_DAYS, SESSION_HEADER, SESSION
 #          화면 주소#login=<로그인 토큰>  (실패하면 #login_error=<이유>)
 #   POST /auth/logout                로그인 토큰을 지운다
 #
-#   DynamoDB: AUTH / <state>(10분) · ACCOUNT / <provider>:<사용자 id> → learnerId · LOGIN / <토큰> → learnerId(30일, 쓰면 늘어남)
-#             LEARNER / <learnerId> 에 member: true, name, provider
+#   DynamoDB: AUTH#<state> / STATE (10분) · ACCOUNT#<provider>:<사용자 번호> / USER → learnerId
+#             LOGIN#<토큰> / USER → learnerId (30일, 쓰면 늘어남) · USER#<learnerId> / PROFILE 에 member: true, name, provider
 #   사용자 구분은 이름이 아니라 바뀌지 않는 고유 번호로 한다: Google 의 sub, GitHub 의 id (이름은 화면에 보여 줄 때만, 동명이인도 다른 계정)
 #   로그인하면 그 탭에서 하던 기록(내 공부·연습 코드)을 계정으로 옮기고, 보관 기간이 길어진다 (common.keep_seconds)
 #
@@ -62,7 +63,7 @@ def start(req):
 
     # 2. 한 번만 쓰는 state 를 저장해 두고 (콜백이 진짜 우리가 보낸 것인지 확인)
     state = secrets.token_urlsafe(24)
-    put_item({"pk": "AUTH", "sk": state, "provider": provider, "returnTo": return_to, "anonSid": sid if SESSION_ID.match(sid) else "",
+    put_item({"pk": auth_pk(state), "sk": STATE, "provider": provider, "returnTo": return_to, "anonSid": sid if SESSION_ID.match(sid) else "",
               TTL_ATTR: ttl_after(STATE_SECONDS)})
 
     # 3. Google·GitHub 로그인 화면으로 (로컬에서 설정이 없으면 바로 가짜 콜백으로)
@@ -81,10 +82,10 @@ def start(req):
 def callback(req, provider):
     # 1. state 확인 (한 번만 쓰고 지운다)
     state = req["query"].get("state", "")
-    saved = get_item("AUTH", state) if state else None
+    saved = get_item(auth_pk(state), STATE) if state else None
     if not saved or not alive(saved) or saved["provider"] != provider:
         raise ApiError(400, "로그인 요청이 만료됐어요. 다시 로그인해 주세요.")
-    delete_item("AUTH", state)
+    delete_item(auth_pk(state), STATE)
     back = saved["returnTo"]
     try:
         if req["query"].get("error"):
@@ -96,7 +97,7 @@ def callback(req, provider):
         if saved.get("anonSid"):
             adopt_anonymous(saved["anonSid"], learner_id)
         token = str(uuid.uuid4())   # 로그인 토큰은 비밀번호 같은 값이라 시각 없이 전부 무작위 (uuid4)
-        put_item({"pk": "LOGIN", "sk": token, "learnerId": learner_id, "provider": provider, "createdAt": now_ms(),
+        put_item({"pk": login_pk(token), "sk": USER, "learnerId": learner_id, "provider": provider, "createdAt": now_ms(),
                   TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
         return {"_redirect": f"{back}#{urllib.parse.urlencode({'login': token})}"}
     except ApiError as e:
@@ -105,8 +106,8 @@ def callback(req, provider):
 
 def logout(req):
     sid = req["headers"].get(SESSION_HEADER) or ""
-    if SESSION_ID.match(sid) and get_item("LOGIN", sid):
-        delete_item("LOGIN", sid)
+    if SESSION_ID.match(sid) and get_item(login_pk(sid), USER):
+        delete_item(login_pk(sid), USER)
     return {"ok": True}
 
 
@@ -187,40 +188,40 @@ def fetch_profile(req, provider, code):
 
 
 def account_learner(provider, profile):
-    """ACCOUNT / <provider>:<id> → 계정의 학습자 id. 처음이면 로그인 학습자(member)를 만든다"""
-    key = f"{provider}:{profile['id']}"
-    account = get_item("ACCOUNT", key)
+    """ACCOUNT#<provider>:<id> / USER → 계정의 학습자 id. 처음이면 로그인 학습자(member)를 만든다"""
+    key = account_pk(f"{provider}:{profile['id']}")
+    account = get_item(key, USER)
     member = {"member": True}
-    if account and get_item("LEARNER", account["learnerId"]):
-        update_item("LEARNER", account["learnerId"], set_values={"name": profile["name"], "lastSeen": now_ms(),
+    if account and get_item(user_pk(account["learnerId"]), PROFILE):
+        update_item(user_pk(account["learnerId"]), PROFILE, set_values={"name": profile["name"], "lastSeen": now_ms(),
                                                                  TTL_ATTR: ttl_after(keep_seconds(member, "learner"))})
         return account["learnerId"]
     learner_id = new_id()
-    put_item({"pk": "LEARNER", "sk": learner_id, "member": True, "name": profile["name"], "provider": provider, "level": None,
+    put_item({"pk": user_pk(learner_id), "sk": PROFILE, "member": True, "name": profile["name"], "provider": provider, "level": None,
               "recentTopics": [], "createdAt": now_ms(), "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "learner"))})
-    put_item({"pk": "ACCOUNT", "sk": key, "learnerId": learner_id, "createdAt": now_ms()})
+    put_item({"pk": key, "sk": USER, "learnerId": learner_id, "createdAt": now_ms()})
     return learner_id
 
 
 def adopt_anonymous(anon_id, learner_id):
     """로그인하기 전 이 탭에서 한 공부(내 공부 기록·연습 코드·첨삭)를 계정으로 옮기고 보관 기간을 늘린다. 올린 코드는 짧게 그대로"""
-    anon = get_item("LEARNER", anon_id)
+    anon = get_item(user_pk(anon_id), PROFILE)
     if not anon or anon.get("member") or anon_id == learner_id:
         return
     member = {"member": True}
-    for row in query_all(f"STUDY#{anon_id}"):
+    for row in query_all(user_pk(anon_id), prefix="STUDYREC#"):   # 비회원 서랍의 공부 기록 → 회원 서랍으로
         practice = row.get("source") == "practice"
         reading_ttl = ttl_after(keep_seconds(member, "reading")) if practice else row.get("readingTtl", 0)
-        for part in query_all(f"READ#{row['readingId']}"):   # 코드·첨삭·다시 쓰기·튜터 대화
+        for part in query_all(code_pk(row["readingId"])):   # 그 코드의 서랍: 코드·첨삭·다시 쓰기·튜터 대화
             values = {TTL_ATTR: reading_ttl} if practice else {}
-            if part["sk"] == "CODE":
+            if part["sk"] == INFO:
                 values["owner"] = learner_id
             if values:
                 update_item(part["pk"], part["sk"], set_values=values)
-        put_item({**row, "pk": f"STUDY#{learner_id}", "readingTtl": reading_ttl, TTL_ATTR: ttl_after(keep_seconds(member, "study"))})
+        put_item({**row, "pk": user_pk(learner_id), "readingTtl": reading_ttl, TTL_ATTR: ttl_after(keep_seconds(member, "study"))})
         delete_item(row["pk"], row["sk"])
     # 로그인 전에 받은 코드(아직 첨삭 전인 것 포함)도 계속 열 수 있게 예전 탭의 id 를 기억한다 (최근 20개)
-    member_item = get_item("LEARNER", learner_id) or {}
+    member_item = get_item(user_pk(learner_id), PROFILE) or {}
     former = [i for i in member_item.get("formerIds", []) if i != anon_id][-19:] + [anon_id]
-    update_item("LEARNER", learner_id, set_values={"formerIds": former})
-    delete_item("LEARNER", anon_id)
+    update_item(user_pk(learner_id), PROFILE, set_values={"formerIds": former})
+    delete_item(user_pk(anon_id), PROFILE)

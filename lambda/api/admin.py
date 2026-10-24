@@ -4,8 +4,9 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import common
-from common import (AI_MODE, MODEL_ID, MONTHLY_BUDGET_USD, ApiError, ai_switch_on, bump_counter, estimate_cost, field, get_item, get_meta,
-                    month_cost_usd, month_key, normalize_model, query_all, read_counter, set_meta)
+from common import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
+                    account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, estimate_cost, field, get_item, get_meta,
+                    login_pk, month_cost_usd, month_key, normalize_model, query_all, read_counter, set_meta, studyrec_sk, to_plain, user_pk)
 
 # ─────────────────────────────────────────────────────────────
 # 관리자 (admin.py) — jojo_api 의 기능 파일
@@ -14,8 +15,9 @@ from common import (AI_MODE, MODEL_ID, MONTHLY_BUDGET_USD, ApiError, ai_switch_o
 #   GET  /admin/overview   현황: AI 모드·AI 스위치·이번 달 비용·예산·작업별 사용량(성공·실패·마지막 실패 이유)·최근 AI 호출 기록·날짜별 사용 수
 #   POST /admin/ai         AI 켜기/끄기 {"enabled": false}  → 끄면 예시 코드·규칙 판정·규칙 첨삭으로 (비용 0)
 #   POST /admin/code       관리자 코드 바꾸기 {"code": "8자 이상"}
+#   POST /admin/migrate    예전 키 이름(LEARNER, READ#, STUDY# …)의 항목을 새 이름(USER#, CODE# …)으로 옮기기 (한 번, 다시 눌러도 안전)
 #
-#   관리자 코드: META / admin_code_hash 에 scrypt 해시로 저장 (원문은 저장하지 않음)
+#   관리자 코드: OPS#CONFIG / admin_code_hash 에 scrypt 해시로 저장 (원문은 저장하지 않음)
 #   복구 코드: 환경 변수 ADMIN_TOKEN (관리자 코드를 잊어도 들어올 수 있게). 틀린 코드를 15분에 10번 넣으면 그 IP 는 잠긴다
 # ─────────────────────────────────────────────────────────────
 
@@ -120,7 +122,7 @@ def short_model(model):
 def overview(req):
     # 1. 이번 달 AI 사용량: 작업 × 모델 한 줄씩 (지금 쓰는 작업 먼저)
     rows = []
-    for r in query_all("USAGE", prefix=month_key()):
+    for r in query_all(OPS_USAGE, prefix=month_key()):
         calls, failures = int(r.get("calls", 0)), int(r.get("failures", 0))
         rows.append({
             "task": r.get("task"), "taskName": task_name(r.get("task")), "current": r.get("task") in TASKS,
@@ -140,14 +142,14 @@ def overview(req):
     recent = [{"at": r.get("createdAt"), "task": r.get("task"), "taskName": task_name(r.get("task")), "modelName": short_model(r.get("model", "")),
                "ok": bool(r.get("ok")), "stage": r.get("stage", "ai"), "input": int(r.get("input", 0)), "output": int(r.get("output", 0)),
                "ms": int(r.get("ms", 0)), "error": reason(r.get("error"))}
-              for r in query_all("AILOG", descending=True, limit=RECENT_LOGS)]
+              for r in query_all(OPS_AILOG, descending=True, limit=RECENT_LOGS)]
 
-    # 3. 최근 날짜별 사용 수 (STATS / DAY#날짜)
+    # 3. 최근 날짜별 사용 수 (OPS#STATS / DAY#날짜)
     days = []
     today = datetime.now(timezone.utc) + timedelta(hours=9)
     for i in range(STATS_DAYS):
         day = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-        row = get_item("STATS", f"DAY#{day}") or {}
+        row = get_item(OPS_STATS, f"DAY#{day}") or {}
         days.append({"day": day, **{k: int(row.get(k, 0)) for k in EVENT_NAMES}})
 
     # 4. 화면에 보여 줄 값
@@ -185,8 +187,78 @@ def change_code(req):
     return {"ok": True}
 
 
+def migrate(req):
+    """예전 키 이름의 항목을 새 이름으로 옮긴다. 옮긴 항목은 새 이름으로 쓰고 예전 것은 지운다 — 여러 번 눌러도 결과가 같다"""
+    # 1. 테이블 전체를 훑어 예전 이름의 항목 찾기
+    moving, removing, untouched = [], [], 0
+    for item in scan_table():
+        target = new_key(item["pk"], item["sk"])
+        if target == "drop":            # 요청 수 제한(RL)은 몇 분짜리라 옮기지 않고 지운다
+            removing.append(item)
+        elif target:
+            moving.append({**item, "pk": target[0], "sk": target[1]})
+            removing.append(item)
+        else:
+            untouched += 1              # 이미 새 이름이거나, 예전 서비스의 항목
+
+    # 2. 새 이름으로 쓰고 → 예전 것 지우기 (쓰기가 끝난 뒤에 지워서, 중간에 멈춰도 다시 누르면 이어서 된다)
+    batch_put(moving)
+    batch_delete(removing)
+    kinds = {}
+    for item in moving:
+        kind = item["pk"].split("#")[0] + (" · " + item["sk"].split("#")[0] if item["pk"].startswith(("USER#", "CODE#")) else "")
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return {"moved": len(moving), "removed": len(removing) - len(moving), "untouched": untouched, "byKind": kinds}
+
+
 ROUTES = {
     "GET /admin/overview": overview,
     "POST /admin/ai": switch_ai,
     "POST /admin/code": change_code,
+    "POST /admin/migrate": migrate,
 }
+
+# ───────────────────────── 예전 키 이름 → 새 키 이름 (POST /admin/migrate) ─────────────────────────
+
+OLD_OPS = {"STATS": OPS_STATS, "USAGE": OPS_USAGE, "AILOG": OPS_AILOG, "META": OPS_CONFIG}
+
+
+def new_key(pk, sk):
+    """예전 (pk, sk) → 새 (pk, sk). 옮기지 않을 항목은 None, 지울 항목은 "drop" """
+    if pk == "LEARNER":
+        return user_pk(sk), PROFILE
+    if pk.startswith("STUDY#") and sk.startswith("R#"):
+        return user_pk(pk[len("STUDY#"):]), studyrec_sk(sk[len("R#"):])
+    if pk.startswith("READ#"):
+        code = code_pk(pk[len("READ#"):])
+        if sk == "CODE":
+            return code, INFO
+        if sk.startswith("REVIEW#"):
+            return code, sk
+        for kind in ("RETRY", "CHAT"):   # RETRY#<첨삭 시각>#<항목> → REVIEW#<첨삭 시각>#RETRY#<항목>
+            if sk.startswith(kind + "#"):
+                at, number = sk[len(kind) + 1:].rsplit("#", 1)
+                return code, f"REVIEW#{at}#{kind}#{number}"
+        return None
+    if pk == "LOGIN":
+        return login_pk(sk), USER
+    if pk == "ACCOUNT":
+        return account_pk(sk), USER
+    if pk == "AUTH":
+        return auth_pk(sk), STATE
+    if pk in OLD_OPS:
+        return OLD_OPS[pk], sk
+    if pk == "RL":
+        return "drop"
+    return None
+
+
+def scan_table():
+    """테이블 전체 (관리자가 옮기기를 누를 때만 — 평소 기능은 쓰지 않는다)"""
+    args = {}
+    while True:
+        page = common.table.scan(**args)
+        yield from to_plain(page.get("Items", []))
+        if "LastEvaluatedKey" not in page:
+            return
+        args["ExclusiveStartKey"] = page["LastEvaluatedKey"]

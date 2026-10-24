@@ -48,7 +48,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | AI 튜터 | `/result/` | 첨삭 항목 하나에 대해 묻고 답하기 (대화 저장) | ○ |
 | 내 코드 점검 | `/check/` | 민감 정보 다시 가리기 · 함수 목록 · 훑어본 난이도(규칙) → '메모하러 가기'에서 AI 가 난이도·※ | 시작할 때 |
 | 내 공부 | `/study/` | 첨삭 기록(로그인 안 함: 이 탭에서만 · 로그인: 1년)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
-| 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드 | — |
+| 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드, 예전 데이터 옮기기 | — |
 
 **AI 가 없어도 동작해요.** 관리자가 AI 를 끄거나, 월 예산($10)에 닿거나, 요청 한도를 넘으면 예시 코드 · 규칙 판정 · 규칙 첨삭으로 바뀌고 화면에 안내가 나와요.
 
@@ -77,21 +77,21 @@ sequenceDiagram
     participant D as DynamoDB
 
     B->>L: GET /auth/start?provider=google&return=지금 화면&sid=이 탭의 학습자 id
-    L->>D: AUTH/<state> 저장 (돌아갈 화면·이 탭 학습자 id, 10분)
+    L->>D: AUTH#<state> 저장 (돌아갈 화면·이 탭 학습자 id, 10분)
     L-->>B: 302 → Google 로그인 화면 (client_id, redirect_uri, state, scope=openid profile)
     B->>G: 계정 고르기 · 허용
     G-->>B: 302 → <함수 URL>/auth/callback/google?code=…&state=…
     B->>L: GET /auth/callback/google?code=…&state=…
-    L->>D: AUTH/<state> 확인하고 바로 지움 (한 번만)
+    L->>D: AUTH#<state> 확인하고 바로 지움 (한 번만)
     L->>G: code + client_secret → access_token (oauth2.googleapis.com/token)
     L->>G: access_token → 사용자 정보 (sub = 고유 번호, name)
-    L->>D: ACCOUNT/google:<sub> 로 학습자 찾기 · 없으면 LEARNER(member) 새로 만들기
+    L->>D: ACCOUNT#google:<sub> 로 학습자 찾기 · 없으면 USER#<id>/PROFILE(member) 새로 만들기
     L->>D: 이 탭의 익명 기록('내 공부'·연습 코드)을 계정으로 옮기기
-    L->>D: LOGIN/<새 토큰> 저장 (30일, 쓰면 늘어남)
+    L->>D: LOGIN#<새 토큰> 저장 (30일, 쓰면 늘어남)
     L-->>B: 302 → 화면#login=<토큰>
     B->>B: 토큰을 localStorage 에 두고 주소의 #login 지우기
     B->>L: 이후 모든 요청: x-session-id: <토큰>
-    L->>D: LOGIN/<토큰> → LEARNER 확인
+    L->>D: LOGIN#<토큰> → USER#<id>/PROFILE 확인
 ```
 
 | 단계 | 파일 · 함수 | 지키는 것 |
@@ -99,7 +99,7 @@ sequenceDiagram
 | 1~3 시작 | `auth.py` → `start`, `safe_return` | 돌아갈 화면은 `ALLOWED_ORIGINS` 의 주소만 (다른 사이트로 토큰이 새지 않게) |
 | 6~7 state 확인 | `auth.py` → `callback` | state 는 10분 안에 한 번만 — 가짜 콜백·다시 보내기 차단 |
 | 8~9 사용자 확인 | `auth.py` → `fetch_profile` | client_secret 은 Lambda 환경 변수에만, 화면에 오지 않음. 이메일은 받지 않음 |
-| 10 계정 찾기 | `auth.py` → `account_learner` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT/google:<sub>`, `ACCOUNT/github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
+| 10 계정 찾기 | `auth.py` → `account_learner` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT#google:<sub>`, `ACCOUNT#github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
 | 11 기록 옮기기 | `auth.py` → `adopt_anonymous` | 옮긴 익명 id 는 `formerIds` 에 남겨 예전 코드도 열림. 올린 코드는 그대로 1일 |
 | 12~14 토큰 | `auth.py` → `callback`, 화면 `src/lib/api.ts` → `takeLoginFromUrl` | 토큰은 무작위 uuid4 (시각 없음), 학습자 id 자체를 보내도 회원으로 받지 않음 |
 | 15~16 이후 요청 | `common.py` → `get_learner`, `use_learner` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
@@ -203,7 +203,7 @@ src/
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
 | `auth.py` | Google·GitHub 로그인 (OAuth, 라이브러리 없음) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | — |
-| `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | — |
+| `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | — |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 (Python 8개) · 랜덤 주제 목록 | — | — |
 | `samples_js.py` | AI 를 못 쓸 때의 JavaScript 예시 코드 7개 (`samples.py` 가 합침) | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
@@ -220,7 +220,7 @@ src/
 | 4. DynamoDB 도구 | `get_item` `put_item` `query_all` `update_item` `ttl_after` … |
 | 5. 요청 수 제한 | `hit_limit`, `ai_allowed` |
 | 6. 학습자(세션) | `get_learner`, `remember_topic` |
-| 7. AI 호출 | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, AI 끄기 스위치, 목업, 사용량(`USAGE`)·호출 기록(`AILOG`) |
+| 7. AI 호출 | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, AI 끄기 스위치, 목업, 사용량(`OPS#USAGE`)·호출 기록(`OPS#AILOG`) |
 | 8. 설정 값 | `get_meta`, `set_meta` (AI 스위치·관리자 코드 해시) |
 | 9. 읽을 코드 | `CONCEPTS`·`guess_concept`(개념 꼬리표), `save_reading`, `load_reading`(내 코드만), `public_reading`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
 | 10. id 만들기 | `new_id()` — 시간순 UUID(버전 7): 앞 12글자가 만든 시각, 나머지 무작위. 학습자 id·코드 id 에 씀 (로그인 토큰은 전부 무작위 uuid4) |
@@ -251,16 +251,23 @@ src/
 
 | pk | sk | 내용 |
 |---|---|---|
-| `LEARNER` | 학습자 id | 고른 난이도, 최근 주제 10개, (로그인) member·이름·제공자 |
-| `ACCOUNT` · `LOGIN` · `AUTH` | 계정 / 토큰 / state | 계정 → 학습자, 로그인 토큰(30일), 로그인 시작 기록(10분) |
-| `READ#<id>` | `CODE` | 읽을 코드: 코드·난이도·주제·※ 지점(모범 설명 포함)·만든 사람 |
-| `READ#<id>` | `REVIEW#<시각>` | 첨삭 결과 |
-| `READ#<id>` | `RETRY#<첨삭 시각>#<항목>` | 다시 써 본 기록 |
-| `READ#<id>` | `CHAT#<첨삭 시각>#<항목>` | 튜터 대화 |
-| `STUDY#<학습자>` | `R#<읽은 코드 id>` | 내 공부 기록: 개념·처음/가장 좋은 판정·내 설명 (로그인 안 함 1일 · 로그인 1년) |
-| `STATS` | `DAY#날짜` | 하루 사용 수 |
-| `USAGE` · `AILOG` | 월·작업·모델 / 시각 | AI 토큰·비용, AI 호출 기록 |
-| `META` | `ai_switch` · `admin_code_hash` | AI 스위치, 관리자 코드 |
+규칙 3가지: **pk = 무엇의 것인지 + id**, **sk = 종류 (+ 시각·번호)**, **운영 데이터는 `OPS#`**. 이름은 `common.py` 4번 구역의 `user_pk`·`code_pk`·`studyrec_sk` 등으로만 만들어요.
+
+| pk | sk | 내용 |
+|---|---|---|
+| `USER#<학습자 id>` | `PROFILE` | 고른 난이도, 최근 주제 10개, (로그인) member·이름·제공자 |
+| `USER#<학습자 id>` | `STUDYREC#<읽은 코드 id>` | 내 공부 기록: 개념·처음/가장 좋은 판정·내 설명 (로그인 안 함 1일 · 로그인 1년) |
+| `CODE#<id>` | `INFO` | 읽을 코드: 코드·난이도·주제·※ 지점(모범 설명 포함)·만든 사람 |
+| `CODE#<id>` | `REVIEW#<시각>` | 첨삭 결과 |
+| `CODE#<id>` | `REVIEW#<첨삭 시각>#RETRY#<항목>` | 다시 써 본 기록 |
+| `CODE#<id>` | `REVIEW#<첨삭 시각>#CHAT#<항목>` | 튜터 대화 |
+| `ACCOUNT#<제공자>:<번호>` · `LOGIN#<토큰>` · `AUTH#<state>` | `USER` · `USER` · `STATE` | 계정 → 학습자, 로그인 토큰(30일), 로그인 시작 기록(10분) |
+| `OPS#STATS` | `DAY#날짜` | 하루 사용 수 |
+| `OPS#USAGE` · `OPS#AILOG` | 월·작업·모델 / 시각 | AI 토큰·비용, AI 호출 기록 |
+| `OPS#CONFIG` | `ai_switch` · `admin_code_hash` | AI 스위치, 관리자 코드 |
+| `OPS#LIMIT` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 |
+
+예전 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)으로 저장된 데이터는 관리자 화면의 **예전 데이터 옮기기**(`POST /admin/migrate`)로 옮겨요.
 
 항목 모양을 바꾸면 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke` 로 확인해요. 자세한 표: `docs/PROJECT_BRIEF.md` §9.2
 
