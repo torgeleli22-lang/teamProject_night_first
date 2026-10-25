@@ -52,6 +52,23 @@ class GeneratedCode(unittest.TestCase):
         self.assertTrue(any("문법" in p for p in problems))
         self.assertTrue(any("※" in p for p in problems))
 
+    def test_mark_problems_say_why(self):
+        code = "total = 0\nfor x in [1, 2, 3]:\n    if x > 1:\n        total += x\nprint(total)"
+        mk = lambda s, e, sn, en: {"startLine": s, "endLine": e, "startNo": sn, "endNo": en, "why": "w", "explanation": "e", "keywords": ["k"]}
+        # 겹침: for 범위(2~4) 안에 if 범위(3~4) → 하나만 남아 실패, 이유는 '겹쳐요'
+        _, marks, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("for x in [1, 2, 3]:", "total += x", 2, 4),
+                                                                                             mk("if x > 1:", "total += x", 3, 4)]}, 1)
+        self.assertEqual(len(marks), 1)
+        self.assertTrue(any("겹쳐요" in p and "2~4번 줄" in p for p in problems), problems)
+        self.assertFalse(any("찾지 못했어요" in p for p in problems))
+        # 못 찾은 줄: 어떤 줄인지 알려 줌
+        _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("for x in [1, 2, 3]:", "total += x", 2, 4),
+                                                                                         mk("print(total + 1)", "print(total + 1)", 5, 5)]}, 1)
+        self.assertTrue(any("찾지 못했어요" in p and "print(total + 1)" in p for p in problems), problems)
+        # 수가 부족: 한 곳만 줌
+        _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 1)
+        self.assertTrue(any("1곳뿐" in p for p in problems), problems)
+
     def test_javascript_shape(self):
         js = practice.js_shape_problems
         ok = 'const re = /[}]+/g;\nconst s = `합계 ${[1, 2].map((x) => { return x * 2; }).join(",")}개`;\nconst d = 10 / 2;\n// } 주석\nconsole.log(s, d, "}", re);'

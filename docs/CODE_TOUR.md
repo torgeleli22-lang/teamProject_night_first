@@ -176,7 +176,7 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 | 6 | `finally: log_usage` `:580` | 성공·실패 모두 토큰·비용 기록 (`OPS#USAGE`, `OPS#AILOG`) |
 
 **부르는 쪽의 약속**: `ask_ai` 는 실패하면 `AiUnavailable` 을 던져요. 부르는 쪽은 꼭 받아서 **AI 없는 길**로 가요.
-- 연습 코드 → 예시 코드 (`practice.py:331` `pick_sample`)
+- 연습 코드 → 예시 코드 (`practice.py:340` `pick_sample`)
 - 첨삭 → 규칙 첨삭 (`review.py:198` `rule_review`: 핵심 표현이 메모에 들어 있는지)
 - 튜터 → 규칙 답 (`tutor_chat.py:127` `rule_answer`)
 - 주제 판정 → 규칙 판정 (`topics.py:86` `rule_check`)
@@ -192,16 +192,16 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      field() common.py:223
    get_user(req)                                           common.py:468
 2. make_code()                                                practice.py:220
-   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:331
+   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:340
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
    └ 최대 2번 반복:
        ① 출제   ask_ai("code_generation")
-       ② 규칙 검사 check_generated                             practice.py:291
-            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:372
-            JavaScript: js_shape_problems (괄호·따옴표 짝)       practice.py:436
-            줄 수 · ※ 줄 찾기 find_line                         practice.py:319
-       ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:259
-            틀린 모범 설명 고치기 fix_explanations               practice.py:277
+       ② 규칙 검사 check_generated                             practice.py:292
+            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:381
+            JavaScript: js_shape_problems (괄호·따옴표 짝)       practice.py:445
+            줄 수 · ※ 줄 찾기 find_line                         practice.py:328
+       ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:260
+            틀린 모범 설명 고치기 fix_explanations               practice.py:278
        걸리면 이유 + 방금 코드를 붙여 ① 로 한 번 더, 2번 다 안 되면 예시 코드
 3. save_code (CODE#id / INFO) · remember_topic · count_event
    return public_code(item)   ← 모범 설명은 빼고

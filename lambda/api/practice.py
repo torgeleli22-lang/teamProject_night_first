@@ -248,6 +248,7 @@ def make_code(req, level, topic, user, prompt_extra, focus=None, language="pytho
         feedback = "\n".join([
             "방금 만든 코드(아래)에 문제가 있었어요. 문제를 고친 코드와 ※ 지점을 다시 만들어 주세요:",
             *[f"- {p}" for p in problems],
+            f"- 고치면서 길이는 {MAX_LINES[level]}줄 이하로, ※ 지점은 서로 겹치지 않는 {MARK_COUNT[level]}곳으로 지켜 주세요",
             f"<previous_code>\n{numbered(code)}\n</previous_code>",
         ])
         print("[generate] 다시 만듦:", problems)
@@ -304,15 +305,23 @@ def check_generated(r, level, language="python"):
         problems.append(f"코드가 {len(lines)}줄이라 너무 길어요 ({MAX_LINES[level]}줄 이하)")
     if len(lines) < MIN_LINES[level]:
         problems.append(f"코드가 {len(lines)}줄이라 고급으로는 너무 짧아요 ({MIN_LINES[level]}줄 이상, 알고리즘과 자료구조를 갖춘 프로그램으로)")
-    found = []
+    found, missed = [], []
     for m in r["marks"]:
         start = find_line(lines, m["startLine"], 0, m.get("startNo"))
         end = find_line(lines, m["endLine"], start - 1, m.get("endNo")) if start else None
         if start and end and end >= start:
             found.append({**m, "start": start, "end": end})
+        else:
+            missed.append(str(m["endLine"] if start else m["startLine"]).strip()[:60])
     marks = clean_marks(code, found, limit=MARK_COUNT[level])
-    if len(marks) < 2:
-        problems.append("※ 꼭 설명할 곳의 startLine·endLine 이 코드의 줄과 같지 않아요 (그대로 옮겨 적어 주세요)")
+    if len(marks) < 2:   # 원인을 나눠서 알려 준다 (다시 만들 때 AI 가 같은 실수를 하지 않게)
+        if missed:
+            problems.append("※ 꼭 설명할 곳의 줄을 코드에서 찾지 못했어요: " + ", ".join(f"'{s}'" for s in missed[:3]) + " (startLine·endLine 은 코드의 줄을 그대로 옮겨 적어 주세요)")
+        if len(found) > len(marks):
+            ranges = ", ".join(f"{m['start']}~{m['end']}번 줄" for m in sorted(found, key=lambda m: m["start"]))
+            problems.append(f"※ 꼭 설명할 곳끼리 줄 범위가 겹쳐요 ({ranges}) — 서로 겹치지 않는 {MARK_COUNT[level]}곳을 골라 주세요")
+        if not missed and len(found) <= len(marks):
+            problems.append(f"※ 꼭 설명할 곳이 {len(marks)}곳뿐이에요 — {MARK_COUNT[level]}곳을 골라 주세요")
     return code, marks, problems
 
 

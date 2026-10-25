@@ -43,7 +43,10 @@ def check_generated(r, level, language="python"):
     code, marks, problems = _orig["check_generated"](r, level, language)
     if rec() is not None:
         rec()["attempts"].append({"lines": len(code.split("\n")), "marks": len(marks), "rule_problems": problems,
-                                  "check_problems": None, "check_ran": False, "fixed": 0, "fixed_ids": []})
+                                  "check_problems": None, "check_ran": False, "fixed": 0, "fixed_ids": [],
+                                  # AI 가 적은 ※ 지점 그대로 (줄 찾기·겹침 분석용)
+                                  "raw_marks": [{k: m.get(k) for k in ("startLine", "endLine", "startNo", "endNo")} for m in r.get("marks", [])],
+                                  "kept": [[m["start"], m["end"]] for m in marks]})
     return code, marks, problems
 
 
