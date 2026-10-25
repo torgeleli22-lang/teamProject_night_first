@@ -204,7 +204,7 @@ put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": "goo
 
 ### 2-4. 읽을 코드 `CODE#<코드 id> / INFO`
 
-**언제**: 연습 코드 받기(`practice.py:139`), 더 쉽게·어렵게(`:159`), 내 코드 점검 시작(`inspect_code.py:71`)
+**언제**: 연습 코드 받기(`practice.py:147`), 더 쉽게·어렵게(`:167`), 내 코드 점검 시작(`inspect_code.py:71`)
 
 ```python
 # lambda/api/common.py:867  save_code

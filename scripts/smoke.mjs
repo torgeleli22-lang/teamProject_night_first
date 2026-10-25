@@ -47,11 +47,11 @@ try {
   await call("POST", "/topic/check", { level: 1, text: "가".repeat(51) }, {}, 400);
   check(true, "주제 50자 넘으면 400");
 
-  // ── 고급 (4단계): 알고리즘용 랜덤 주제, 100~200줄, ※ 5곳
+  // ── 고급 (4단계): 알고리즘용 랜덤 주제, 120~300줄, ※ 5곳
   const advTopic = await call("GET", "/topic/random?level=4");
   const adv = await call("POST", "/practice", { level: 4, topic: advTopic.topic });
   const advLines = adv.code.split("\n").length;
-  check(adv.levelName === "고급" && advLines >= 100 && advLines <= 200 && adv.marks.length === 5, `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
+  check(adv.levelName === "고급" && advLines >= 120 && advLines <= 300 && adv.marks.length === 5, `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
 
   // ── 연습 모드 (practice.py)
   const codeItem = await call("POST", "/practice", { level: 2, topic: "편의점 재고" });
@@ -190,7 +190,7 @@ try {
   check(overview.recent.length > 0 && overview.recent.every((r) => r.taskName && typeof r.ok === "boolean"), `최근 AI 호출 기록 ${overview.recent.length}건`);
   await call("POST", "/admin/ai", { enabled: false });
   const offCode = await call("POST", "/practice", { level: 1, topic: "카페 주문" });
-  check(offCode.note && offCode.marks.length >= 2, "AI 끄면 예시 코드");
+  check(offCode.note && offCode.marks.length === 1, "AI 끄면 예시 코드 (입문 ※ 1곳)");
   check((await call("GET", "/health")).ai === false, "AI 꺼짐 표시");
   await call("POST", "/admin/ai", { enabled: true });
   check((await call("GET", "/admin/overview")).aiSwitch === true, "AI 다시 켜기");
@@ -240,7 +240,7 @@ try {
   check(exp.origin === "ai" && exp.attempts.length >= 1 && Array.isArray(exp.attempts[0].rule_problems) && exp.code && exp.marks.length >= 2,
     `실험 경로: 단계 기록 (시도 ${exp.attempts.length}번, ${exp.seconds}초)`);
   await call("POST", "/admin/experiment", { language: "java", level: 2, topic: "x" }, {}, 400);
-  check((await call("POST", "/practice", { level: 1, topic: "카페 주문" })).marks.length >= 2, "실험 뒤에도 연습 모드는 그대로");
+  check((await call("POST", "/practice", { level: 1, topic: "카페 주문" })).marks.length === 1, "실험 뒤에도 연습 모드는 그대로");
 
   // ── 관리자 코드: 정한 코드만 통과, 틀리면 401, 10번 틀리면 잠시 막힘
   await call("POST", "/admin/code", { code: "smoke-code-1234" });

@@ -2,6 +2,7 @@ import ast
 import builtins
 import random
 import re
+import sys
 
 from common import (CONCEPTS, LANGUAGES, LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, code_for_ai, count_event, field,
                     get_user, latest_review, load_code, log_ai_event, numbered, public_code, remember_topic, review_rows, save_code)
@@ -17,7 +18,7 @@ from tutor_chat import chats_for
 #                                                "reasons": ["too_long", "unknown_concept", "complex_flow"]}
 #   GET  /code?codeId=...   코드 다시 열기 (같은 코드 다시 읽기, 첨삭 결과 다시 보기)
 #
-#   AI(Bedrock)가 Python·JavaScript 코드와 ※ 꼭 설명할 곳(2~5곳)을 만든다. ※ 의 모범 설명은 저장만 하고 화면에는 보내지 않는다.
+#   AI(Bedrock)가 Python·JavaScript 코드와 ※ 꼭 설명할 곳(1~5곳)을 만든다. ※ 의 모범 설명은 저장만 하고 화면에는 보내지 않는다.
 #   AI 를 쓸 수 없으면 samples.py 의 예시 코드(같은 언어)를 대신 준다.
 #   만든 코드는 실행하지 않고 단계별로 교정한 뒤 화면에 보낸다:
 #     ① 출제 (AI, code_generation) → ② 규칙 검사 (Python: ast 문법·금지 기능·오타 / JavaScript: 괄호·따옴표 짝 같은 겉모양, 줄 수, ※ 줄)
@@ -29,8 +30,9 @@ LEVEL_GUIDE = {
     "python": {
         1: "10~20줄. 변수·조건문·반복문·리스트가 위에서 아래로 흘러가는 코드. 함수는 없거나 1개.",
         2: "25~45줄. 함수 2~4개가 서로를 불러요. 리스트·딕셔너리를 써요.",
-        3: "35~60줄. 클래스, 재귀, 예외 처리 중 1~2가지가 흐름의 중심이에요.",
-        4: ("120~190줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
+        3: ("110~140줄. 기능 서너 개가 이어지는 작은 프로그램. 클래스, 재귀, 예외 처리 중 2가지 이상이 흐름의 중심이고, 함수 4개 이상이 서로를 불러요. "
+            "마지막에 실행 예시와 print 결과가 있어요. 줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
+        4: ("180~270줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
             "자료구조(딕셔너리·리스트·힙·큐·스택·그래프 중 2개 이상)와 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디 등)가 흐름의 중심이에요. "
             "입력 검증과 예외 처리, 알고리즘끼리 비교하거나 결과를 요약하는 부분, 마지막에 실행 예시와 print 결과가 있어요. "
             "줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
@@ -38,26 +40,31 @@ LEVEL_GUIDE = {
     "javascript": {
         1: "10~20줄. 변수(const·let)·조건문·반복문·배열이 위에서 아래로 흘러가는 코드. 함수는 없거나 1개.",
         2: "25~45줄. 함수 2~4개가 서로를 불러요. 배열·객체와 배열 메서드(map·filter·find·reduce 중 1~2개)를 써요.",
-        3: "35~60줄. 클래스(this), 재귀, 예외 처리(throw·try/catch), 콜백 함수 중 1~2가지가 흐름의 중심이에요.",
-        4: ("120~190줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
+        3: ("110~140줄. 기능 서너 개가 이어지는 작은 프로그램. 클래스(this), 재귀, 예외 처리(throw·try/catch), 콜백 함수 중 2가지 이상이 흐름의 중심이고, 함수 4개 이상이 서로를 불러요. "
+            "마지막에 실행 예시와 console.log 결과가 있어요. 줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
+        4: ("180~270줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
             "자료구조(객체·배열·Map·Set·배열로 만든 큐·스택·힙·그래프 중 2개 이상)와 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디 등)가 흐름의 중심이에요. "
             "입력 검증과 예외 처리(throw·try/catch), 알고리즘끼리 비교하거나 결과를 요약하는 부분, 마지막에 실행 예시와 console.log 결과가 있어요. "
             "줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
     },
 }
-MIN_LINES = {1: 0, 2: 0, 3: 0, 4: 100}       # 고급은 너무 짧으면 다시 만든다
-MAX_LINES = {1: 30, 2: 60, 3: 80, 4: 200}
-MARK_COUNT = {1: 2, 2: 3, 3: 3, 4: 5}        # ※ 꼭 설명할 곳 수
-OUTPUT_TOKENS = {1: 3000, 2: 3000, 3: 3500, 4: 12000}   # AI 답(코드 + ※ 설명) 최대 길이
+MIN_LINES = {1: 0, 2: 0, 3: 100, 4: 120}     # 중급·고급은 너무 짧으면 다시 만든다
+MAX_LINES = {1: 30, 2: 60, 3: 150, 4: 300}
+MARK_COUNT = {1: 1, 2: 2, 3: 3, 4: 5}        # ※ 꼭 설명할 곳 수
+OUTPUT_TOKENS = {1: 3000, 2: 3000, 3: 10000, 4: 16000}   # AI 답(코드 + ※ 설명) 최대 길이
 REASONS = {"too_long": "코드가 너무 길었어요", "unknown_concept": "모르는 개념이 있었어요", "complex_flow": "흐름이 복잡했어요"}
 
 # 언어마다 다른 코드 규칙 (SYSTEM_PROMPT 의 {rules})
 CODE_RULES = {
-    "python": """- Python 3 표준 기능만. input(), 파일·네트워크, random·time 처럼 실행할 때마다 결과가 달라지는 것은 쓰지 않아.
+    "python": """- Python 3 표준 라이브러리만. input(), 파일·네트워크·운영체제(os·sys·subprocess 등)는 쓰지 않아.
+- random·time·datetime 은 써도 돼. 다만 random 은 맨 위에서 random.seed(숫자)로 고정하고, 날짜는 datetime(2026, 3, 2) 처럼 정해진 값으로 (지금 시각은 결과에 영향을 주지 않는 곳에만).
+  ※ 모범 설명은 실행할 때마다 달라질 수 있는 값이 아니라 흐름과 정해진 값으로 설명해.
 - 주어진 생활 속 주제를 실제로 보여 주는 코드. 마지막에 print 로 결과가 나와야 해.
 - 변수·함수 이름은 영어(snake_case), 문자열 값과 주석은 한국어. 주석은 첫 줄 제목 정도로 아주 적게 (주석이 흐름을 대신 설명하면 안 돼).""",
     "javascript": """- 최신 JavaScript(ES2020) 한 파일. Node.js 로 그대로 실행되는 코드. 세미콜론을 붙이고 들여쓰기는 2칸.
-- import·require·export, fetch, document·window·process, prompt·alert, setInterval, Math.random·Date.now·new Date() 처럼 환경이나 실행할 때마다 결과가 달라지는 것은 쓰지 않아.
+- import·require·export, fetch, document·window·process, prompt·alert, setInterval 처럼 실행 환경에 기대는 것은 쓰지 않아.
+- Math.random·Date 는 써도 돼. 다만 날짜는 new Date(2026, 2, 2) 처럼 정해진 값으로 (지금 시각은 결과에 영향을 주지 않는 곳에만).
+  Math.random 은 고정할 수 없으니 ※ 모범 설명은 실행할 때마다 달라질 수 있는 값이 아니라 흐름과 정해진 값으로 설명해.
 - 주어진 생활 속 주제를 실제로 보여 주는 코드. 마지막에 console.log 로 결과가 나와야 해.
 - 변수·함수 이름은 영어(camelCase), 문자열 값과 주석은 한국어. 주석(//)은 첫 줄 제목 정도로 아주 적게 (주석이 흐름을 대신 설명하면 안 돼).""",
 }
@@ -87,6 +94,7 @@ CHECK_PROMPT = """너는 읽기 연습용 {language} 코드를 학습자에게 �
 2. output: 끝까지 실행했을 때 실제로 출력되는 내용을 짧게 적어.
 3. 난이도: 주어진 난이도 기준과 크게 다르면(너무 쉽거나 어렵거나, 길이가 맞지 않음) 문제로 적어.
 4. ※ 꼭 설명할 곳의 모범 설명(explanation): 설명에 나온 값·순서·조건·결과가 코드를 실제로 따라간 결과와 맞는지.
+   random·Math.random·지금 시각처럼 실행할 때마다 달라지는 값이 있으면, 그 값에 상관없이 맞는 설명인지 봐 (특정 값을 단정하면 틀린 것으로).
    - 맞으면 ok=true, explanation·keywords 는 빈 값.
    - 틀리면 ok=false, problem 에 무엇이 틀렸는지 한 줄, explanation 에 코드와 맞게 고친 모범 설명(2~3문장, 실제 값 포함, 한국어 존댓말 "~해요"), keywords 에 고친 설명의 핵심 표현 3~5개.
 
@@ -113,7 +121,7 @@ CHECK_SCHEMA = {
     },
     "required": ["output", "codeProblems", "marks"],
 }
-CHECK_TOKENS = 2500
+CHECK_TOKENS = 3000
 
 SCHEMA = {
     "type": "object",
@@ -248,6 +256,7 @@ def make_code(req, level, topic, user, prompt_extra, focus=None, language="pytho
         feedback = "\n".join([
             "방금 만든 코드(아래)에 문제가 있었어요. 문제를 고친 코드와 ※ 지점을 다시 만들어 주세요:",
             *[f"- {p}" for p in problems],
+            f"- 고치면서 길이는 {MAX_LINES[level]}줄 이하로, ※ 지점은 서로 겹치지 않는 {MARK_COUNT[level]}곳으로 지켜 주세요",
             f"<previous_code>\n{numbered(code)}\n</previous_code>",
         ])
         print("[generate] 다시 만듦:", problems)
@@ -303,16 +312,24 @@ def check_generated(r, level, language="python"):
     if len(lines) > MAX_LINES[level]:
         problems.append(f"코드가 {len(lines)}줄이라 너무 길어요 ({MAX_LINES[level]}줄 이하)")
     if len(lines) < MIN_LINES[level]:
-        problems.append(f"코드가 {len(lines)}줄이라 고급으로는 너무 짧아요 ({MIN_LINES[level]}줄 이상, 알고리즘과 자료구조를 갖춘 프로그램으로)")
-    found = []
+        problems.append(f"코드가 {len(lines)}줄이라 {LEVELS[level]['name']}으로는 너무 짧아요 ({MIN_LINES[level]}줄 이상, 기능이 이어지는 프로그램으로)")
+    found, missed = [], []
     for m in r["marks"]:
         start = find_line(lines, m["startLine"], 0, m.get("startNo"))
         end = find_line(lines, m["endLine"], start - 1, m.get("endNo")) if start else None
         if start and end and end >= start:
             found.append({**m, "start": start, "end": end})
+        else:
+            missed.append(str(m["endLine"] if start else m["startLine"]).strip()[:60])
     marks = clean_marks(code, found, limit=MARK_COUNT[level])
-    if len(marks) < 2:
-        problems.append("※ 꼭 설명할 곳의 startLine·endLine 이 코드의 줄과 같지 않아요 (그대로 옮겨 적어 주세요)")
+    if len(marks) < min(MARK_COUNT[level], 2):   # 중급·고급은 2곳만 찾아도 쓴다. 원인을 나눠서 알려 준다 (다시 만들 때 AI 가 같은 실수를 하지 않게)
+        if missed:
+            problems.append("※ 꼭 설명할 곳의 줄을 코드에서 찾지 못했어요: " + ", ".join(f"'{s}'" for s in missed[:3]) + " (startLine·endLine 은 코드의 줄을 그대로 옮겨 적어 주세요)")
+        if len(found) > len(marks):
+            ranges = ", ".join(f"{m['start']}~{m['end']}번 줄" for m in sorted(found, key=lambda m: m["start"]))
+            problems.append(f"※ 꼭 설명할 곳끼리 줄 범위가 겹쳐요 ({ranges}) — 서로 겹치지 않는 {MARK_COUNT[level]}곳을 골라 주세요")
+        if not missed and len(found) <= len(marks):
+            problems.append(f"※ 꼭 설명할 곳이 {len(marks)}곳뿐이에요 — {MARK_COUNT[level]}곳을 골라 주세요")
     return code, marks, problems
 
 
@@ -345,7 +362,7 @@ def pick_sample(level, topic, user, focus=None, language="python"):
 
 
 def from_sample(sample, note):
-    return {"title": sample["title"], "code": sample["code"], "marks": clean_marks(sample["code"], sample["marks"], limit=5),
+    return {"title": sample["title"], "code": sample["code"], "marks": clean_marks(sample["code"], sample["marks"], limit=MARK_COUNT[sample["level"]]),
             "origin": "sample", "note": note}
 
 
@@ -360,11 +377,13 @@ def sample_as_ai(sample):
 
 # ───────────────────────── Python 구조 검사 (ast, 실행하지 않음) ─────────────────────────
 # 코드를 나무 모양(ast)으로 읽어서 실행하지 않고 본다:
-#   쓰지 않기로 한 모듈·함수(random·time·input·open …), 어디에도 정의하지 않은 이름(오타), 결과를 보여 줄 print
+#   쓰지 않기로 한 모듈·함수(os·subprocess·input·open … 표준 라이브러리가 아닌 모듈), 어디에도 정의하지 않은 이름(오타), 결과를 보여 줄 print
 # 이름은 함수 범위를 나누지 않고 파일 전체에서 한 번이라도 정의됐는지만 본다 (오타를 잡는 정도, 틀린 경고는 내지 않게)
 
-_PY_ALLOWED_IMPORTS = {"heapq", "collections", "math", "itertools", "functools", "bisect", "dataclasses", "typing", "string", "re",
-                       "enum", "statistics", "copy", "operator", "decimal", "fractions", "json"}
+# 표준 라이브러리는 다 되고, 파일·네트워크·운영체제·다른 프로그램 실행·코드 불러오기만 막는다 (random·time·datetime 은 됨)
+_PY_BANNED_IMPORTS = {"os", "sys", "subprocess", "shutil", "pathlib", "glob", "io", "tempfile", "fileinput", "socket", "ssl", "select",
+                      "selectors", "urllib", "http", "ftplib", "smtplib", "poplib", "imaplib", "webbrowser", "sqlite3", "pickle", "shelve",
+                      "marshal", "ctypes", "importlib", "runpy", "signal", "multiprocessing", "threading", "concurrent", "builtins"}
 _PY_BANNED_CALLS = {"input", "open", "exec", "eval", "compile", "__import__", "breakpoint", "exit", "quit"}
 _PY_BUILTINS = set(dir(builtins))
 
@@ -379,8 +398,9 @@ def py_ast_problems(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
             for module in modules:
-                if module.split(".")[0] not in _PY_ALLOWED_IMPORTS:
-                    problems.append(f"{node.lineno}번째 줄: {module} 모듈은 쓰지 않아요 (실행할 때마다 결과가 달라지거나 밖과 연결되는 기능 없이)")
+                root = module.split(".")[0]
+                if root in _PY_BANNED_IMPORTS or root not in sys.stdlib_module_names:
+                    problems.append(f"{node.lineno}번째 줄: {module} 모듈은 쓰지 않아요 (파일·네트워크·운영체제 없이, 표준 라이브러리만)")
             bound.update((a.asname or a.name).split(".")[0] for a in node.names)
         # 2. 이름을 만드는 곳 (대입·함수·클래스·매개변수·except as·global)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -426,7 +446,6 @@ _JS_BANNED = [
     (r"^\s*(import|export)\b|\brequire\s*\(", "import·require·export 없이 한 파일로 만들어 주세요"),
     (r"\b(fetch|XMLHttpRequest|prompt|alert|setInterval)\s*\(|\b(document|window|process|localStorage)\s*\.",
      "fetch·document·window·process·prompt 같은 실행 환경 기능 없이 만들어 주세요"),
-    (r"\bMath\.random\b|\bDate\.now\b|\bnew\s+Date\s*\(\s*\)", "Math.random·Date.now·new Date() 처럼 실행할 때마다 결과가 달라지는 것은 빼 주세요"),
     (r"^\s*(def|elif)\s|^\s*print\s*\(", "Python 문법(def·elif·print)이 섞였어요. JavaScript 로만 써 주세요"),
 ]
 _REGEX_BEFORE = set("(,=:[!&|?{};+-*%<>~^") | {"", "return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "yield", "await"}

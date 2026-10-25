@@ -34,9 +34,6 @@ console.log(`모두 낸 요금: ${total}원`);""",
             {"start": 8, "end": 13, "concept": "branch", "why": "나이에 따라 요금이 갈리는 곳",
              "explanation": "8살 미만이거나 65살 이상이면 요금이 0원이고 무료 인원을 1 늘려요. 아니면 19살 미만인지 보고 900원, 둘 다 아니면 처음 정한 1500원 그대로예요. 7살과 70살이 무료라 freeCount 는 2가 돼요.",
              "keywords": ["8살 미만", "65살 이상", "0원", "900원", "1500원"]},
-            {"start": 14, "end": 14, "concept": "loop_update", "why": "반복할 때마다 요금이 쌓이는 곳",
-             "explanation": "riders 의 나이를 하나씩 꺼낼 때마다 위에서 정한 요금을 total 에 더해요. 0 + 900 + 1500 + 0 + 1500 이라 반복이 끝나면 total 은 3900원이에요.",
-             "keywords": ["하나씩", "total", "더해", "3900"]},
         ],
     },
     {
@@ -71,9 +68,6 @@ console.log("쓴 돈:", spent, "남은 돈:", balance);""",
             {"start": 12, "end": 17, "concept": "loop_update", "why": "반복하며 잔액과 쓴 돈이 바뀌는 곳",
              "explanation": "기록을 하나씩 보며 amount 를 balance 에 더해요. amount 가 음수(쓴 돈)이면 spent 에서 빼서 양수로 쌓아요. 끝나면 balance 는 9500, spent 는 25500이에요.",
              "keywords": ["하나씩", "balance", "음수", "spent", "9500"]},
-            {"start": 19, "end": 21, "concept": "branch", "why": "남은 돈에 따라 안내가 나오는 곳",
-             "explanation": "남은 돈 balance 가 10000보다 작으면 아껴 쓰라는 문구를 출력해요. 9500원이라 조건이 참이 되어 문구가 나와요.",
-             "keywords": ["10000", "작으면", "9500", "출력"]},
         ],
     },
     {
@@ -124,9 +118,6 @@ console.log("만 원 이하 상품:", cheapItems(cart, 10000));""",
             {"start": 21, "end": 26, "concept": "call_flow", "why": "함수들을 차례로 불러 결제 금액을 만드는 곳",
              "explanation": "checkout 은 map 으로 상품마다 lineTotal 을 불러 금액 배열을 만들고, reduce 로 모두 더해 75900원을 구해요. 그다음 shippingFee 를 불러 배송비 0원을 받고 합계와 함께 객체로 돌려줘요.",
              "keywords": ["map", "lineTotal", "reduce", "shippingFee", "75900"]},
-            {"start": 29, "end": 29, "concept": "loop_update", "why": "조건에 맞는 상품 이름만 고르는 곳",
-             "explanation": "filter 로 가격이 limit(10000원) 이하인 상품만 남기고, map 으로 그 상품의 이름만 꺼내요. 3000원인 양말만 남아 ['양말'] 이 돼요.",
-             "keywords": ["filter", "이하", "map", "이름", "양말"]},
         ],
     },
     {
@@ -180,9 +171,6 @@ console.log("남은 자리:", countFree());""",
             {"start": 16, "end": 24, "concept": "call_flow", "why": "isFree 를 불러 예매를 막거나 기록하는 곳",
              "explanation": "book 은 먼저 isFree 를 불러요. 비어 있지 않으면 예매할 수 없다고 출력하고 false 로 끝나요. 비어 있으면 그 자리를 true 로 바꾸고 bookings 에 이름과 자리를 넣어요. 서준(B2)과 하은(C1)은 막히고 지민(A1)만 들어가요.",
              "keywords": ["isFree", "false", "true", "bookings", "지민"]},
-            {"start": 26, "end": 32, "concept": "loop_update", "why": "남은 자리를 세는 곳",
-             "explanation": "seats 의 줄마다 filter 로 아직 예매되지 않은 자리(false)만 골라 개수를 free 에 더해요. 지민이 A1 을 예매한 뒤라 A 줄 2개, B 줄 2개로 4가 돼요.",
-             "keywords": ["줄마다", "filter", "false", "더해", "4"]},
         ],
     },
     {
@@ -190,17 +178,39 @@ console.log("남은 자리:", countFree());""",
         "language": "javascript",
         "level": 3,
         "topic": "포인트 카드",
-        "title": "카페 포인트 카드",
-        "code": """// 카페 포인트 카드
+        "title": "카페 포인트 카드 (등급과 예외)",
+        "code": """// 카페 포인트 카드 (클래스와 예외 처리)
+class PointError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const GRADES = [
+  { name: "골드", min: 30000, rate: 0.1 },
+  { name: "실버", min: 10000, rate: 0.07 },
+  { name: "기본", min: 0, rate: 0.05 },
+];
+
 class PointCard {
   constructor(owner) {
     this.owner = owner;
     this.points = 0;
+    this.spent = 0;
     this.history = [];
   }
 
+  get grade() {
+    return GRADES.find((g) => this.spent >= g.min);
+  }
+
   earn(price) {
-    const gained = Math.floor(price * 0.05);
+    if (price <= 0) {
+      throw new PointError("결제 금액이 이상해요", "BAD_PRICE");
+    }
+    const gained = Math.floor(price * this.grade.rate);
+    this.spent += price;
     this.points += gained;
     this.history.push(`+${gained}`);
     return gained;
@@ -208,42 +218,86 @@ class PointCard {
 
   use(amount) {
     if (amount <= 0) {
-      throw new Error("0보다 큰 포인트만 쓸 수 있어요");
+      throw new PointError("0보다 큰 포인트만 쓸 수 있어요", "BAD_AMOUNT");
     }
     if (amount > this.points) {
-      throw new Error(`포인트가 ${this.points}점뿐이에요`);
+      throw new PointError(`포인트가 ${this.points}점뿐이에요`, "NOT_ENOUGH");
     }
     this.points -= amount;
     this.history.push(`-${amount}`);
   }
 }
 
-function tryUse(card, amount) {
-  try {
-    card.use(amount);
-    console.log(`${amount}점 사용 완료, 남은 포인트 ${card.points}점`);
-  } catch (error) {
-    console.log(`사용 실패: ${error.message}`);
+class Cafe {
+  constructor() {
+    this.cards = new Map();
+    this.errors = [];
+  }
+
+  card(owner) {
+    if (!this.cards.has(owner)) {
+      this.cards.set(owner, new PointCard(owner));
+    }
+    return this.cards.get(owner);
+  }
+
+  handle(event) {
+    const card = this.card(event.owner);
+    if (event.type === "pay") {
+      const before = card.grade.name;
+      const gained = card.earn(event.price);
+      const after = card.grade.name;
+      return after === before ? `${gained}점 적립` : `${gained}점 적립, ${after} 등급이 됐어요`;
+    }
+    if (event.type === "use") {
+      card.use(event.amount);
+      return `${event.amount}점 사용, ${card.points}점 남음`;
+    }
+    throw new PointError(`모르는 요청: ${event.type}`, "UNKNOWN");
+  }
+
+  runAll(events, onDone) {
+    for (const event of events) {
+      try {
+        onDone(event.owner, this.handle(event));
+      } catch (error) {
+        if (!(error instanceof PointError)) {
+          throw error;
+        }
+        this.errors.push(error.code);
+        onDone(event.owner, `실패 (${error.message})`);
+      }
+    }
   }
 }
 
-const card = new PointCard("민지");
-card.earn(4500);
-card.earn(12000);
-tryUse(card, 1000);
-tryUse(card, 500);
-tryUse(card, -3);
-console.log("기록:", card.history.join(" "));""",
+const cafe = new Cafe();
+const events = [
+  { owner: "민지", type: "pay", price: 4500 },
+  { owner: "민지", type: "pay", price: 8000 },
+  { owner: "준호", type: "use", amount: 100 },
+  { owner: "민지", type: "use", amount: 500 },
+  { owner: "민지", type: "pay", price: 20000 },
+  { owner: "준호", type: "pay", price: -1000 },
+  { owner: "준호", type: "gift", amount: 300 },
+];
+
+cafe.runAll(events, (owner, message) => console.log(`${owner}: ${message}`));
+
+for (const card of cafe.cards.values()) {
+  console.log(`${card.owner} — ${card.grade.name}, ${card.points}점, 결제 ${card.spent}원, 기록 ${card.history.join(" ") || "없음"}`);
+}
+console.log("실패 코드:", cafe.errors.join(", "));""",
         "marks": [
-            {"start": 9, "end": 14, "concept": "class_state", "why": "포인트가 쌓이며 객체 상태가 바뀌는 곳",
-             "explanation": "earn 은 결제 금액의 5%를 내림해 this.points 에 더하고 기록에 남겨요. 4500원이면 225점, 12000원이면 600점이 쌓여 points 는 825점이 돼요.",
-             "keywords": ["5%", "this.points", "더하", "825"]},
-            {"start": 16, "end": 25, "concept": "exception", "why": "조건이 맞지 않으면 throw 로 멈추는 곳",
-             "explanation": "use 는 0 이하를 쓰려 하거나 가진 포인트보다 많이 쓰려 하면 throw 로 오류를 던져서 아래 줄(포인트 빼기)을 실행하지 않아요. 둘 다 아니면 points 에서 빼고 기록해요.",
-             "keywords": ["throw", "0 이하", "많이", "빼"]},
-            {"start": 28, "end": 35, "concept": "exception", "why": "던진 오류를 catch 로 받아 안내하는 곳",
-             "explanation": "tryUse 는 card.use 를 try 안에서 불러요. 오류가 던져지면 사용 완료 줄은 건너뛰고 catch 로 가서 오류 메시지를 출력해요. 1000점과 -3점은 실패, 500점은 성공해 325점이 남아요.",
-             "keywords": ["try", "catch", "건너뛰", "메시지", "325"]},
+            {"start": 27, "end": 36, "concept": "class_state", "why": "적립률이 등급에 따라 달라지며 상태가 바뀌는 곳",
+             "explanation": "earn 은 결제 전 누적 금액(spent)으로 정한 등급의 적립률을 써서 포인트를 계산한 뒤, spent 와 points 를 늘려요. 그래서 8000원은 아직 기본 등급(5%)이라 400점, 20000원은 실버(7%)라 1400점이 쌓여요.",
+             "keywords": ["spent", "등급", "적립률", "400", "1400"]},
+            {"start": 63, "end": 76, "concept": "branch", "why": "요청 종류에 따라 갈리고 등급 변화를 알리는 곳",
+             "explanation": "handle 은 type 이 pay 면 적립 전후의 등급 이름을 비교해 달라졌을 때만 등급 안내를 붙이고, use 면 포인트를 써요. 둘 다 아니면 PointError 를 던져서 gift 요청은 실패해요.",
+             "keywords": ["pay", "전후", "비교", "use", "throw"]},
+            {"start": 78, "end": 90, "concept": "exception", "why": "던진 오류를 받아 기록하고 반복을 이어 가는 곳",
+             "explanation": "runAll 은 요청마다 try 안에서 handle 을 부르고 결과를 콜백 onDone 으로 넘겨요. PointError 면 code 를 errors 에 넣고 실패 안내를 넘긴 뒤 다음 요청으로 가요. 다른 오류는 다시 던져요. 실패 코드는 NOT_ENOUGH, BAD_PRICE, UNKNOWN 이에요.",
+             "keywords": ["try", "onDone", "PointError", "errors", "다시 던져"]},
         ],
     },
     {
@@ -251,23 +305,33 @@ console.log("기록:", card.history.join(" "));""",
         "language": "javascript",
         "level": 3,
         "topic": "회사 조직도",
-        "title": "회사 조직도 인원 세기",
-        "code": """// 회사 조직도에서 인원 세기
+        "title": "회사 조직도 (재귀와 예외)",
+        "code": """// 회사 조직도 (재귀와 예외 처리)
 const company = {
   name: "본사",
   members: 2,
+  pay: 500,
   teams: [
     {
       name: "개발팀",
       members: 5,
+      pay: 400,
       teams: [
-        { name: "앱 파트", members: 3, teams: [] },
-        { name: "서버 파트", members: 4, teams: [] },
+        { name: "앱 파트", members: 3, pay: 380, teams: [] },
+        {
+          name: "서버 파트",
+          members: 4,
+          pay: 390,
+          teams: [{ name: "보안 셀", members: 2, pay: 420, teams: [] }],
+        },
       ],
     },
-    { name: "디자인팀", members: 3, teams: [] },
+    { name: "디자인팀", members: 3, pay: 350, teams: [] },
+    { name: "영업팀", members: 0, pay: 300, teams: [] },
   ],
 };
+
+class OrgError extends Error {}
 
 function countPeople(group) {
   let total = group.members;
@@ -275,6 +339,11 @@ function countPeople(group) {
     total += countPeople(team);
   }
   return total;
+}
+
+function totalPay(group) {
+  const own = group.members * group.pay;
+  return group.teams.reduce((sum, team) => sum + totalPay(team), own);
 }
 
 function findPath(group, target, path = []) {
@@ -291,17 +360,68 @@ function findPath(group, target, path = []) {
   return null;
 }
 
+function findTeam(group, target) {
+  const path = findPath(group, target);
+  if (!path) {
+    throw new OrgError(`${target} 은(는) 조직도에 없어요`);
+  }
+  let current = group;
+  for (const name of path.slice(1)) {
+    current = current.teams.find((team) => team.name === name);
+  }
+  return current;
+}
+
+function averagePay(group) {
+  const people = countPeople(group);
+  if (people === 0) {
+    throw new OrgError(`${group.name} 에는 사람이 없어요`);
+  }
+  return Math.round(totalPay(group) / people);
+}
+
+function listTeams(group, depth = 0, out = []) {
+  out.push(`${"  ".repeat(depth)}${group.name} (${countPeople(group)}명)`);
+  for (const team of group.teams) {
+    listTeams(team, depth + 1, out);
+  }
+  return out;
+}
+
+function report(names, measure) {
+  for (const name of names) {
+    try {
+      const team = findTeam(company, name);
+      console.log(`${name}: ${measure(team)}`);
+    } catch (error) {
+      if (!(error instanceof OrgError)) {
+        throw error;
+      }
+      console.log(`${name}: 확인할 수 없어요 — ${error.message}`);
+    }
+  }
+}
+
+console.log(listTeams(company).join("\\n"));
 console.log("전체 인원:", countPeople(company));
-console.log("개발팀 인원:", countPeople(company.teams[0]));
 console.log("서버 파트 위치:", findPath(company, "서버 파트").join(" > "));
-console.log("영업팀 위치:", findPath(company, "영업팀"));""",
+console.log("인사팀 위치:", findPath(company, "인사팀"));
+
+console.log("— 팀별 평균 급여(만 원) —");
+report(["개발팀", "보안 셀", "영업팀", "인사팀"], averagePay);
+
+console.log("— 팀별 인원 —");
+report(["개발팀", "디자인팀"], countPeople);""",
         "marks": [
-            {"start": 18, "end": 24, "concept": "recursion", "why": "자기 자신을 불러 아래 팀까지 세는 곳",
-             "explanation": "countPeople 은 지금 그룹의 인원으로 시작해, 아래 팀마다 countPeople 을 다시 불러 그 결과를 더해요. 아래 팀이 없으면 반복이 돌지 않아 자기 인원만 돌려줘요. 개발팀은 5 + 3 + 4 = 12, 전체는 2 + 12 + 3 = 17명이에요.",
-             "keywords": ["다시 불러", "아래 팀", "더해", "12", "17"]},
-            {"start": 26, "end": 38, "concept": "recursion", "why": "길을 찾으면 위로 돌려주는 곳",
-             "explanation": "findPath 는 지금까지의 경로에 자기 이름을 붙이고, 찾는 이름이면 그 경로를 돌려줘요. 아니면 아래 팀마다 자신을 다시 불러 찾은 경로가 오면 바로 위로 돌려줘요. 어디에도 없으면 null 이라 영업팀은 null 이 나와요.",
+            {"start": 28, "end": 34, "concept": "recursion", "why": "자기 자신을 불러 아래 팀까지 세는 곳",
+             "explanation": "countPeople 은 지금 그룹의 인원으로 시작해, 아래 팀마다 countPeople 을 다시 불러 그 결과를 더해요. 아래 팀이 없으면 반복이 돌지 않아 자기 인원만 돌려줘요. 개발팀은 5 + 3 + (4 + 2) = 14명, 전체는 19명이에요.",
+             "keywords": ["다시 불러", "아래 팀", "더해", "14", "19"]},
+            {"start": 41, "end": 53, "concept": "recursion", "why": "길을 찾으면 위로 돌려주는 곳",
+             "explanation": "findPath 는 지금까지의 경로에 자기 이름을 붙이고, 찾는 이름이면 그 경로를 돌려줘요. 아니면 아래 팀마다 자신을 다시 불러 찾은 경로가 오면 바로 위로 돌려줘요. 어디에도 없으면 null 이라 인사팀은 null 이 나와요.",
              "keywords": ["경로", "다시 불러", "돌려줘", "null"]},
+            {"start": 83, "end": 95, "concept": "exception", "why": "팀마다 계산하다 오류가 나도 이어 가는 곳",
+             "explanation": "report 는 이름마다 try 안에서 findTeam 으로 팀을 찾고 measure 콜백(averagePay·countPeople)으로 값을 구해요. OrgError 가 나면 catch 에서 '확인할 수 없어요'를 출력하고 다음 이름으로 가요. 영업팀은 0명이라, 인사팀은 없어서 실패해요.",
+             "keywords": ["try", "findTeam", "measure", "catch", "영업팀"]},
         ],
     },
     {

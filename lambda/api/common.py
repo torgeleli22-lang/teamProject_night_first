@@ -78,8 +78,8 @@ CONCEPTS = {
 LEVELS = {
     1: {"name": "입문", "description": "짧은 코드, 변수·조건문·반복문이 위에서 아래로 흘러가요."},
     2: {"name": "초급", "description": "함수 여러 개가 서로를 불러요. 리스트와 딕셔너리(배열과 객체)가 나와요."},
-    3: {"name": "중급", "description": "클래스, 재귀, 예외 처리처럼 흐름이 오가는 코드예요."},
-    4: {"name": "고급", "description": "100~200줄. 자료구조와 알고리즘(최단 경로·동적 계획법·정렬·탐색 등)이 실제 문제를 푸는 코드예요."},
+    3: {"name": "중급", "description": "100~150줄. 클래스, 재귀, 예외 처리처럼 흐름이 오가는 작은 프로그램이에요."},
+    4: {"name": "고급", "description": "150~300줄. 자료구조와 알고리즘(최단 경로·동적 계획법·정렬·탐색 등)이 실제 문제를 푸는 코드예요."},
 }
 
 
@@ -116,7 +116,7 @@ _clients = {}
 def bedrock():
     if "bedrock" not in _clients:
         _clients["bedrock"] = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION,
-                                           config=Config(read_timeout=120, retries={"max_attempts": 2}))   # 코드 만들기 한 번이 20초 안팎, 고급(200줄 가까이)은 1분 넘게
+                                           config=Config(read_timeout=180, retries={"max_attempts": 2}))   # 코드 만들기 한 번이 20초 안팎, 중급(150줄)·고급(300줄)은 1~2분
     return _clients["bedrock"]
 
 

@@ -196,7 +196,7 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
       {error && <ErrorNote message={error} />}
       {busy === "review" && <Waiting text="빨간펜으로 메모를 첨삭하고 있어요…" />}
       {(busy === "easier" || busy === "harder") && (
-        <MakingCode language={codeItem.language} advanced={busy === "harder" && codeItem.level === 3} what={busy === "easier" ? "더 쉬운" : "더 어려운"} />
+        <MakingCode language={codeItem.language} advanced={(busy === "harder" ? codeItem.level + 1 : codeItem.level - 1) >= 3} what={busy === "easier" ? "더 쉬운" : "더 어려운"} />
       )}
 
       <FullScreen

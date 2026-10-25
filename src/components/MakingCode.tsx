@@ -17,7 +17,7 @@ export function MakingCode({ language, advanced, what = "읽기 연습용" }: { 
   }, []);
   const write = advanced ? 50 : 10; // 코드를 쓰는 데 보통 걸리는 시간 (초)
   const steps = [
-    `AI 가 ${what} ${LANGUAGE_NAMES[language]} 코드를 쓰고 있어요${advanced ? " (고급은 1분쯤)" : ""}`,
+    `AI 가 ${what} ${LANGUAGE_NAMES[language]} 코드를 쓰고 있어요${advanced ? " (긴 코드라 1~2분쯤)" : ""}`,
     "문법·오타·쓰지 않기로 한 기능을 규칙으로 검사해요",
     "다른 AI 가 코드를 한 줄씩 따라가며 실행 오류와 ※ 모범 설명을 확인해요",
   ];
