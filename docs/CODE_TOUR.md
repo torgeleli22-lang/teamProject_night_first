@@ -86,7 +86,7 @@
 - **만들기**: `common.py:468` `get_user(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:488`)
 - **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `USER#<id>/PROFILE` 직접, 로그인은 `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE`
 - **고치기**: `common.py:495` `use_user` (15분마다 lastSeen·기한 늘리기), `:506` `remember_topic` (최근 주제·난이도)
-- **로그인 계정**: `auth.py:190` `account_user` (member 학습자 만들기), `auth.py:206` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
+- **로그인 계정**: `auth.py:190` `account_user` (member 학습자 만들기), `auth.py:207` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
 
 #### 내 공부 `USER#<id> / STUDYREC#<코드 id>`
 - 쓰기: 첨삭할 때 `study.py:49` `record_review` (코드 하나당 한 줄), 다시 써서 나아지면 `study.py:72` `record_retry`
@@ -110,7 +110,7 @@
 
 #### 로그인 `LOGIN#` · `ACCOUNT#` · `AUTH#`
 - `AUTH#<state>/STATE` 쓰기 `auth.py:66` (로그인 시작) → 읽고 바로 지우기 `auth.py:85~88` (콜백, 한 번만)
-- `ACCOUNT#<제공자>:<번호>/USER` 읽기/쓰기 `auth.py:193` / `:202`, `LOGIN#<토큰>/USER` 쓰기 `auth.py:100`, 지우기(로그아웃) `auth.py:110`
+- `ACCOUNT#<제공자>:<번호>/USER` 읽기/쓰기 `auth.py:193` / `:203`, `LOGIN#<토큰>/USER` 쓰기 `auth.py:100`, 지우기(로그아웃) `auth.py:110`
 
 #### 운영 항목 `OPS#…`
 - `OPS#STATS`: `common.py:789` `count_event("practices")` — 하루 사용 수 +1 (`update_item` 의 ADD)
@@ -242,7 +242,7 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 ```
 GET /auth/start     start     :55   AUTH/state 저장 → Google 로그인 화면으로 302
 GET /auth/callback  callback  :81   state 확인·삭제 → fetch_profile :168 (code → 토큰 → sub·이름)
-                                    → account_user :189 → adopt_anonymous :205
+                                    → account_user :190 → adopt_anonymous :207
                                     → LOGIN/토큰 저장 → 화면#login=토큰 으로 302
 GET /me             me        :49   지금 학습자 (로그인 버튼 보이기)
 POST /auth/logout   logout    :106  LOGIN 삭제
