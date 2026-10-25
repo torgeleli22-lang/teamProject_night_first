@@ -44,6 +44,9 @@ class GeneratedCode(unittest.TestCase):
         self.assertTrue(any("고급으로는 너무 짧아요" in p for p in problems))
         _, _, problems = practice.check_generated(practice.sample_as_ai(short), 3)
         self.assertTrue(any("중급으로는 너무 짧아요" in p for p in problems))
+        long_js = {"title": "t", "code": "\n".join(["let a = 1;"] * 160 + ["console.log(a);"]), "marks": []}
+        _, _, problems = practice.check_generated(long_js, 3, "javascript")
+        self.assertTrue(any("161줄이라 너무 길어요" in p and "36줄 이상 줄여 125줄 안쪽" in p for p in problems), problems)
         long = next(s for s in samples.SAMPLES if s["level"] == 4)
         _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
         self.assertEqual((problems, len(marks)), ([], 5))

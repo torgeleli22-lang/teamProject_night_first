@@ -227,7 +227,7 @@ export function PracticeStart() {
       )}
 
       {error && <ErrorNote message={error} />}
-      {busy === "make" && <MakingCode language={language} advanced={level >= 3} what={advanced ? "고급(180~270줄)" : level === 3 ? "중급(110~140줄)" : "읽기 연습용"} />}
+      {busy === "make" && <MakingCode language={language} advanced={level >= 3} what={advanced ? "고급(180~270줄)" : level === 3 ? "중급(100~130줄)" : "읽기 연습용"} />}
       {busy === "check" && <Waiting text="주제를 살펴보고 있어요…" />}
 
       <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-dashed border-ink-300 pt-5">
