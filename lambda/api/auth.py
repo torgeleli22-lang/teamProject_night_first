@@ -192,10 +192,10 @@ def account_user(provider, profile):
     key = account_pk(f"{provider}:{profile['id']}")
     account = get_item(key, USER)
     member = {"member": True}
-    if account and get_item(user_pk(account["userId"]), PROFILE):
-        update_item(user_pk(account["userId"]), PROFILE, set_values={"name": profile["name"], "lastSeen": now_ms(),
-                                                                 TTL_ATTR: ttl_after(keep_seconds(member, "user"))})
-        return account["userId"]
+    owner = (account or {}).get("userId") or (account or {}).get("learnerId")   # learnerId: '예전 데이터 옮기기' 전의 이름
+    if owner and get_item(user_pk(owner), PROFILE):
+        update_item(user_pk(owner), PROFILE, set_values={"name": profile["name"], "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "user"))})
+        return owner
     user_id = new_id()
     put_item({"pk": user_pk(user_id), "sk": PROFILE, "member": True, "name": profile["name"], "provider": provider, "level": None,
               "recentTopics": [], "createdAt": now_ms(), "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "user"))})
