@@ -26,7 +26,7 @@ const check = (cond, msg) => {
   console.log(`✓ ${msg}`);
 };
 const PRIVATE = ["explanation", "keywords", "why"];
-const noAnswers = (reading) => reading.marks.every((m) => PRIVATE.every((k) => !(k in m)));
+const noAnswers = (codeItem) => codeItem.marks.every((m) => PRIVATE.every((k) => !(k in m)));
 
 try {
   // ── 연결 확인
@@ -54,50 +54,50 @@ try {
   check(adv.levelName === "고급" && advLines >= 100 && advLines <= 200 && adv.marks.length === 5, `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
 
   // ── 연습 모드 (practice.py)
-  const reading = await call("POST", "/practice", { level: 2, topic: "편의점 재고" });
-  check(reading.id && reading.code && reading.marks.length >= 2 && reading.levelName === "초급", `연습 코드 (${reading.title}, ※ ${reading.marks.length}곳)`);
-  check(noAnswers(reading), "모범 설명·핵심 표현이 응답에 없음");
-  check(reading.regenLeft === 5, "다시 만들기 5번 남음");
-  const easier = await call("POST", "/practice/adjust", { readingId: reading.id, direction: "easier", reasons: ["too_long"] });
+  const codeItem = await call("POST", "/practice", { level: 2, topic: "편의점 재고" });
+  check(codeItem.codeId && codeItem.code && codeItem.marks.length >= 2 && codeItem.levelName === "초급", `연습 코드 (${codeItem.title}, ※ ${codeItem.marks.length}곳)`);
+  check(noAnswers(codeItem), "모범 설명·핵심 표현이 응답에 없음");
+  check(codeItem.regenLeft === 5, "다시 만들기 5번 남음");
+  const easier = await call("POST", "/practice/adjust", { codeId: codeItem.codeId, direction: "easier", reasons: ["too_long"] });
   check(easier.level === 1 && easier.regenLeft === 4, "더 쉽게 → 입문, 4번 남음");
   let last = easier;
-  for (let i = 0; i < 4; i++) last = await call("POST", "/practice/adjust", { readingId: last.id, direction: "harder", reasons: [] });
+  for (let i = 0; i < 4; i++) last = await call("POST", "/practice/adjust", { codeId: last.codeId, direction: "harder", reasons: [] });
   check(last.regenLeft === 0, "다섯 번 다시 만들기");
-  await call("POST", "/practice/adjust", { readingId: last.id, direction: "harder" }, {}, 429);
+  await call("POST", "/practice/adjust", { codeId: last.codeId, direction: "harder" }, {}, 429);
   check(true, "여섯 번째는 429");
 
   // ── JavaScript 연습 (같은 흐름, 언어만 다름)
   const js = await call("POST", "/practice", { level: 3, topic: "회사 조직도", language: "javascript" });
   check(js.language === "javascript" && js.code.includes("console.log") && js.marks.length >= 2 && noAnswers(js), `JavaScript 연습 코드 (${js.title}, ※ ${js.marks.length}곳)`);
-  const jsEasier = await call("POST", "/practice/adjust", { readingId: js.id, direction: "easier" });
+  const jsEasier = await call("POST", "/practice/adjust", { codeId: js.codeId, direction: "easier" });
   check(jsEasier.language === "javascript" && jsEasier.level === 2, "JavaScript 코드는 더 쉽게 해도 JavaScript");
-  const jsReview = await call("POST", "/review", { readingId: js.id, memos: [{ start: js.marks[0].start, end: js.marks[0].end, text: "아래 팀마다 자기 자신을 다시 불러 인원을 더해요" }] });
+  const jsReview = await call("POST", "/review", { codeId: js.codeId, memos: [{ start: js.marks[0].start, end: js.marks[0].end, text: "아래 팀마다 자기 자신을 다시 불러 인원을 더해요" }] });
   check(jsReview.items.length === js.marks.length && jsReview.items.every((e) => e.concept), "JavaScript 코드 첨삭");
   await call("POST", "/practice", { level: 1, topic: "x", language: "cobol" }, {}, 400);
   check(true, "지원하지 않는 언어는 400");
 
   // ── 빨간펜 첨삭 (review.py)
-  const m = reading.marks;
+  const m = codeItem.marks;
   const result = await call("POST", "/review", {
-    readingId: reading.id,
+    codeId: codeItem.codeId,
     memos: [{ start: m[0].start, end: m[0].end, text: "재고 수를 보고 상태를 글자로 돌려줘요" }],
   });
   const total = Object.values(result.counts).reduce((a, b) => a + b, 0);
   check(total === m.length && result.counts.missing === m.length - 1, `첨삭 ○${result.counts.correct} △${result.counts.partial} ✕${result.counts.wrong} 빈칸${result.counts.missing}`);
   check(result.items.every((e) => e.comment && "model" in e), "항목마다 코멘트 + 모범 설명 (첨삭 뒤)");
-  const empty = await call("POST", "/review", { readingId: reading.id, memos: [] });
+  const empty = await call("POST", "/review", { codeId: codeItem.codeId, memos: [] });
   check(empty.counts.missing === m.length, "메모 없이 제출해도 첨삭 (모두 빈칸)");
   // ── 힌트 보고 다시 써 보기 (review.py): 항목 하나만 다시 채점, 3번까지, 다시 열면 기록이 남아 있음
   const missingIndex = result.items.findIndex((e) => e.kind === "missing");
-  const r1 = await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "조건을 보고 결과를 돌려줘요" });
+  const r1 = await call("POST", "/review/retry", { codeId: codeItem.codeId, item: missingIndex, text: "조건을 보고 결과를 돌려줘요" });
   check(r1.attempts.length === 1 && ["correct", "partial", "wrong"].includes(r1.attempts[0].mark) && r1.attempts[0].comment && r1.left === 2,
     `빈칸 항목을 다시 써서 다시 채점 (${r1.attempts[0].mark})`);
-  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "두 번째" });
-  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "세 번째" });
-  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "네 번째" }, {}, 429);
-  await call("POST", "/review/retry", { readingId: reading.id, item: missingIndex, text: "  " }, {}, 400);
+  await call("POST", "/review/retry", { codeId: codeItem.codeId, item: missingIndex, text: "두 번째" });
+  await call("POST", "/review/retry", { codeId: codeItem.codeId, item: missingIndex, text: "세 번째" });
+  await call("POST", "/review/retry", { codeId: codeItem.codeId, item: missingIndex, text: "네 번째" }, {}, 429);
+  await call("POST", "/review/retry", { codeId: codeItem.codeId, item: missingIndex, text: "  " }, {}, 400);
   check(true, "다시 쓰기 3번까지 · 빈 글 400");
-  const withRetry = await call("GET", `/reading?id=${reading.id}`);
+  const withRetry = await call("GET", `/code?codeId=${codeItem.codeId}`);
   check(withRetry.retries[String(missingIndex)]?.attempts.length === 3 && withRetry.retries[String(missingIndex)].left === 0, "다시 열면 다시 쓴 기록이 남아 있음");
 
   // ── 내 공부 (study.py): 첨삭·다시 쓰기가 기록되고 개념별로 모임
@@ -109,24 +109,24 @@ try {
   await call("POST", "/practice", { level: 2, topic: "x", focus: "없는개념" }, {}, 400);
 
   // ── AI 튜터 (tutor_chat.py): 첨삭 항목마다 대화, 10번까지, 다시 열면 대화가 남아 있음
-  const t1 = await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "왜 이렇게 판정했나요?" });
+  const t1 = await call("POST", "/tutor", { codeId: codeItem.codeId, item: 0, message: "왜 이렇게 판정했나요?" });
   check(t1.turns.length === 2 && t1.turns[1].role === "tutor" && t1.turns[1].text && t1.turnsLeft === 9, "튜터에게 묻기 → 답");
-  for (let i = 0; i < 9; i++) await call("POST", "/tutor", { readingId: reading.id, item: 0, message: `더 알려 주세요 ${i}` });
-  await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "한 번 더" }, {}, 429);
+  for (let i = 0; i < 9; i++) await call("POST", "/tutor", { codeId: codeItem.codeId, item: 0, message: `더 알려 주세요 ${i}` });
+  await call("POST", "/tutor", { codeId: codeItem.codeId, item: 0, message: "한 번 더" }, {}, 429);
   check(true, "메모 하나에 질문 10번까지");
-  await call("POST", "/tutor", { readingId: reading.id, item: 99, message: "?" }, {}, 404);
-  await call("POST", "/tutor", { readingId: reading.id, item: 0, message: "   " }, {}, 400);
+  await call("POST", "/tutor", { codeId: codeItem.codeId, item: 99, message: "?" }, {}, 404);
+  await call("POST", "/tutor", { codeId: codeItem.codeId, item: 0, message: "   " }, {}, 400);
   check(true, "없는 항목 404 · 빈 질문 400");
-  const withChat = await call("GET", `/reading?id=${reading.id}`);
+  const withChat = await call("GET", `/code?codeId=${codeItem.codeId}`);
   check(withChat.chats["0"]?.turns.length === 20 && withChat.chats["0"].turnsLeft === 0, "다시 열면 튜터 대화가 남아 있음");
 
-  const again = await call("GET", `/reading?id=${reading.id}`);
-  check(again.reading.id === reading.id && again.review?.counts && noAnswers(again.reading), "같은 코드 다시 읽기 + 마지막 첨삭");
+  const again = await call("GET", `/code?codeId=${codeItem.codeId}`);
+  check(again.codeItem.codeId === codeItem.codeId && again.review?.counts && noAnswers(again.codeItem), "같은 코드 다시 읽기 + 마지막 첨삭");
 
   // ── 다른 학습자는 내 코드를 못 봄
   const mySid = sid;
   sid = null;
-  await call("GET", `/reading?id=${reading.id}`, undefined, {}, 404);
+  await call("GET", `/code?codeId=${codeItem.codeId}`, undefined, {}, 404);
   check(sid && sid !== mySid, "다른 학습자는 404");
   sid = mySid;
 
@@ -152,9 +152,9 @@ try {
   const inspected = await call("POST", "/inspect/start", { code: userCode, filename: "shop.py", functions: ["sell"] });
   check(inspected.source === "inspect" && inspected.levelName && inspected.levelReason && inspected.marks.length >= 1, `점검 시작 (난이도 ${inspected.levelName})`);
   check(inspected.marks.every((mk) => mk.start >= 8) && !inspected.code.includes("abcd1234") && noAnswers(inspected), "고른 함수 안에만 ※ + 가린 코드로 저장");
-  await call("POST", "/practice/adjust", { readingId: inspected.id, direction: "easier" }, {}, 400);
+  await call("POST", "/practice/adjust", { codeId: inspected.codeId, direction: "easier" }, {}, 400);
   check(true, "점검 코드는 난이도 바꾸기 없음");
-  const inspectReview = await call("POST", "/review", { readingId: inspected.id, memos: [{ start: 8, end: 11, text: "팔 수 없으면 그대로" }] });
+  const inspectReview = await call("POST", "/review", { codeId: inspected.codeId, memos: [{ start: 8, end: 11, text: "팔 수 없으면 그대로" }] });
   check(inspectReview.items.length >= 1, "점검 코드도 같은 첨삭");
 
   // ── 로그인 (auth.py): 로컬 가짜 로그인으로 흐름 확인 — 이 탭의 기록이 계정으로 옮겨지고, 로그아웃하면 새 학습자
@@ -173,7 +173,7 @@ try {
   check(meAfter.member === true && meAfter.name === "로컬 테스트" && sid === token, "로그인 학습자 (응답 헤더는 계정 id 가 아니라 로그인 토큰)");
   const studyAfter = await call("GET", "/study");
   check(studyAfter.summary.codes >= 1, `로그인 전 기록이 계정으로 옮겨짐 (코드 ${studyAfter.summary.codes}개)`);
-  await call("GET", `/reading?id=${reading.id}`);
+  await call("GET", `/code?codeId=${codeItem.codeId}`);
   check(true, "로그인 전에 받은 코드도 계속 열림");
   const evil = await fetch(`${api.url}/auth/start?provider=google&return=${encodeURIComponent("https://evil.example/steal")}`, { redirect: "manual" });
   check(evil.status === 400, "허용하지 않은 화면 주소로는 돌려보내지 않음");
@@ -189,8 +189,8 @@ try {
   check(overview.usage.every((u) => u.current && u.taskName && u.description && u.calls === u.successes + u.failures), "작업별 사용량: 이름·설명·성공/실패");
   check(overview.recent.length > 0 && overview.recent.every((r) => r.taskName && typeof r.ok === "boolean"), `최근 AI 호출 기록 ${overview.recent.length}건`);
   await call("POST", "/admin/ai", { enabled: false });
-  const offReading = await call("POST", "/practice", { level: 1, topic: "카페 주문" });
-  check(offReading.note && offReading.marks.length >= 2, "AI 끄면 예시 코드");
+  const offCode = await call("POST", "/practice", { level: 1, topic: "카페 주문" });
+  check(offCode.note && offCode.marks.length >= 2, "AI 끄면 예시 코드");
   check((await call("GET", "/health")).ai === false, "AI 꺼짐 표시");
   await call("POST", "/admin/ai", { enabled: true });
   check((await call("GET", "/admin/overview")).aiSwitch === true, "AI 다시 켜기");
@@ -219,11 +219,20 @@ try {
   await db.send(new BatchWriteItemCommand({ RequestItems: { jojo_table: oldItems.map((i) => ({ PutRequest: { Item: toAttr(i).M } })) } }));
   const moved = await call("POST", "/admin/migrate", {});
   check(moved.moved >= oldItems.length, `예전 이름 항목 옮기기 (${moved.moved}개 옮김, ${moved.removed}개 지움)`);
-  const migrated = await call("GET", `/reading?id=${oldCode}`, undefined, { "x-session-id": oldUser });
-  check(migrated.reading.title === "예전 코드" && migrated.review?.summary === "예전 첨삭" && migrated.chats["0"]?.turns.length === 2 && migrated.retries["0"]?.attempts.length === 1,
+  const migrated = await call("GET", `/code?codeId=${oldCode}`, undefined, { "x-session-id": oldUser });
+  check(migrated.codeItem.title === "예전 코드" && migrated.review?.summary === "예전 첨삭" && migrated.chats["0"]?.turns.length === 2 && migrated.retries["0"]?.attempts.length === 1,
     "옮긴 뒤에도 예전 학습자가 예전 코드·첨삭·튜터 대화·다시 쓰기를 그대로 엶");
   check((await call("GET", "/study", undefined, { "x-session-id": oldUser })).summary.codes === 1, "옮긴 뒤에도 예전 '내 공부' 기록이 보임");
-  check((await call("POST", "/admin/migrate", {})).moved === 0, "다시 눌러도 더 옮길 것이 없음");
+  const oldStudy = await call("GET", "/study", undefined, { "x-session-id": oldUser });
+  check(oldStudy.recent[0]?.codeId === oldCode, "옮긴 '내 공부' 기록의 readingId → codeId");
+  // 키는 이미 새 이름인데 필드만 예전 이름인 항목 (learnerId → userId)
+  const oldLogin = "0d0d0d0d-1111-4222-8333-444455556666";
+  await db.send(new BatchWriteItemCommand({ RequestItems: { jojo_table: [{ PutRequest: { Item: toAttr({ pk: `LOGIN#${oldLogin}`, sk: "USER", learnerId: oldUser, provider: "google", createdAt: 1, jojo_ttl: ttl }).M } }] } }));
+  const renamed = await call("POST", "/admin/migrate", {});
+  check(renamed.renamed >= 1 && renamed.moved === 0, `필드 이름만 예전인 항목 고치기 (${renamed.renamed}개)`);
+  check((await call("GET", "/study", undefined, { "x-session-id": oldLogin })).summary.codes === 1, "고친 로그인 토큰이 userId 로 학습자를 찾음");
+  const twice = await call("POST", "/admin/migrate", {});
+  check(twice.moved === 0 && twice.renamed === 0, "다시 눌러도 더 옮길 것이 없음");
 
   // ── 관리자 코드: 정한 코드만 통과, 틀리면 401, 10번 틀리면 잠시 막힘
   await call("POST", "/admin/code", { code: "smoke-code-1234" });

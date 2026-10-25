@@ -10,7 +10,7 @@ import { useWideLayout, WideToggle } from "@/components/WideToggle";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
-import { ADJUST_REASONS, CONCEPT_NAMES, type AdjustReason, type Memo, type Reading, type ReadingWithReview, type ReviewResult } from "@/lib/api-types";
+import { ADJUST_REASONS, CONCEPT_NAMES, type AdjustReason, type Memo, type CodeItem, type CodeItemWithReview, type ReviewResult } from "@/lib/api-types";
 import { circled, loadMemos, overlaps, saveMemos } from "@/lib/memos";
 
 const MAX_MEMOS = 20;
@@ -19,15 +19,15 @@ const MAX_MEMO_CHARS = 500;
 /** 03 · 메모하며 읽기: 줄을 눌러 형광펜 범위 → 포스트잇 메모 → 첨삭 받기 */
 export function ReadNote() {
   const id = useSearchParams().get("id") ?? "";
-  const { data, error, reload } = useApi<ReadingWithReview>(id ? `/reading?id=${encodeURIComponent(id)}` : null);
+  const { data, error, reload } = useApi<CodeItemWithReview>(id ? `/code?codeId=${encodeURIComponent(id)}` : null);
 
   if (!id) return <Missing />;
   if (error) return <Page><ErrorNote message={error} onRetry={reload} /><BackLinks /></Page>;
   if (!data) return <Page><Waiting text="코드를 펼치는 중이에요…" /></Page>;
-  return <Reader key={data.reading.id} reading={data.reading} />;
+  return <Reader key={data.codeItem.codeId} codeItem={data.codeItem} />;
 }
 
-function Reader({ reading }: { reading: Reading }) {
+function Reader({ codeItem }: { codeItem: CodeItem }) {
   const router = useRouter();
   const [memos, setMemos] = useState<Memo[]>([]);
   /** 형광펜 고르기: 줄을 누르면 한 줄, 누른 채 끌면 범위 (다른 메모와 겹쳐도 됨) */
@@ -44,17 +44,17 @@ function Reader({ reading }: { reading: Reading }) {
   const [dialog, setDialog] = useState<"easier" | "harder" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const total = reading.code.split("\n").length;
+  const total = codeItem.code.split("\n").length;
 
-  useEffect(() => setMemos(loadMemos(reading.id)), [reading.id]);
+  useEffect(() => setMemos(loadMemos(codeItem.codeId)), [codeItem.codeId]);
   const update = (next: Memo[]) => {
     const sorted = [...next].sort((a, b) => a.start - b.start || a.end - b.end);
     setMemos(sorted);
-    saveMemos(reading.id, sorted);
+    saveMemos(codeItem.codeId, sorted);
   };
 
-  const covered = reading.marks.filter((m) => memos.some((x) => overlaps(x, m))).length;
-  const left = reading.marks.length - covered;
+  const covered = codeItem.marks.filter((m) => memos.some((x) => overlaps(x, m))).length;
+  const left = codeItem.marks.length - covered;
   const pending: Range | null = selecting
     ? { start: Math.min(selecting.a, selecting.b), end: Math.max(selecting.a, selecting.b) }
     : draft
@@ -97,18 +97,18 @@ function Reader({ reading }: { reading: Reading }) {
     (i: number, anchor: number) =>
       setMemos((cur) => {
         const next = cur.map((m, j) => (j === i ? { ...m, anchor } : m));
-        saveMemos(reading.id, next);
+        saveMemos(codeItem.codeId, next);
         return next;
       }),
-    [reading.id],
+    [codeItem.codeId],
   );
 
   async function submit() {
     setBusy("review");
     setError(null);
     try {
-      await apiPost<ReviewResult>("/review", { readingId: reading.id, memos });
-      router.push(`/result/?id=${reading.id}`);
+      await apiPost<ReviewResult>("/review", { codeId: codeItem.codeId, memos });
+      router.push(`/result/?id=${codeItem.codeId}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);
@@ -120,8 +120,8 @@ function Reader({ reading }: { reading: Reading }) {
     setBusy(direction);
     setError(null);
     try {
-      const next = await apiPost<Reading>("/practice/adjust", { readingId: reading.id, direction, reasons });
-      router.push(`/read/?id=${next.id}`);
+      const next = await apiPost<CodeItem>("/practice/adjust", { codeId: codeItem.codeId, direction, reasons });
+      router.push(`/read/?id=${next.codeId}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);
@@ -129,7 +129,7 @@ function Reader({ reading }: { reading: Reading }) {
   }
 
   const labels = useMemo(() => memos.map((_, i) => circled(i + 1)), [memos]);
-  const practice = reading.source === "practice";
+  const practice = codeItem.source === "practice";
 
   return (
     <Page>
@@ -138,21 +138,21 @@ function Reader({ reading }: { reading: Reading }) {
       </Crumb>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex flex-wrap items-center gap-3 text-2xl sm:text-3xl">
-          {reading.title || reading.topic}
-          <Stamp>{reading.levelName}</Stamp>
-          <LangTag language={reading.language} />
+          {codeItem.title || codeItem.topic}
+          <Stamp>{codeItem.levelName}</Stamp>
+          <LangTag language={codeItem.language} />
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           {practice && (
             <>
-              <button type="button" className="btn-small" disabled={!!busy || reading.regenLeft <= 0} onClick={() => setDialog("easier")}>
+              <button type="button" className="btn-small" disabled={!!busy || codeItem.regenLeft <= 0} onClick={() => setDialog("easier")}>
                 ↓ 더 쉽게
               </button>
               <button
                 type="button"
                 className="btn-small"
-                disabled={!!busy || reading.regenLeft <= 0 || reading.level >= 4}
-                title={reading.level >= 4 ? "고급이 가장 어려운 단계예요" : undefined}
+                disabled={!!busy || codeItem.regenLeft <= 0 || codeItem.level >= 4}
+                title={codeItem.level >= 4 ? "고급이 가장 어려운 단계예요" : undefined}
                 onClick={() => setDialog("harder")}
               >
                 ↑ 더 어렵게
@@ -164,10 +164,10 @@ function Reader({ reading }: { reading: Reading }) {
           </button>
         </div>
       </div>
-      {reading.levelReason && <p className="hand mt-1 text-pen-red">{reading.levelReason}</p>}
-      {reading.focus && <p className="hand mt-1 text-pen-red">집중 연습: {CONCEPT_NAMES[reading.focus]} — 이 흐름이 나오는 곳을 특히 꼼꼼히 설명해 봐요.</p>}
-      {reading.note && <p className="mt-1 text-xs text-ink-500">{reading.note}</p>}
-      {practice && reading.regenLeft <= 0 && <p className="mt-1 text-xs text-ink-500">이 코드에서 다시 만들기를 다 썼어요. 새 코드는 &lsquo;연습 모드&rsquo;에서 받아 주세요.</p>}
+      {codeItem.levelReason && <p className="hand mt-1 text-pen-red">{codeItem.levelReason}</p>}
+      {codeItem.focus && <p className="hand mt-1 text-pen-red">집중 연습: {CONCEPT_NAMES[codeItem.focus]} — 이 흐름이 나오는 곳을 특히 꼼꼼히 설명해 봐요.</p>}
+      {codeItem.note && <p className="mt-1 text-xs text-ink-500">{codeItem.note}</p>}
+      {practice && codeItem.regenLeft <= 0 && <p className="mt-1 text-xs text-ink-500">이 코드에서 다시 만들기를 다 썼어요. 새 코드는 &lsquo;연습 모드&rsquo;에서 받아 주세요.</p>}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border border-dashed border-ink-300 bg-paper px-3 py-2 text-xs text-ink-700">
         <span>
@@ -177,7 +177,7 @@ function Reader({ reading }: { reading: Reading }) {
           <span>
             <b className="text-pen-red">※</b> 꼭 설명할 곳{" "}
             <b>
-              {covered} / {reading.marks.length}
+              {covered} / {codeItem.marks.length}
             </b>{" "}
             메모함 · 내 메모 {memos.length}장
           </span>
@@ -196,7 +196,7 @@ function Reader({ reading }: { reading: Reading }) {
       {error && <ErrorNote message={error} />}
       {busy === "review" && <Waiting text="빨간펜으로 메모를 첨삭하고 있어요…" />}
       {(busy === "easier" || busy === "harder") && (
-        <MakingCode language={reading.language} advanced={busy === "harder" && reading.level === 3} what={busy === "easier" ? "더 쉬운" : "더 어려운"} />
+        <MakingCode language={codeItem.language} advanced={busy === "harder" && codeItem.level === 3} what={busy === "easier" ? "더 쉬운" : "더 어려운"} />
       )}
 
       <FullScreen
@@ -204,9 +204,9 @@ function Reader({ reading }: { reading: Reading }) {
         onClose={() => !draft && setFull(false)}
         header={
           <>
-            <b className="min-w-0 flex-1 truncate font-serif text-lg">{reading.title || reading.topic}</b>
+            <b className="min-w-0 flex-1 truncate font-serif text-lg">{codeItem.title || codeItem.topic}</b>
             <span className="text-xs text-ink-700">
-              <b className="text-pen-red">※</b> {covered} / {reading.marks.length} 메모함 · 내 메모 {memos.length}장
+              <b className="text-pen-red">※</b> {covered} / {codeItem.marks.length} 메모함 · 내 메모 {memos.length}장
             </span>
             {busy === "review" && <span className="hand text-pen-red">첨삭하고 있어요…</span>}
             <button type="button" className="btn-ink py-1.5 text-sm" disabled={!!busy} onClick={submit}>
@@ -220,9 +220,9 @@ function Reader({ reading }: { reading: Reading }) {
       >
       <div className={`grid items-start gap-x-6 gap-y-4 lg:grid-cols-[minmax(0,1fr)_340px] ${full ? "" : "mt-4"}`}>
         <CodeView
-          code={reading.code}
-          language={reading.language}
-          stars={reading.marks.map((m) => m.start)}
+          code={codeItem.code}
+          language={codeItem.language}
+          stars={codeItem.marks.map((m) => m.start)}
           highlights={memos}
           labels={labels}
           pending={pending}
@@ -288,7 +288,7 @@ function Reader({ reading }: { reading: Reading }) {
         {left > 0 ? `※ 꼭 설명할 곳이 ${left}곳 남았어요. 비워도 낼 수는 있어요.` : "※ 표시된 곳을 모두 메모했어요. 첨삭을 받아 볼까요?"}
       </p>
 
-      {dialog && <AdjustDialog direction={dialog} hasMemos={memos.length > 0} left={reading.regenLeft} onCancel={() => setDialog(null)} onConfirm={adjust} />}
+      {dialog && <AdjustDialog direction={dialog} hasMemos={memos.length > 0} left={codeItem.regenLeft} onCancel={() => setDialog(null)} onConfirm={adjust} />}
     </Page>
   );
 }

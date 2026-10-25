@@ -1,7 +1,7 @@
 import re
 
 from common import (LANGUAGES, LEVELS, MAX_CODE_LINES, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks,
-                    count_event, field, get_learner, numbered, public_reading, save_reading)
+                    count_event, field, get_user, numbered, public_code, save_code)
 
 # ─────────────────────────────────────────────────────────────
 # 내 코드 점검 (inspect_code.py) — jojo_api 의 기능 파일
@@ -58,7 +58,7 @@ SCHEMA = {
 
 def look(req):
     """코드 훑어보기: 언어 확인 → 민감 정보 가리기 → 함수 목록 (AI 없음)"""
-    get_learner(req)
+    get_user(req)
     code, language = read_code(req["body"])
     masked_code, masked = mask_secrets(code)
     functions = find_functions(masked_code)
@@ -70,7 +70,7 @@ def look(req):
 
 def start(req):
     # 1. 요청 값 확인 + 한 번 더 가리기
-    learner = get_learner(req)
+    user = get_user(req)
     code, language = read_code(req["body"])
     code, masked = mask_secrets(code)
     chosen = field(req["body"], "functions", "list", default=[], max_len=50)
@@ -101,10 +101,10 @@ def start(req):
 
     # 3. 저장 (올린 코드는 짧게 보관)
     filename = (field(req["body"], "filename", "str", default="", max_len=100) or "붙여 넣은 코드").strip()
-    item = save_reading(learner, source="inspect", level=int(analysis["level"]), topic=filename, title=filename, code=code,
+    item = save_code(user, source="inspect", level=int(analysis["level"]), topic=filename, title=filename, code=code,
                         marks=marks, origin="upload", note=note, levelReason=analysis.get("levelReason", ""),
                         functions=[f["name"] for f in picked], keep="upload")
-    return {**public_reading(item), "masked": masked}
+    return {**public_code(item), "masked": masked}
 
 
 ROUTES = {

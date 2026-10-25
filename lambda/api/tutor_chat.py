@@ -1,13 +1,13 @@
 import re
 
 from common import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
-                    code_pk, get_learner, latest_review, load_reading, now_ms, put_item, review_children, review_key, review_rows, ttl_after)
+                    code_pk, get_user, latest_review, load_code, now_ms, put_item, review_children, review_key, review_rows, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
 # AI 튜터 대화 (tutor_chat.py) — jojo_api 의 기능 파일
 #
 #   첨삭을 받은 뒤, 메모별 첨삭 하나를 골라 AI 튜터에게 묻고 답을 받는다 (그 코드 범위를 더 깊게 이해하도록)
-#   POST /tutor   {"readingId": "...", "item": 0, "message": "왜 부분 정답이에요?"}
+#   POST /tutor   {"codeId": "...", "item": 0, "message": "왜 부분 정답이에요?"}
 #        → {"item": 0, "turns": [{"role": "user"|"tutor", "text", "lookAt": [줄], "at"}], "turnsLeft": 9, "byAi": true}
 #
 #   - 대화는 가장 최근 첨삭(REVIEW#)의 항목 번호에 붙는다: CODE#<id> / REVIEW#<첨삭 시각>#CHAT#<항목 번호 3자리>
@@ -51,14 +51,14 @@ MARK_WORDS = {"correct": "○ 정확", "partial": "△ 부분", "wrong": "✕ �
 def ask_tutor(req):
     # 1. 요청 값 확인: 내 코드 · 가장 최근 첨삭 · 그 첨삭의 항목
     body = req["body"]
-    learner = get_learner(req)
-    reading = load_reading(field(body, "readingId", "str", required=True, max_len=60), learner)
+    user = get_user(req)
+    code_item = load_code(field(body, "codeId", "str", required=True, max_len=60), user)
     index = field(body, "item", "int", required=True, low=0, high=99)
     message = re.sub(r"\s+", " ", field(body, "message", "str", required=True, max_len=MAX_TUTOR_CHARS * 2)).strip()[:MAX_TUTOR_CHARS]
     if not message:
         raise ApiError(400, "물어볼 말을 적어 주세요.")
-    rows = review_rows(reading["id"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
-    review = latest_review(reading["id"], rows)
+    rows = review_rows(code_item["codeId"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
+    review = latest_review(code_item["codeId"], rows)
     if not review or index >= len(review["result"]["items"]):
         raise ApiError(404, "첨삭을 먼저 받아 주세요.")
     entry = review["result"]["items"][index]
@@ -72,12 +72,12 @@ def ask_tutor(req):
 
     # 3. AI 튜터 답 (안 되면 규칙 답)
     count_event("tutorChats")
-    total = len(reading["code"].split("\n"))
+    total = len(code_item["code"].split("\n"))
     answer, by_ai = None, False
     if ai_allowed(req):
         history = [{"role": "user" if t["role"] == "user" else "assistant", "text": t["text"]} for t in turns]
         try:
-            answer = ask_ai("tutor_chat", build_system(reading, entry), message, SCHEMA, max_tokens=800, history=history,
+            answer = ask_ai("tutor_chat", build_system(code_item, entry), message, SCHEMA, max_tokens=800, history=history,
                             mock=lambda: rule_answer(entry, message, asked), mock_delay=0.5)
             by_ai = True
         except AiUnavailable as e:
@@ -91,7 +91,7 @@ def ask_tutor(req):
         {"role": "user", "text": message, "lookAt": [], "at": now},
         {"role": "tutor", "text": answer["reply"].strip()[:1500], "lookAt": [n for n in answer.get("lookAt", []) if 1 <= n <= total][:3], "at": now},
     ]
-    put_item({"pk": code_pk(reading["id"]), "sk": key, "turns": turns, "updatedAt": now, TTL_ATTR: reading.get(TTL_ATTR) or ttl_after(86400)})
+    put_item({"pk": code_pk(code_item["codeId"]), "sk": key, "turns": turns, "updatedAt": now, TTL_ATTR: code_item.get(TTL_ATTR) or ttl_after(86400)})
     return {"item": index, "turns": turns, "turnsLeft": MAX_TUTOR_TURNS - asked - 1, "byAi": by_ai}
 
 
@@ -105,7 +105,7 @@ def chat_key(review, index):
 
 
 def chats_for(review, rows):
-    """GET /reading 이 함께 돌려줄 대화: {항목 번호: {"turns", "turnsLeft"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
+    """GET /code 가 함께 돌려줄 대화: {항목 번호: {"turns", "turnsLeft"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
     if not review:
         return {}
     out = {}
@@ -115,9 +115,9 @@ def chats_for(review, rows):
     return out
 
 
-def build_system(reading, entry):
+def build_system(code_item, entry):
     return SYSTEM_PROMPT.format(
-        code=code_for_ai(reading), start=entry["start"], end=entry["end"],
+        code=code_for_ai(code_item), start=entry["start"], end=entry["end"],
         marked=" (※ 꼭 설명할 곳)" if entry.get("marked") else "",
         memo=entry.get("memo") or "(메모 없음)", mark=MARK_WORDS.get(entry["mark"], entry["mark"]),
         comment=entry.get("comment", ""), model=entry.get("model") or "(없음)",

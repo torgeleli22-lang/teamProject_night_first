@@ -129,13 +129,17 @@ export function AdminNote() {
 
   /** 예전 키 이름 데이터를 새 이름으로 옮기기 (한 번, 다시 눌러도 안전) */
   async function migrate() {
-    if (!window.confirm("예전 이름(LEARNER, READ#, STUDY# …)으로 저장된 데이터를 새 이름(USER#, CODE# …)으로 옮길까요? 다시 눌러도 안전해요.")) return;
+    if (!window.confirm("예전 이름(LEARNER, READ#, STUDY# … · learnerId, readingId, owner …)으로 저장된 데이터를 새 이름(USER#, CODE# … · userId, codeId …)으로 옮길까요? 다시 눌러도 안전해요.")) return;
     setBusy(true);
     setMigrated(null);
     try {
       const r = await apiPost<MigrateResult>("/admin/migrate", {}, { headers: headers() });
       const kinds = Object.entries(r.byKind).map(([k, n]) => `${k} ${n}`).join(", ");
-      setMigrated(r.moved === 0 ? "옮길 예전 데이터가 없어요. 모두 새 이름이에요." : `${r.moved}개를 옮겼어요 (${kinds}). 요청 수 제한 기록 ${r.removed}개는 지웠어요.`);
+      setMigrated(
+        r.moved + r.renamed === 0
+          ? "옮길 예전 데이터가 없어요. 모두 새 이름이에요."
+          : `키 ${r.moved}개를 옮기고 필드 이름 ${r.renamed}개를 고쳤어요 (${kinds}). 요청 수 제한 기록 ${r.removed}개는 지웠어요.`,
+      );
     } catch (err) {
       setMigrated((err as Error).message);
     }
@@ -318,8 +322,8 @@ export function AdminNote() {
           <section className="mt-10">
             <h2 className="text-lg">예전 데이터 옮기기</h2>
             <p className="mt-1 text-xs text-ink-500">
-              DynamoDB 키 이름을 정리했어요 (LEARNER → USER#·PROFILE, READ# → CODE#, STUDY# → USER#·STUDYREC#, 운영 데이터 → OPS#). Lambda 를 새 코드로 바꾼 뒤 한 번 눌러
-              주세요. 예전 이름으로 남은 학습자·코드·첨삭·로그인을 새 이름으로 옮겨요.
+              DynamoDB 키 이름(LEARNER → USER#·PROFILE, READ# → CODE#, STUDY# → USER#·STUDYREC#, 운영 데이터 → OPS#)과 필드 이름(learnerId·owner → userId,
+              readingId·id → codeId)을 정리했어요. Lambda 를 새 코드로 바꾼 뒤 한 번 눌러 주세요. 예전 이름으로 남은 학습자·코드·첨삭·로그인을 새 이름으로 옮겨요.
             </p>
             <button type="button" className="btn-line mt-3 py-1.5" onClick={migrate} disabled={busy}>
               예전 데이터 옮기기

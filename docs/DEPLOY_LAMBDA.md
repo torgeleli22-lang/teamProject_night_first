@@ -87,7 +87,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 2. **내 코드 점검** → `.py` 파일 올리기 → 함수 고르기 → 메모하러 가기
 3. 관리자 화면(`/admin/`)에서 이번 달 비용·작업별 사용량이 늘었는지, **AI 끄기** 뒤 연습 코드가 예시 코드로 바뀌는지
 4. 예전 Node.js 함수 `jojo_generate_code` 와 예전 Node.js `jojo_api` 가 남아 있으면 삭제
-5. **키 이름을 바꾼 버전(`USER#`·`CODE#`·`OPS#`)을 처음 올렸다면**: 관리자 화면 → **예전 데이터 옮기기** 를 한 번 누르기 (`POST /admin/migrate`). 예전 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름으로 옮기고 예전 것은 지워요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 옮긴 수 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요.
+5. **키·필드 이름을 바꾼 버전을 처음 올렸다면**: 관리자 화면 → **예전 데이터 옮기기** 를 한 번 누르기 (`POST /admin/migrate`). 예전 키 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름(`USER#`·`CODE#`·`OPS#`)으로 옮기고, 예전 필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId` 등)을 고쳐요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요.
 
 ## 5단계. Google·GitHub 로그인 (선택)
 

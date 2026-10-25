@@ -66,10 +66,10 @@ class GeneratedCode(unittest.TestCase):
         self.assertEqual(js('console.log("document.title 과 Math.random 은 글자일 뿐이에요");'), [])   # 문자열 안은 보지 않음
 
     def test_javascript_samples_are_picked_for_javascript(self):
-        learner = {"recentTopics": []}
+        user = {"recentTopics": []}
         for level in (1, 2, 3, 4):
-            self.assertEqual(practice.pick_sample(level, "아무 주제", learner, language="javascript")["language"], "javascript")
-            self.assertEqual(practice.pick_sample(level, "아무 주제", learner).get("language", "python"), "python")
+            self.assertEqual(practice.pick_sample(level, "아무 주제", user, language="javascript")["language"], "javascript")
+            self.assertEqual(practice.pick_sample(level, "아무 주제", user).get("language", "python"), "python")
 
     def test_python_ast_checks(self):
         import ast
@@ -193,7 +193,7 @@ class Inspect(unittest.TestCase):
 
 
 class RuleReview(unittest.TestCase):
-    ITEM = {"id": "r1", "code": "\n".join(f"line{i}" for i in range(1, 21)), "marks": [
+    ITEM = {"codeId": "r1", "code": "\n".join(f"line{i}" for i in range(1, 21)), "marks": [
         {"id": "m1", "start": 2, "end": 4, "why": "w", "explanation": "모범1", "keywords": ["하나씩", "더해"]},
         {"id": "m2", "start": 10, "end": 12, "why": "w", "explanation": "모범2", "keywords": ["할인"]},
     ]}
@@ -311,7 +311,7 @@ class Concepts(unittest.TestCase):
 def study_row(level, marks, source="practice", at=0):
     items = [{"concept": c, "first": f, "best": b, "marked": True, "start": 1, "end": 2, "memo": "설명", "bestText": "설명", "snippet": None}
              for c, f, b in marks]
-    return {"readingId": f"r{at}", "source": source, "level": level, "title": "t", "counts": {}, "items": items, "reviewedAt": at}
+    return {"codeId": f"r{at}", "source": source, "level": level, "title": "t", "counts": {}, "items": items, "reviewedAt": at}
 
 
 class TimeOrderedId(unittest.TestCase):
@@ -322,7 +322,7 @@ class TimeOrderedId(unittest.TestCase):
         for i in (early, late):
             self.assertEqual(uuid.UUID(i).version, 7)
             self.assertTrue(common.SESSION_ID.match(i))                # 학습자 id 헤더 검사를 그대로 통과
-            self.assertTrue(re.fullmatch(r"[0-9a-f-]{36}", i))         # load_reading 의 코드 id 검사도
+            self.assertTrue(re.fullmatch(r"[0-9a-f-]{36}", i))         # load_code 의 코드 id 검사도
         self.assertLess(early, late)                                   # 문자열 정렬 = 만든 순서
         self.assertEqual(int(late.replace("-", "")[:12], 16), 1_800_000_000_000)   # 앞 12글자 = 밀리초 시각
         self.assertNotEqual(common.new_id(ms=1), common.new_id(ms=1))  # 같은 밀리초여도 무작위 부분이 다름
@@ -331,8 +331,8 @@ class TimeOrderedId(unittest.TestCase):
 class KeepTime(unittest.TestCase):
     def test_anonymous_is_short_member_is_long(self):
         anon, member = {"member": False}, {"member": True}
-        self.assertEqual(common.keep_seconds(anon, "learner"), common.ANON_HOURS * 3600)
-        self.assertEqual(common.keep_seconds(anon, "study"), common.ANON_READING_HOURS * 3600)
+        self.assertEqual(common.keep_seconds(anon, "user"), common.ANON_HOURS * 3600)
+        self.assertEqual(common.keep_seconds(anon, "study"), common.ANON_CODE_HOURS * 3600)
         self.assertEqual(common.keep_seconds(member, "study"), common.MEMBER_DAYS * 86400)
         self.assertEqual(common.keep_seconds(member, "upload"), common.UPLOAD_KEEP_DAYS * 86400)   # 올린 코드는 로그인해도 짧게
 
@@ -411,10 +411,10 @@ class Login(unittest.TestCase):
         auth.put_item = lambda item: db.__setitem__((item["pk"], item["sk"]), dict(item))
         auth.update_item = lambda pk, sk, set_values=None, **_: db[(pk, sk)].update(set_values or {})
         try:
-            kim1 = auth.account_learner("google", {"id": "1001", "name": "김철수"})
-            kim2 = auth.account_learner("google", {"id": "2002", "name": "김철수"})   # 동명이인
-            again = auth.account_learner("google", {"id": "1001", "name": "김철수(새 이름)"})   # 이름만 바뀜
-            other = auth.account_learner("github", {"id": "1001", "name": "김철수"})   # 다른 제공자의 같은 번호
+            kim1 = auth.account_user("google", {"id": "1001", "name": "김철수"})
+            kim2 = auth.account_user("google", {"id": "2002", "name": "김철수"})   # 동명이인
+            again = auth.account_user("google", {"id": "1001", "name": "김철수(새 이름)"})   # 이름만 바뀜
+            other = auth.account_user("github", {"id": "1001", "name": "김철수"})   # 다른 제공자의 같은 번호
             self.assertNotEqual(kim1, kim2)
             self.assertEqual(kim1, again)
             self.assertNotIn(other, (kim1, kim2))
@@ -457,9 +457,24 @@ class KeyNames(unittest.TestCase):
         self.assertIsNone(k("USER#u1", "PROFILE"))        # 이미 새 이름
         self.assertIsNone(k("QUESTION#1", "X"))           # 예전 서비스 항목은 그대로
 
+    def test_old_field_names_become_user_id_and_code_id(self):
+        f = admin.new_fields
+        self.assertEqual(f({"pk": "USER#u1", "sk": "PROFILE", "formerIds": ["u0"]})["formerUserIds"], ["u0"])
+        rec = f({"pk": "USER#u1", "sk": "STUDYREC#c1", "readingId": "c1", "readingTtl": 5})
+        self.assertEqual((rec["codeId"], rec["codeTtl"]), ("c1", 5))
+        self.assertNotIn("readingId", rec)
+        self.assertEqual(f({"pk": "ACCOUNT#google:9", "sk": "USER", "learnerId": "u1"})["userId"], "u1")
+        review = f({"pk": "CODE#c1", "sk": "REVIEW#0001", "result": {"readingId": "c1", "summary": "s"}})
+        self.assertEqual(review["result"], {"codeId": "c1", "summary": "s"})
+        chat = {"pk": "CODE#c1", "sk": "REVIEW#0001#CHAT#000", "turns": [], "id": "x"}
+        self.assertIs(f(chat), chat)                       # 다른 종류는 그대로 ("id" 도 건드리지 않음)
+        new = {"pk": "CODE#c1", "sk": "INFO", "codeId": "c1", "userId": "u1"}
+        self.assertIs(f(new), new)                         # 이미 새 이름
+
     def test_migrate_moves_then_deletes_and_is_repeatable(self):
         table = {("LEARNER", "u1"): {"pk": "LEARNER", "sk": "u1", "level": 2},
-                 ("READ#c1", "CODE"): {"pk": "READ#c1", "sk": "CODE", "owner": "u1"},
+                 ("READ#c1", "CODE"): {"pk": "READ#c1", "sk": "CODE", "id": "c1", "owner": "u1", "rootId": "c1"},
+                 ("LOGIN#t1", "USER"): {"pk": "LOGIN#t1", "sk": "USER", "learnerId": "u1"},   # 키는 새 이름, 필드만 예전 이름
                  ("RL", "all:x#1"): {"pk": "RL", "sk": "all:x#1", "n": 3},
                  ("OPS#STATS", "DAY#1"): {"pk": "OPS#STATS", "sk": "DAY#1"}}
         saved = admin.scan_table, admin.batch_put, admin.batch_delete
@@ -468,12 +483,15 @@ class KeyNames(unittest.TestCase):
         admin.batch_delete = lambda keys: [table.pop((i["pk"], i["sk"]), None) for i in keys]
         try:
             first = admin.migrate({})
-            self.assertEqual((first["moved"], first["removed"], first["untouched"]), (2, 1, 1))
+            self.assertEqual((first["moved"], first["renamed"], first["removed"], first["untouched"]), (2, 1, 1, 1))
             self.assertEqual(table[("USER#u1", "PROFILE")]["level"], 2)
-            self.assertEqual(table[("CODE#c1", "INFO")]["owner"], "u1")
+            info = table[("CODE#c1", "INFO")]
+            self.assertEqual((info["codeId"], info["userId"], info["rootCodeId"]), ("c1", "u1", "c1"))
+            self.assertNotIn("owner", info)
+            self.assertEqual(table[("LOGIN#t1", "USER")], {"pk": "LOGIN#t1", "sk": "USER", "userId": "u1"})
             self.assertNotIn(("LEARNER", "u1"), table)
             again = admin.migrate({})
-            self.assertEqual((again["moved"], again["removed"]), (0, 0))   # 다시 눌러도 아무것도 바뀌지 않음
+            self.assertEqual((again["moved"], again["renamed"], again["removed"]), (0, 0, 0))   # 다시 눌러도 아무것도 바뀌지 않음
         finally:
             admin.scan_table, admin.batch_put, admin.batch_delete = saved
 
@@ -482,7 +500,7 @@ class Entry(unittest.TestCase):
     def test_every_path_has_a_feature(self):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
-            "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /reading",
+            "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /code",
             "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate",
             "GET /me", "GET /auth/start", "GET /auth/callback/google", "GET /auth/callback/github", "POST /auth/logout"})
 

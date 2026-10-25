@@ -4,20 +4,20 @@
  */
 import type { Memo } from "./api-types";
 
-const key = (readingId: string) => `codereading.memos.${readingId}`;
+const key = (codeId: string) => `codereading.memos.${codeId}`;
 
-export function loadMemos(readingId: string): Memo[] {
+export function loadMemos(codeId: string): Memo[] {
   try {
-    const raw = sessionStorage.getItem(key(readingId));
+    const raw = sessionStorage.getItem(key(codeId));
     return raw ? (JSON.parse(raw) as Memo[]) : [];
   } catch {
     return [];
   }
 }
 
-export function saveMemos(readingId: string, memos: Memo[]) {
+export function saveMemos(codeId: string, memos: Memo[]) {
   try {
-    sessionStorage.setItem(key(readingId), JSON.stringify(memos));
+    sessionStorage.setItem(key(codeId), JSON.stringify(memos));
   } catch {
     /* 저장할 수 없는 환경이면 화면에만 */
   }

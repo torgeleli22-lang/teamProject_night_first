@@ -2,13 +2,13 @@ import re
 
 from study import record_retry, record_review
 from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
-                    code_pk, get_learner, guess_concept, latest_review, load_reading, now_ms, pad, put_item, review_children, review_key, review_rows,
+                    code_pk, get_user, guess_concept, latest_review, load_code, now_ms, pad, put_item, review_children, review_key, review_rows,
                     time_id, ttl_after)
 
 # ─────────────────────────────────────────────────────────────
 # 빨간펜 첨삭 (review.py) — jojo_api 의 기능 파일
 #
-#   POST /review   {"readingId": "...", "memos": [{"start": 8, "end": 16, "text": "재고 상태를 글자로 알려주는 함수"}]}
+#   POST /review   {"codeId": "...", "memos": [{"start": 8, "end": 16, "text": "재고 상태를 글자로 알려주는 함수"}]}
 #   → {"summary": 손글씨 총평, "counts": {"correct", "partial", "wrong", "missing"},
 #      "items": [{"kind": "memo" | "missing", "start", "end", "marked": ※ 지점인지, "memo", "mark": "correct"|"partial"|"wrong"|"missing",
 #                 "comment": 다시 볼 곳을 짚는 코멘트 (정답을 바로 말하지 않음), "lookAt": [줄 번호], "model": 모범 설명}]}
@@ -16,7 +16,7 @@ from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavaila
 #   ○ correct 정확 · △ partial 부분 · ✕ wrong 오해 · ⬚ missing 빈칸(※ 지점에 메모 없음 — AI 없이 규칙으로 판정)
 #   모범 설명은 첨삭을 받은 뒤에만 보여 준다 ("모범 설명 보기")
 #
-#   POST /review/retry   {"readingId": "...", "item": 2, "text": "힌트를 보고 다시 쓴 설명"}
+#   POST /review/retry   {"codeId": "...", "item": 2, "text": "힌트를 보고 다시 쓴 설명"}
 #   → 첨삭 항목 하나만 다시 채점 {"item", "attempts": [{"text", "mark", "comment", "lookAt", "byAi", "at"}], "left": 남은 횟수}
 #     힌트(첨삭 코멘트)를 보고 이해한 만큼 다시 써 보는 기회. 항목 하나에 MAX_RETRIES(3)번, CODE#<id> / REVIEW#<첨삭 시각>#RETRY#<항목>
 # ─────────────────────────────────────────────────────────────
@@ -62,8 +62,8 @@ SCHEMA = {
 
 def review(req):
     # 1. 요청 값 확인
-    learner = get_learner(req)
-    item = load_reading(field(req["body"], "readingId", "str", required=True, max_len=60), learner)
+    user = get_user(req)
+    item = load_code(field(req["body"], "codeId", "str", required=True, max_len=60), user)
     memos = read_memos(req["body"], item["code"])
 
     # 2. ※ 지점 중 메모가 하나도 겹치지 않은 곳 → 빈칸(누락). AI 없이 규칙으로
@@ -86,11 +86,11 @@ def review(req):
 
     # 4. 결과 모으기 (코드 위치 순서) + 저장
     result = build_result(item, memos, missing, graded, by_ai)
-    put_item({"pk": code_pk(item["id"]), "sk": f"REVIEW#{pad(time_id())}", "memos": memos, "result": result, "createdAt": now_ms(),
+    put_item({"pk": code_pk(item["codeId"]), "sk": f"REVIEW#{pad(time_id())}", "memos": memos, "result": result, "createdAt": now_ms(),
               TTL_ATTR: ttl_after(max(1, int(item.get(TTL_ATTR, 0) - now_ms() / 1000)))})
 
     # 5. '내 공부' 기록 (개념별 약점 지도·난이도 추천·내 설명 노트, 1년 보관)
-    record_review(learner, item, result)
+    record_review(user, item, result)
     return result
 
 
@@ -117,14 +117,14 @@ RETRY_SCHEMA = {
 def retry(req):
     # 1. 요청 값 확인: 내 코드 · 가장 최근 첨삭 · 그 항목 · 다시 쓴 설명
     body = req["body"]
-    learner = get_learner(req)
-    item = load_reading(field(body, "readingId", "str", required=True, max_len=60), learner)
+    user = get_user(req)
+    item = load_code(field(body, "codeId", "str", required=True, max_len=60), user)
     index = field(body, "item", "int", required=True, low=0, high=99)
     text = field(body, "text", "str", required=True, max_len=MAX_MEMO_CHARS * 2).strip()[:MAX_MEMO_CHARS]
     if not text:
         raise ApiError(400, "다시 쓴 설명을 적어 주세요.")
-    rows = review_rows(item["id"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
-    rv = latest_review(item["id"], rows)
+    rows = review_rows(item["codeId"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
+    rv = latest_review(item["codeId"], rows)
     if not rv or index >= len(rv["result"]["items"]):
         raise ApiError(404, "첨삭을 먼저 받아 주세요.")
     entry = rv["result"]["items"][index]
@@ -153,11 +153,11 @@ def retry(req):
     # 4. 저장 (읽을 코드와 같이 지워짐)
     attempts = attempts + [{"text": text, "mark": graded["mark"], "comment": graded["comment"].strip()[:600],
                             "lookAt": [n for n in graded.get("lookAt", []) if 1 <= n <= total][:3], "byAi": by_ai, "at": now_ms()}]
-    put_item({"pk": code_pk(item["id"]), "sk": key, "attempts": attempts, "updatedAt": now_ms(),
+    put_item({"pk": code_pk(item["codeId"]), "sk": key, "attempts": attempts, "updatedAt": now_ms(),
               TTL_ATTR: item.get(TTL_ATTR) or ttl_after(86400)})
 
     # 5. '내 공부' 기록에 나아진 판정·설명 반영
-    record_retry(learner, item, index, graded["mark"], text)
+    record_retry(user, item, index, graded["mark"], text)
     return {"item": index, "attempts": attempts, "left": MAX_RETRIES - len(attempts)}
 
 
@@ -241,7 +241,7 @@ def build_result(item, memos, missing, graded, by_ai):
                         "concept": m.get("concept") or guess_concept(item["code"], m["start"], m["end"])})
     entries.sort(key=lambda e: (e["start"], e["kind"] != "memo"))
     counts = {k: sum(1 for e in entries if e["mark"] == k) for k in ("correct", "partial", "wrong", "missing")}
-    return {"readingId": item["id"], "summary": graded["summary"], "counts": counts, "items": entries, "byAi": by_ai, "createdAt": now_ms()}
+    return {"codeId": item["codeId"], "summary": graded["summary"], "counts": counts, "items": entries, "byAi": by_ai, "createdAt": now_ms()}
 
 
 def build_retry_prompt(item, entry, attempts, text):
@@ -264,7 +264,7 @@ def rule_retry(item, memo):
 
 
 def retries_for(review, rows):
-    """GET /reading 이 함께 돌려줄 다시 쓴 기록: {항목 번호: {"attempts", "left"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
+    """GET /code 가 함께 돌려줄 다시 쓴 기록: {항목 번호: {"attempts", "left"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
     if not review:
         return {}
     return {str(i): {"attempts": r.get("attempts", []), "left": MAX_RETRIES - len(r.get("attempts", []))}

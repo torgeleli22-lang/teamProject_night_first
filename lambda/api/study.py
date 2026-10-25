@@ -1,4 +1,4 @@
-from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_learner, keep_seconds, now_ms, put_item,
+from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_user, keep_seconds, now_ms, put_item,
                     query_all, studyrec_sk, ttl_after, user_pk)
 
 # ─────────────────────────────────────────────────────────────
@@ -26,18 +26,18 @@ MAX_NOTES = 60
 
 def overview(req):
     # 1. 내 기록 전부 (1년 치, 첨삭 하나당 한 줄이라 작다)
-    learner = get_learner(req)
-    rows = sorted((r for r in query_all(user_pk(learner["id"]), prefix="STUDYREC#") if alive(r)), key=lambda r: -r.get("reviewedAt", 0))
+    user = get_user(req)
+    rows = sorted((r for r in query_all(user_pk(user["userId"]), prefix="STUDYREC#") if alive(r)), key=lambda r: -r.get("reviewedAt", 0))
 
     # 2. 난이도 추천 / 개념별 약점 / 내 설명 노트 (모두 규칙)
     return {
         "summary": summarize(rows),
-        "levels": recommend_levels(rows, learner.get("level")),
+        "levels": recommend_levels(rows, user.get("level")),
         "concepts": concept_map(rows),
         "notes": explanation_notes(rows),
-        "recent": [{"readingId": r["readingId"], "source": r["source"], "level": r["level"], "title": r["title"],
+        "recent": [{"codeId": r["codeId"], "source": r["source"], "level": r["level"], "title": r["title"],
                     "language": r.get("language") or "python",
-                    "counts": r["counts"], "reviewedAt": r["reviewedAt"], "open": reading_alive(r)} for r in rows[:10]],
+                    "counts": r["counts"], "reviewedAt": r["reviewedAt"], "open": code_alive(r)} for r in rows[:10]],
     }
 
 
@@ -46,33 +46,33 @@ ROUTES = {"GET /study": overview}
 # ───────────────────────── 기록 쓰기 (review.py 가 부름) ─────────────────────────
 
 
-def record_review(learner, reading, result):
+def record_review(user, code_item, result):
     """첨삭 하나 → 읽은 코드 하나의 기록 (같은 코드를 다시 첨삭 받으면 최신 결과로 바꾸고 횟수를 센다)"""
     try:
-        key = {"pk": user_pk(learner["id"]), "sk": studyrec_sk(reading["id"])}
+        key = {"pk": user_pk(user["userId"]), "sk": studyrec_sk(code_item["codeId"])}
         old = get_item(key["pk"], key["sk"]) or {}
-        lines = reading["code"].split("\n")
+        lines = code_item["code"].split("\n")
         items = []
         for e in result["items"]:
             snippet = None
-            if reading["source"] == "practice":   # 올린 코드는 저장하지 않음
+            if code_item["source"] == "practice":   # 올린 코드는 저장하지 않음
                 snippet = "\n".join(lines[e["start"] - 1:min(e["end"], e["start"] - 1 + SNIPPET_LINES)])
             items.append({"concept": e.get("concept") or "data_update", "first": e["mark"], "best": e["mark"], "marked": e["marked"],
                           "start": e["start"], "end": e["end"], "memo": e["memo"], "bestText": e["memo"], "snippet": snippet})
-        put_item({**key, "readingId": reading["id"], "source": reading["source"], "level": int(reading.get("level") or 1),
-                  "language": reading.get("language") or "python",
-                  "title": reading.get("title") or reading.get("topic", ""), "topic": reading.get("topic", ""),
+        put_item({**key, "codeId": code_item["codeId"], "source": code_item["source"], "level": int(code_item.get("level") or 1),
+                  "language": code_item.get("language") or "python",
+                  "title": code_item.get("title") or code_item.get("topic", ""), "topic": code_item.get("topic", ""),
                   "counts": result["counts"], "items": items, "reviews": int(old.get("reviews", 0)) + 1,
                   "createdAt": old.get("createdAt") or now_ms(), "reviewedAt": now_ms(),
-                  "readingTtl": int(reading.get(TTL_ATTR, 0)), TTL_ATTR: ttl_after(keep_seconds(learner, "study"))})
+                  "codeTtl": int(code_item.get(TTL_ATTR, 0)), TTL_ATTR: ttl_after(keep_seconds(user, "study"))})
     except Exception as e:   # 기록이 실패해도 첨삭은 그대로 돌려준다
         print("[study]", repr(e))
 
 
-def record_retry(learner, reading, index, mark, text):
+def record_retry(user, code_item, index, mark, text):
     """다시 써서 더 좋은 판정을 받으면 그 항목의 best·bestText 를 바꾼다"""
     try:
-        row = get_item(user_pk(learner["id"]), studyrec_sk(reading["id"]))
+        row = get_item(user_pk(user["userId"]), studyrec_sk(code_item["codeId"]))
         if not row or index >= len(row.get("items", [])):
             return
         item = row["items"][index]
@@ -147,12 +147,12 @@ def explanation_notes(rows):
                               "text": i["bestText"], "improved": i["first"] != "correct", "start": i["start"], "end": i["end"],
                               "snippet": i.get("snippet"), "title": r["title"], "level": r["level"], "source": r["source"],
                               "language": r.get("language") or "python",
-                              "readingId": r["readingId"], "open": reading_alive(r), "at": r["reviewedAt"]})
+                              "codeId": r["codeId"], "open": code_alive(r), "at": r["reviewedAt"]})
     return notes[:MAX_NOTES]
 
 
-def reading_alive(row):
+def code_alive(row):
     """원본 코드가 아직 남아 있어서 '다시 읽기'로 열 수 있는지"""
-    ttl = row.get("readingTtl") or 0
+    ttl = row.get("codeTtl") or 0
     return ttl == 0 or ttl > now_ms() / 1000
 

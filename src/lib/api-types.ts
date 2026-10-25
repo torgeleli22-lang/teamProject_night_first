@@ -1,6 +1,6 @@
 /**
  * Lambda(jojo_api)가 화면으로 돌려주는 JSON 의 모양 (lambda/api 의 Python 코드와 같게 유지한다).
- * ※ 꼭 설명할 곳의 모범 설명·핵심 표현은 읽는 동안(Reading)에는 오지 않고, 첨삭(ReviewResult) 뒤에만 온다.
+ * ※ 꼭 설명할 곳의 모범 설명·핵심 표현은 읽는 동안(CodeItem)에는 오지 않고, 첨삭(ReviewResult) 뒤에만 온다.
  */
 
 export type Level = 1 | 2 | 3 | 4;
@@ -68,7 +68,7 @@ export interface TopicCheck {
   message: string;
 }
 
-// ───────────────────────── 읽을 코드 (practice.py · inspect_code.py, common.public_reading) ─────────────────────────
+// ───────────────────────── 읽을 코드 (practice.py · inspect_code.py, common.public_code) ─────────────────────────
 
 /** ※ 꼭 설명할 곳 (줄 범위만) */
 export interface MarkRange {
@@ -77,8 +77,8 @@ export interface MarkRange {
   end: number;
 }
 
-export interface Reading {
-  id: string;
+export interface CodeItem {
+  codeId: string;
   source: "practice" | "inspect";
   language: Language;
   level: Level;
@@ -100,7 +100,7 @@ export interface Reading {
 }
 
 /** POST /inspect/start 의 응답 */
-export interface InspectStarted extends Reading {
+export interface InspectStarted extends CodeItem {
   masked: MaskedLine[];
 }
 
@@ -111,9 +111,9 @@ export const ADJUST_REASONS: Record<AdjustReason, string> = {
   complex_flow: "흐름이 복잡해요",
 };
 
-/** GET /reading?id= */
-export interface ReadingWithReview {
-  reading: Reading;
+/** GET /code?codeId= */
+export interface CodeItemWithReview {
+  codeItem: CodeItem;
   review: ReviewResult | null;
   /** 첨삭 항목 번호(문자열) → AI 튜터와 나눈 대화 */
   chats?: Record<string, TutorChat>;
@@ -199,7 +199,7 @@ export interface ReviewItem {
 }
 
 export interface ReviewResult {
-  readingId: string;
+  codeId: string;
   summary: string;
   counts: Record<MarkKind, number>;
   items: ReviewItem[];
@@ -244,7 +244,7 @@ export interface ExplanationNote {
   source: "practice" | "inspect";
   /** 예전 기록에는 없음 (python) */
   language?: Language;
-  readingId: string;
+  codeId: string;
   /** 원본 코드가 아직 남아 있어 다시 열 수 있는지 */
   open: boolean;
   at: number;
@@ -255,7 +255,7 @@ export interface StudyOverview {
   levels: { current: Level; suggested: Level; advice: LevelAdvice["advice"]; message: string; byLevel: LevelAdvice[] };
   concepts: { items: ConceptStat[]; weakest: Concept | null };
   notes: ExplanationNote[];
-  recent: { readingId: string; source: "practice" | "inspect"; language?: Language; level: Level; title: string; counts: Record<MarkKind, number>; reviewedAt: number; open: boolean }[];
+  recent: { codeId: string; source: "practice" | "inspect"; language?: Language; level: Level; title: string; counts: Record<MarkKind, number>; reviewedAt: number; open: boolean }[];
 }
 
 // ───────────────────────── AI 튜터 (tutor_chat.py) ─────────────────────────
@@ -329,9 +329,12 @@ export interface DayCount {
   tutorChats: number;
 }
 
-/** POST /admin/migrate — 예전 키 이름(LEARNER, READ#, STUDY# …) 항목을 새 이름(USER#, CODE# …)으로 옮긴 결과 */
+/** POST /admin/migrate — 예전 키 이름(LEARNER, READ#, STUDY# …)·필드 이름(learnerId, readingId, owner …)을 새 이름으로 옮긴 결과 */
 export interface MigrateResult {
+  /** 키를 새 이름으로 옮긴 수 */
   moved: number;
+  /** 키는 그대로, 필드 이름만 고친 수 */
+  renamed: number;
   /** 옮기지 않고 지운 수 (몇 분짜리 요청 수 제한) */
   removed: number;
   /** 이미 새 이름이거나 예전 서비스의 항목 */

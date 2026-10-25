@@ -53,7 +53,7 @@ export function CheckCode() {
     setError(null);
     try {
       const r = await apiPost<InspectStarted>("/inspect/start", { code: look.code, filename, functions: picked });
-      router.push(`/read/?id=${r.id}`);
+      router.push(`/read/?id=${r.codeId}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);

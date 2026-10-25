@@ -10,7 +10,7 @@
 1. **정체성을 지킨다.** 이 서비스는 "코드를 대신 작성해 주는 AI"가 아니라 "코드를 스스로 읽고 흐름을 설명하도록 가르치는 AI"다. 코드 에디터·자동 완성·코드 고쳐 주기 기능을 넣지 않는다. 첨삭은 정답을 바로 알려 주지 않고 **다시 볼 곳을 짚는다**.
 2. **AI 는 여섯 곳에서만 쓴다** (§6): 연습 코드 만들기, 직접 적은 주제 판정, 내 코드 분석(난이도·※ 지점), 빨간펜 첨삭, 힌트 보고 다시 쓴 설명 채점, 첨삭 뒤 AI 튜터 대화. 누락(※ 지점에 메모 없음) 판정, 개수 세기, 민감 정보 가리기, 함수 찾기, 통계는 **일반 코드로** 한다.
 3. **AI 가 없어도 동작한다.** 모든 AI 작업에 목업(mock)과 대체 경로가 있다: 예시 코드(`samples.py`), 규칙 판정(`topics.rule_check`), 규칙 분석(`inspect_code.rule_analysis`), 규칙 첨삭(`review.rule_review`), 규칙 튜터 답(`tutor_chat.rule_answer`). 새 AI 작업을 더하면 둘 다 만든다.
-4. **모범 설명은 첨삭 전에 화면으로 보내지 않는다.** 읽는 동안 화면에 가는 것은 `common.public_reading`(※ 지점은 줄 범위만)뿐이다. 모범 설명·핵심 표현은 `POST /review` 결과에만 들어 있다.
+4. **모범 설명은 첨삭 전에 화면으로 보내지 않는다.** 읽는 동안 화면에 가는 것은 `common.public_code`(※ 지점은 줄 범위만)뿐이다. 모범 설명·핵심 표현은 `POST /review` 결과에만 들어 있다.
 5. **올린 코드는 민감 정보를 가린 뒤에만 서버로 간다.** 화면(`src/lib/secrets.ts`)에서 먼저 가리고 Lambda(`inspect_code.mask_secrets`)에서 한 번 더 가린다. 두 파일의 패턴을 같게 유지한다. 올린 코드는 하루 뒤 TTL 로 지워진다.
 6. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다. Lambda 를 바꿨다면 `npm run smoke` 도.
 7. **화면 문구는 한국어 존댓말("~해요")**, 초보자·비개발자 눈높이. 틀렸을 때도 실패감을 주지 않는다.
@@ -51,8 +51,8 @@
 | --- | --- | --- | --- |
 | 01 첫 화면 | `/` | 소개, 연습 모드 / 내 코드 점검 고르기, 공부하는 순서 | 없음 |
 | 02 연습 모드 | `/practice/` | **1장 · 주제 고르기**: 언어(Python·JavaScript, 탭에서 기억) + 난이도(입문·초급·중급·고급) + 주제(랜덤으로 뽑기 / 직접 적기 50자) | `GET /topic/random`, `POST /topic/check`, `POST /practice` |
-| 03 메모하며 읽기 | `/read/?id=` | **2장**: 줄 번호·문법 색칠 코드, ※ 꼭 설명할 곳(진행 n / m), 줄을 누르면 한 줄·누른 채 끌면 범위에 형광펜(범위끼리 겹쳐도 됨, 겹친 곳은 더 진하게) → 포스트잇 메모 ①② 가 **고른 줄 바로 옆**에 붙고, 윗부분을 잡아 **자기 범위 안에서 위아래로 끌어 옮김**(키보드 ↑↓, 겹치면 아래로 밀림, 위치는 `anchor` 로 브라우저에만 저장). 쓰는 중에 −/+ 로 범위 조정. 휴대폰 너비에서는 코드 아래에 차례로, 더 쉽게(이유 고르기)·더 어렵게(메모가 사라진다는 경고), ※ 가 비어도 첨삭 받기 가능 | `GET /reading`, `POST /practice/adjust`, `POST /review` |
-| 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 왼쪽에 전체 코드(따라 내려옴, 첨삭에 마우스를 올리면 그 범위 표시), 오른쪽에 메모별 첨삭 + 정확(○)이 아닌 항목마다 **힌트를 보고 다시 써 보기**(그 항목만 다시 채점, 3번까지, 처음 → 다시 쓴 판정 변화 표시) + 메모마다 **AI 튜터와 더 깊게 알아보기**(질문 10번까지, 튜터가 알려 준 줄을 누르면 왼쪽 코드에 표시)(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /reading` |
+| 03 메모하며 읽기 | `/read/?id=` | **2장**: 줄 번호·문법 색칠 코드, ※ 꼭 설명할 곳(진행 n / m), 줄을 누르면 한 줄·누른 채 끌면 범위에 형광펜(범위끼리 겹쳐도 됨, 겹친 곳은 더 진하게) → 포스트잇 메모 ①② 가 **고른 줄 바로 옆**에 붙고, 윗부분을 잡아 **자기 범위 안에서 위아래로 끌어 옮김**(키보드 ↑↓, 겹치면 아래로 밀림, 위치는 `anchor` 로 브라우저에만 저장). 쓰는 중에 −/+ 로 범위 조정. 휴대폰 너비에서는 코드 아래에 차례로, 더 쉽게(이유 고르기)·더 어렵게(메모가 사라진다는 경고), ※ 가 비어도 첨삭 받기 가능 | `GET /code`, `POST /practice/adjust`, `POST /review` |
+| 04 빨간펜 첨삭 | `/result/?id=` | **3장**: 손글씨 총평, ○△✕⬚ 개수, 왼쪽에 전체 코드(따라 내려옴, 첨삭에 마우스를 올리면 그 범위 표시), 오른쪽에 메모별 첨삭 + 정확(○)이 아닌 항목마다 **힌트를 보고 다시 써 보기**(그 항목만 다시 채점, 3번까지, 처음 → 다시 쓴 판정 변화 표시) + 메모마다 **AI 튜터와 더 깊게 알아보기**(질문 10번까지, 튜터가 알려 준 줄을 누르면 왼쪽 코드에 표시)(코드 범위 + 내 메모 + 빨간펜 표시 + 다시 볼 곳 + 모범 설명 보기), 같은 코드 다시 읽기 / 새 문제 받기 | `GET /code` |
 | 05 내 코드 점검 | `/check/` | 파일 올리기(1개) / 붙여넣기 → 민감 정보 가리기(분홍 포스트잇) → 점검할 함수 고르기 → 훑어본 난이도 도장 → 메모하러 가기 (이후 03·04 와 같음, 더 쉽게/어렵게 없음) | `POST /inspect`, `POST /inspect/start` |
 | 내 공부 | `/study/` | **난이도 추천**(같은 난이도 최근 첨삭 5개의 ○ 비율: 80%↑ 올리기, 40%↓ 내리기, 3개 이상부터) · **개념별 약점 지도**(개념 8가지마다 처음 설명의 ○ 비율·다시 써서 ○ 된 수, 가장 약한 개념에 '이 개념 집중 연습') · **내 설명 노트**(○ 받은 내 설명을 개념별로, 코드 몇 줄과 함께) · 최근 공부 10개. AI 없음 | `GET /study` |
 | 관리자 | `/admin/` | AI 스위치(켜기/끄기), 이번 달 비용·예산, 작업별 AI 사용량(설명·성공·실패·비용·마지막 실패 이유, 예전 서비스 기록은 따로), 최근 AI 호출 기록(50건), 최근 2주 사용 수, 관리자 코드 바꾸기 | `/admin/...` |
@@ -132,9 +132,9 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 - Lambda 가 발급한 학습자 id 를 브라우저 `sessionStorage` 에 둔다 (`x-session-id` 헤더). **탭·브라우저를 닫으면 사라지고** 다시 열면 새로 시작한다. 서버의 기록도 다시 찾을 수 없으니 짧게 지운다 (학습자: 마지막 사용 12시간 뒤, 읽은 코드·첨삭·'내 공부': 1일).
 - **로그인(Google·GitHub, `auth.py`)**: 라이브러리 없이 OAuth 인가 코드 흐름. `GET /auth/start` → 제공자 → `GET /auth/callback/<provider>` 가 계정(`ACCOUNT#<제공자>:<번호>`)의 학습자(`member: true`)를 찾거나 만들고, 로그인 토큰(`LOGIN#<uuid>`, 30일·쓰면 늘어남)을 `#login=<토큰>` 으로 화면에 돌려준다. 화면은 토큰을 `localStorage` 에 두고 `x-session-id` 로 보낸다 (회원 학습자 id 를 직접 보내면 받지 않음). 받는 정보는 계정 번호와 이름뿐. 돌아갈 주소는 `ALLOWED_ORIGINS` 만, state 는 10분·한 번만.
-  - 로그인하면 그 탭의 익명 기록('내 공부', 연습 코드)을 계정으로 옮기고 익명 id 를 `formerIds` 에 남겨 예전 코드도 열 수 있다.
+  - 로그인하면 그 탭의 익명 기록('내 공부', 연습 코드)을 계정으로 옮기고 익명 id 를 `formerUserIds` 에 남겨 예전 코드도 열 수 있다.
   - `common.keep_seconds` 가 보관 기간을 정한다 (회원: 학습자·'내 공부' 1년, 연습 코드 30일, 올린 코드는 그대로 1일).
-- 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_reading` 의 owner 확인). 보관 기간은 `common.keep_seconds` 한 곳에서 정한다 (위).
+- 읽을 코드·첨삭은 **만든 학습자만** 열 수 있다 (`common.load_code` 의 userId 확인). 보관 기간은 `common.keep_seconds` 한 곳에서 정한다 (위).
 - 붙인 메모는 첨삭을 받기 전까지 이 탭(`src/lib/memos.ts`, sessionStorage)에만 있다.
 
 ## 8. 화면 디자인 (공부 노트)
@@ -161,7 +161,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | --- | --- | --- |
 | `GET /health` | `lambda_function.py` | |
 | `GET /topic/random`, `POST /topic/check` | `topics.py` | 판정만 |
-| `POST /practice`, `POST /practice/adjust`, `GET /reading` | `practice.py` | 만들기 |
+| `POST /practice`, `POST /practice/adjust`, `GET /code` | `practice.py` | 만들기 |
 | `POST /inspect`, `POST /inspect/start` | `inspect_code.py` | 시작만 |
 | `POST /review`, `POST /review/retry` | `review.py` | ○ |
 | `POST /tutor` | `tutor_chat.py` | ○ |
@@ -174,15 +174,15 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
-| `USER#<학습자 id>` | `PROFILE` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
-| `USER#<학습자 id>` | `STUDYREC#<읽은 코드 id>` | readingId, source, language, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, readingTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
-| `CODE#<uuid>` | `INFO` | id(시간순 UUID — `common.new_id`), owner, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
+| `USER#<학습자 id>` | `PROFILE` | level, recentTopics(최근 10개), createdAt, lastSeen, member, name, provider, formerUserIds(로그인 전 익명 id) — 로그인 학습자만 | 로그인 안 함: 마지막 사용 12시간 뒤 · 로그인: 1년 |
+| `USER#<학습자 id>` | `STUDYREC#<읽은 코드 id>` | codeId, source, language, level, title, counts, items[{concept, first, best, marked, start, end, memo, bestText, snippet(연습 코드만)}], reviews, createdAt, reviewedAt, codeTtl — '내 공부' 기록 (첨삭마다 갱신, 다시 써서 나아지면 best) | 로그인 안 함: 1일 · 로그인: 1년 |
+| `CODE#<uuid>` | `INFO` | codeId(시간순 UUID — `common.new_id`), userId, source(practice·inspect), language(python·javascript), level, topic, title, code, marks[{id, start, end, why, explanation, keywords}], rootCodeId, regenCount, origin(ai·sample·upload), note, functions, levelReason, createdAt | 로그인 안 함: 1일 · 로그인: 30일 · 올린 코드는 늘 1일 |
 | `CODE#<uuid>` | `REVIEW#<시각>` | memos[{start, end, text}], result(첨삭 결과) | 읽을 코드와 같이 |
 | `CODE#<uuid>` | `REVIEW#<첨삭 시각>#RETRY#<항목 번호>` | attempts[{text, mark, comment, lookAt, byAi, at}], updatedAt — 힌트 보고 다시 써 본 기록 | 읽을 코드와 같이 |
 | `CODE#<uuid>` | `REVIEW#<첨삭 시각>#CHAT#<항목 번호>` | turns[{role user·tutor, text, lookAt, at}], updatedAt — AI 튜터 대화 | 읽을 코드와 같이 |
 | `AUTH#<state>` | `STATE` | provider, returnTo, anonSid — 로그인 시작 기록 (한 번 쓰면 지움) | 10분 |
-| `ACCOUNT#<provider>:<계정 번호>` | `USER` | learnerId, createdAt — 계정 → 학습자 | |
-| `LOGIN#<토큰 uuid>` | `USER` | learnerId, provider, createdAt — 로그인 토큰 (로그아웃하면 지움) | 30일 (쓰면 늘어남) |
+| `ACCOUNT#<provider>:<계정 번호>` | `USER` | userId, createdAt — 계정 → 학습자 | |
+| `LOGIN#<토큰 uuid>` | `USER` | userId, provider, createdAt — 로그인 토큰 (로그아웃하면 지움) | 30일 (쓰면 늘어남) |
 | `OPS#STATS` | `DAY#yyyy-mm-dd` | practices, adjusts, topicChecks, inspections, reviews, retries, tutorChats (하루 사용 수) | 90일 |
 | `OPS#USAGE` | `<연-월>#<작업>#<모델>` | calls, input, output, cacheRead, failures (AI 토큰), lastAt, lastError, lastErrorAt | |
 | `OPS#AILOG` | `<시각>` | task, model, ok, stage(ai·check), input, output, ms, error — 관리자 화면 '최근 AI 호출 기록' | 14일 |

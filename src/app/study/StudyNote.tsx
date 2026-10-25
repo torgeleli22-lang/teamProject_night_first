@@ -219,7 +219,7 @@ function NotesSection({ notes }: { notes: ExplanationNote[] }) {
           </div>
           <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {shown.map((n, i) => (
-              <Sticky key={`${n.readingId}-${n.start}-${i}`} tilt={i % 3 === 0 ? -0.5 : i % 3 === 1 ? 0.4 : 0} className="flex flex-col p-4">
+              <Sticky key={`${n.codeId}-${n.start}-${i}`} tilt={i % 3 === 0 ? -0.5 : i % 3 === 1 ? 0.4 : 0} className="flex flex-col p-4">
                 <div className="flex items-start justify-between gap-2">
                   <span className="border border-ink-500 bg-paper px-1.5 py-0.5 text-[11px] text-ink-700">{n.conceptName}</span>
                   <span className="flex items-center gap-1 text-[11px] text-pen-red">
@@ -231,7 +231,7 @@ function NotesSection({ notes }: { notes: ExplanationNote[] }) {
                 <p className="mt-auto pt-3 text-[11px] text-ink-500">
                   {n.title} · {LANGUAGE_NAMES[n.language ?? "python"]} · {LEVEL_NAMES[n.level]} · {n.start === n.end ? `${n.start}번 줄` : `${n.start}~${n.end}번 줄`} · {day(n.at)}
                   {n.open && (
-                    <Link href={`/result/?id=${n.readingId}`} className="ml-2 text-pen-blue underline">
+                    <Link href={`/result/?id=${n.codeId}`} className="ml-2 text-pen-blue underline">
                       첨삭 다시 보기
                     </Link>
                   )}
@@ -273,7 +273,7 @@ function RecentSection({ recent }: { recent: StudyOverview["recent"] }) {
       <h2 className="text-lg">최근 공부</h2>
       <ul className="mt-3 divide-y divide-dashed divide-ink-300">
         {recent.map((r) => (
-          <li key={r.readingId} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
+          <li key={r.codeId} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-sm">
             <span className="w-20 text-xs text-ink-500">{day(r.reviewedAt)}</span>
             <span className={`border px-1.5 py-0.5 text-[11px] ${r.source === "practice" ? "border-ink-500 bg-sticky-yellow" : "border-ink-500 bg-sticky-mint"}`}>
               {r.source === "practice" ? `연습 · ${LEVEL_NAMES[r.level]} · ${LANGUAGE_NAMES[r.language ?? "python"]}` : "내 코드"}
@@ -287,7 +287,7 @@ function RecentSection({ recent }: { recent: StudyOverview["recent"] }) {
               ))}
             </span>
             {r.open ? (
-              <Link href={`/result/?id=${r.readingId}`} className="btn-small">
+              <Link href={`/result/?id=${r.codeId}`} className="btn-small">
                 첨삭 보기
               </Link>
             ) : (

@@ -7,7 +7,7 @@ import urllib.request
 import uuid
 
 from common import (ALLOWED_ORIGINS, INFO, LIMITS, LOGIN_DAYS, PROFILE, SESSION_HEADER, SESSION_ID, STATE, TTL_ATTR, USER, ApiError,
-                    account_pk, alive, auth_pk, code_pk, delete_item, get_item, get_learner, hit_limit, keep_seconds, login_pk, new_id,
+                    account_pk, alive, auth_pk, code_pk, delete_item, get_item, get_user, hit_limit, keep_seconds, login_pk, new_id,
                     now_ms, put_item, query_all, ttl_after, update_item, user_pk)
 
 # ─────────────────────────────────────────────────────────────
@@ -21,8 +21,8 @@ from common import (ALLOWED_ORIGINS, INFO, LIMITS, LOGIN_DAYS, PROFILE, SESSION_
 #          화면 주소#login=<로그인 토큰>  (실패하면 #login_error=<이유>)
 #   POST /auth/logout                로그인 토큰을 지운다
 #
-#   DynamoDB: AUTH#<state> / STATE (10분) · ACCOUNT#<provider>:<사용자 번호> / USER → learnerId
-#             LOGIN#<토큰> / USER → learnerId (30일, 쓰면 늘어남) · USER#<learnerId> / PROFILE 에 member: true, name, provider
+#   DynamoDB: AUTH#<state> / STATE (10분) · ACCOUNT#<provider>:<사용자 번호> / USER → userId
+#             LOGIN#<토큰> / USER → userId (30일, 쓰면 늘어남) · USER#<userId> / PROFILE 에 member: true, name, provider
 #   사용자 구분은 이름이 아니라 바뀌지 않는 고유 번호로 한다: Google 의 sub, GitHub 의 id (이름은 화면에 보여 줄 때만, 동명이인도 다른 계정)
 #   로그인하면 그 탭에서 하던 기록(내 공부·연습 코드)을 계정으로 옮기고, 보관 기간이 길어진다 (common.keep_seconds)
 #
@@ -48,8 +48,8 @@ LOCAL_DEV = os.environ.get("LOCAL_DEV") == "1"
 
 
 def me(req):
-    learner = get_learner(req)
-    return {"member": learner["member"], "name": learner.get("name"), "provider": learner.get("provider"),
+    user = get_user(req)
+    return {"member": user["member"], "name": user.get("name"), "provider": user.get("provider"),
             "providers": {p: configured(p) or LOCAL_DEV for p in PROVIDERS}}
 
 
@@ -93,11 +93,11 @@ def callback(req, provider):
         # 2. 코드 → 액세스 토큰 → 사용자 id·이름 (Google·GitHub)
         profile = fetch_profile(req, provider, req["query"].get("code", ""))
         # 3. 계정의 학습자 찾기·만들기 → 이 탭의 기록 옮기기 → 로그인 토큰
-        learner_id = account_learner(provider, profile)
+        user_id = account_user(provider, profile)
         if saved.get("anonSid"):
-            adopt_anonymous(saved["anonSid"], learner_id)
+            adopt_anonymous(saved["anonSid"], user_id)
         token = str(uuid.uuid4())   # 로그인 토큰은 비밀번호 같은 값이라 시각 없이 전부 무작위 (uuid4)
-        put_item({"pk": login_pk(token), "sk": USER, "learnerId": learner_id, "provider": provider, "createdAt": now_ms(),
+        put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": provider, "createdAt": now_ms(),
                   TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
         return {"_redirect": f"{back}#{urllib.parse.urlencode({'login': token})}"}
     except ApiError as e:
@@ -187,41 +187,41 @@ def fetch_profile(req, provider, code):
     return {"id": str(uid), "name": str(name)[:40]}
 
 
-def account_learner(provider, profile):
+def account_user(provider, profile):
     """ACCOUNT#<provider>:<id> / USER → 계정의 학습자 id. 처음이면 로그인 학습자(member)를 만든다"""
     key = account_pk(f"{provider}:{profile['id']}")
     account = get_item(key, USER)
     member = {"member": True}
-    if account and get_item(user_pk(account["learnerId"]), PROFILE):
-        update_item(user_pk(account["learnerId"]), PROFILE, set_values={"name": profile["name"], "lastSeen": now_ms(),
-                                                                 TTL_ATTR: ttl_after(keep_seconds(member, "learner"))})
-        return account["learnerId"]
-    learner_id = new_id()
-    put_item({"pk": user_pk(learner_id), "sk": PROFILE, "member": True, "name": profile["name"], "provider": provider, "level": None,
-              "recentTopics": [], "createdAt": now_ms(), "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "learner"))})
-    put_item({"pk": key, "sk": USER, "learnerId": learner_id, "createdAt": now_ms()})
-    return learner_id
+    if account and get_item(user_pk(account["userId"]), PROFILE):
+        update_item(user_pk(account["userId"]), PROFILE, set_values={"name": profile["name"], "lastSeen": now_ms(),
+                                                                 TTL_ATTR: ttl_after(keep_seconds(member, "user"))})
+        return account["userId"]
+    user_id = new_id()
+    put_item({"pk": user_pk(user_id), "sk": PROFILE, "member": True, "name": profile["name"], "provider": provider, "level": None,
+              "recentTopics": [], "createdAt": now_ms(), "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "user"))})
+    put_item({"pk": key, "sk": USER, "userId": user_id, "createdAt": now_ms()})
+    return user_id
 
 
-def adopt_anonymous(anon_id, learner_id):
+def adopt_anonymous(anon_id, user_id):
     """로그인하기 전 이 탭에서 한 공부(내 공부 기록·연습 코드·첨삭)를 계정으로 옮기고 보관 기간을 늘린다. 올린 코드는 짧게 그대로"""
     anon = get_item(user_pk(anon_id), PROFILE)
-    if not anon or anon.get("member") or anon_id == learner_id:
+    if not anon or anon.get("member") or anon_id == user_id:
         return
     member = {"member": True}
     for row in query_all(user_pk(anon_id), prefix="STUDYREC#"):   # 비회원 서랍의 공부 기록 → 회원 서랍으로
         practice = row.get("source") == "practice"
-        reading_ttl = ttl_after(keep_seconds(member, "reading")) if practice else row.get("readingTtl", 0)
-        for part in query_all(code_pk(row["readingId"])):   # 그 코드의 서랍: 코드·첨삭·다시 쓰기·튜터 대화
-            values = {TTL_ATTR: reading_ttl} if practice else {}
+        code_ttl = ttl_after(keep_seconds(member, "code")) if practice else row.get("codeTtl", 0)
+        for part in query_all(code_pk(row["codeId"])):   # 그 코드의 서랍: 코드·첨삭·다시 쓰기·튜터 대화
+            values = {TTL_ATTR: code_ttl} if practice else {}
             if part["sk"] == INFO:
-                values["owner"] = learner_id
+                values["userId"] = user_id
             if values:
                 update_item(part["pk"], part["sk"], set_values=values)
-        put_item({**row, "pk": user_pk(learner_id), "readingTtl": reading_ttl, TTL_ATTR: ttl_after(keep_seconds(member, "study"))})
+        put_item({**row, "pk": user_pk(user_id), "codeTtl": code_ttl, TTL_ATTR: ttl_after(keep_seconds(member, "study"))})
         delete_item(row["pk"], row["sk"])
     # 로그인 전에 받은 코드(아직 첨삭 전인 것 포함)도 계속 열 수 있게 예전 탭의 id 를 기억한다 (최근 20개)
-    member_item = get_item(user_pk(learner_id), PROFILE) or {}
-    former = [i for i in member_item.get("formerIds", []) if i != anon_id][-19:] + [anon_id]
-    update_item(user_pk(learner_id), PROFILE, set_values={"formerIds": former})
+    member_item = get_item(user_pk(user_id), PROFILE) or {}
+    former = [i for i in member_item.get("formerUserIds", []) if i != anon_id][-19:] + [anon_id]
+    update_item(user_pk(user_id), PROFILE, set_values={"formerUserIds": former})
     delete_item(user_pk(anon_id), PROFILE)

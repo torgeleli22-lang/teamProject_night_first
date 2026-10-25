@@ -14,12 +14,12 @@ const STARTERS = ["왜 이렇게 판정했나요?", "이 부분 흐름을 한 �
  * 튜터가 '다시 볼 줄'을 알려 주면 눌러서 왼쪽 전체 코드에서 그 줄을 볼 수 있다 (onLook).
  */
 export function TutorChat({
-  readingId,
+  codeId,
   item,
   initial,
   onLook,
 }: {
-  readingId: string;
+  codeId: string;
   item: number;
   initial?: Chat;
   onLook: (line: number) => void;
@@ -41,7 +41,7 @@ export function TutorChat({
     setBusy(true);
     setError(null);
     try {
-      const r = await apiPost<TutorReply>("/tutor", { readingId, item, message: m });
+      const r = await apiPost<TutorReply>("/tutor", { codeId, item, message: m });
       setChat({ turns: r.turns, turnsLeft: r.turnsLeft });
       setByAi(r.byAi);
       setText("");

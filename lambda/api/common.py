@@ -6,7 +6,7 @@
   1. 설정 (환경 변수·숫자)               5. 요청 수 제한
   2. AWS 연결 (DynamoDB·Bedrock)          6. 학습자(세션)
   3. 요청 읽기·응답 만들기 (CORS 포함)     7. AI 호출 (Bedrock, 월 예산·사용량 기록·목업·AI 끄기)
-  4. DynamoDB 읽기·쓰기 도구              8. 설정 값 (META)
+  4. DynamoDB 읽기·쓰기 도구              8. 설정 값 (OPS#CONFIG)
   9. 읽을 코드 (CODE#) · 최근 첨삭 · 하루 사용 수   10. id 만들기 (시간순 UUID)
 
 콘솔에서 이 파일을 고쳤다면 GitHub(lambda/api/common.py)에도 같이 반영해 주세요.
@@ -43,7 +43,7 @@ ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGIN
 #   로그인 안 함: 학습자 id 는 브라우저 탭(sessionStorage)에만 → 탭·브라우저를 닫으면 다시 찾을 수 없으니 서버 기록도 짧게
 #   로그인 (Google·GitHub, auth.py): 계정에 묶여 오래 남는다
 ANON_HOURS = 12               # 로그인 안 한 학습자: 마지막 사용 후 이 시간이 지나면 학습자·기록이 사라진다
-ANON_READING_HOURS = 24       # 로그인 안 한 학습자의 연습 코드·첨삭·'내 공부' 기록
+ANON_CODE_HOURS = 24       # 로그인 안 한 학습자의 연습 코드·첨삭·'내 공부' 기록
 MEMBER_DAYS = 365             # 로그인 학습자: 학습자·'내 공부' 기록
 LOGIN_DAYS = 30               # 로그인 토큰: 마지막 사용 후 이 기간이 지나면 다시 로그인
 SESSION_REFRESH_SEC = 15 * 60  # 학습자의 '마지막 사용 시각'은 이 간격마다만 고쳐 쓴다 (요청마다 쓰지 않아 빠르고 쌈)
@@ -53,7 +53,7 @@ MAX_BODY_BYTES = 256 * 1024   # 요청 본문 최대 크기 (300줄 코드 + 메
 # 서비스 숫자 (바꾸면 바로 반영)
 MAX_CODE_LINES = 300          # 내 코드 점검: 올릴 수 있는 최대 줄 수
 REGEN_LIMIT = 5               # 같은 코드에서 '더 쉽게·더 어렵게'로 다시 만들 수 있는 횟수
-READING_KEEP_DAYS = 30        # 로그인 학습자: 연습 코드 원본·첨삭·튜터 대화
+CODE_KEEP_DAYS = 30        # 로그인 학습자: 연습 코드 원본·첨삭·튜터 대화
 UPLOAD_KEEP_DAYS = 1          # 사용자가 올린 코드 보관 기간 (로그인해도 짧게 — 개인정보)
 MAX_MEMOS = 20                # 한 번에 붙일 수 있는 메모 수
 MAX_MEMO_CHARS = 500          # 메모 하나의 최대 글자 수
@@ -189,10 +189,10 @@ def cors_headers(origin):
 def reply(status, data, req=None):
     """프론트로 돌려줄 응답. 학습자를 새로 만들었거나 확인했으면 세션 id 를 헤더로 알려 준다"""
     headers = {**cors_headers((req or {}).get("origin")), "content-type": "application/json; charset=utf-8", "cache-control": "no-store"}
-    learner = (req or {}).get("learner")
-    if learner:
+    user = (req or {}).get("user")
+    if user:
         # 로그인 안 함: 학습자 id / 로그인: 로그인 토큰 (계정의 학습자 id 는 화면으로 보내지 않는다)
-        headers[SESSION_HEADER] = learner.get("sid") or learner["id"]
+        headers[SESSION_HEADER] = user.get("sid") or user["userId"]
     return {"statusCode": status, "headers": headers, "body": "" if data is None else json.dumps(to_plain(data), ensure_ascii=False)}
 
 
@@ -245,7 +245,7 @@ def field(body, name, kind, default=None, required=False, max_len=None, choices=
 #      pk                         sk                                   무엇
 #      USER#<사용자 id>           PROFILE                              학습자 (난이도·최근 주제·회원 정보)
 #      USER#<사용자 id>           STUDYREC#<코드 id>                   내 공부 기록 (코드 하나당 한 줄)
-#      CODE#<코드 id>             INFO                                 읽을 코드 (코드·※ 지점·모범 설명·owner)
+#      CODE#<코드 id>             INFO                                 읽을 코드 (코드·※ 지점·모범 설명·userId)
 #      CODE#<코드 id>             REVIEW#<시각>                        첨삭 결과
 #      CODE#<코드 id>             REVIEW#<시각>#RETRY#<항목 번호>      힌트 보고 다시 써 보기
 #      CODE#<코드 id>             REVIEW#<시각>#CHAT#<항목 번호>       AI 튜터 대화
@@ -433,8 +433,8 @@ def hit_limit(key, limit, window_sec):
 
 def ai_allowed(req):
     """AI 를 부르는 요청: 학습자·IP·전체 1시간 한도 (넘으면 False)"""
-    learner = req.get("learner")
-    if learner and not hit_limit(f"ai-s:{learner['id']}", LIMITS["ai_per_session_hour"], 3600):
+    user = req.get("user")
+    if user and not hit_limit(f"ai-s:{user['userId']}", LIMITS["ai_per_session_hour"], 3600):
         return False
     return hit_limit(f"ai-ip:{req['ip']}", LIMITS["ai_per_ip_hour"], 3600) and hit_limit("ai-all", LIMITS["ai_total_hour"], 3600)
 
@@ -450,64 +450,64 @@ SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 RECENT_TOPICS = 10   # 랜덤 주제에서 빼는 최근 주제 수
 
 
-def learner_from_item(item):
-    return {"id": item["pk"][len("USER#"):], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0),
+def user_from_item(item):
+    return {"userId": item["pk"][len("USER#"):], "level": item.get("level"), "recentTopics": item.get("recentTopics", []), "createdAt": item.get("createdAt", 0),
             "member": bool(item.get("member")), "name": item.get("name"), "provider": item.get("provider"),   # member: 로그인 학습자
-            "formerIds": item.get("formerIds", [])}   # 로그인 전 탭의 학습자 id (그때 받은 코드도 계속 열 수 있게)
+            "formerUserIds": item.get("formerUserIds", [])}   # 로그인 전 탭의 학습자 id (그때 받은 코드도 계속 열 수 있게)
 
 
-def keep_seconds(learner, what):
-    """보관 기간(초). what: learner(학습자) · reading(연습 코드·첨삭) · study('내 공부' 기록) · upload(올린 코드)"""
+def keep_seconds(user, what):
+    """보관 기간(초). what: user(학습자) · code(연습 코드·첨삭) · study('내 공부' 기록) · upload(올린 코드)"""
     if what == "upload":
         return UPLOAD_KEEP_DAYS * 86400
-    if (learner or {}).get("member"):
-        return {"learner": MEMBER_DAYS, "reading": READING_KEEP_DAYS, "study": MEMBER_DAYS}[what] * 86400
-    return (ANON_HOURS if what == "learner" else ANON_READING_HOURS) * 3600
+    if (user or {}).get("member"):
+        return {"user": MEMBER_DAYS, "code": CODE_KEEP_DAYS, "study": MEMBER_DAYS}[what] * 86400
+    return (ANON_HOURS if what == "user" else ANON_CODE_HOURS) * 3600
 
 
-def get_learner(req):
+def get_user(req):
     """요청한 학습자. 아는 세션이면 마지막 사용 시각을 늘리고, 없거나 만료됐으면 새로 만든다 (IP 당 1시간 한도)"""
-    if req.get("learner"):
-        return req["learner"]
+    if req.get("user"):
+        return req["user"]
     sid = req["headers"].get(SESSION_HEADER) or ""
     if SESSION_ID.match(sid):
         # 1. 로그인 안 한 학습자: 학습자 id 그대로 (계정의 학습자 id 를 직접 보내면 받지 않는다 — 로그인 토큰으로만)
         found = get_item(user_pk(sid), PROFILE)
         if found and alive(found) and not found.get("member"):
-            return use_learner(req, found, sid)
+            return use_user(req, found, sid)
         # 2. 로그인 학습자: 로그인 토큰 (LOGIN#<토큰> / USER → 계정의 학습자, auth.py 가 만든다)
         login = get_item(login_pk(sid), USER)
         if login and alive(login):
-            member = get_item(user_pk(login["learnerId"]), PROFILE)
+            member = get_item(user_pk(login["userId"]), PROFILE)
             if member and alive(member):
-                return use_learner(req, member, sid, login)
+                return use_user(req, member, sid, login)
     if not hit_limit(f"new:{req['ip']}", LIMITS["new_sessions_per_ip_hour"], 3600):
         raise ApiError(429, "새로 시작하는 요청이 너무 많아요. 잠시 뒤(최대 1시간)에 다시 시도해 주세요.")
     # 3. 처음이거나 기한이 지났으면 새 학습자 (로그인 안 함)
     now = now_ms()
     item = {"pk": user_pk(new_id()), "sk": PROFILE, "level": None, "recentTopics": [],
-            "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(keep_seconds(None, "learner"))}
+            "createdAt": now, "lastSeen": now, TTL_ATTR: ttl_after(keep_seconds(None, "user"))}
     put_item(item)
-    req["learner"] = learner_from_item(item)
-    return req["learner"]
+    req["user"] = user_from_item(item)
+    return req["user"]
 
 
-def use_learner(req, item, sid, login=None):
+def use_user(req, item, sid, login=None):
     """찾은 학습자를 이 요청에 쓴다. 마지막 사용 시각(=자동 삭제 기한)은 15분마다만 늘린다 (요청마다 쓰지 않아 빠르고 쌈)"""
-    learner = {**learner_from_item(item), "sid": sid}
+    user = {**user_from_item(item), "sid": sid}
     if now_ms() - item.get("lastSeen", 0) > SESSION_REFRESH_SEC * 1000:
-        update_item(item["pk"], PROFILE, set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(learner, "learner"))})
+        update_item(item["pk"], PROFILE, set_values={"lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(user, "user"))})
         if login:   # 로그인 토큰도 쓰는 동안은 기한을 늘린다
             update_item(login_pk(sid), USER, set_values={TTL_ATTR: ttl_after(LOGIN_DAYS * 86400)})
-    req["learner"] = learner
-    return learner
+    req["user"] = user
+    return user
 
 
-def remember_topic(learner, topic, level):
+def remember_topic(user, topic, level):
     """최근 주제(랜덤에서 빼기)와 고른 난이도를 기억한다"""
-    recent = [t for t in learner["recentTopics"] if t != topic][-(RECENT_TOPICS - 1):] + [topic]
-    update_item(user_pk(learner["id"]), PROFILE, set_values={"recentTopics": recent, "level": level})
-    learner["recentTopics"], learner["level"] = recent, level
+    recent = [t for t in user["recentTopics"] if t != topic][-(RECENT_TOPICS - 1):] + [topic]
+    update_item(user_pk(user["userId"]), PROFILE, set_values={"recentTopics": recent, "level": level})
+    user["recentTopics"], user["level"] = recent, level
 
 
 # ─────────────────────────────────────────────────────────────
@@ -527,7 +527,7 @@ _switch = {"value": None, "checked": 0}
 
 
 def ai_switch_on():
-    """관리자 화면의 'AI 끄기' 스위치 (META / ai_switch). 30초마다만 다시 읽는다"""
+    """관리자 화면의 'AI 끄기' 스위치 (OPS#CONFIG / ai_switch). 30초마다만 다시 읽는다"""
     if time.time() - _switch["checked"] > 30:
         _switch["value"] = get_meta("ai_switch") != "off"
         _switch["checked"] = time.time()
@@ -777,7 +777,7 @@ def set_meta(key, value):
 # ─────────────────────────────────────────────────────────────
 # 9. 읽을 코드 (CODE#<id> / INFO) — 연습 모드·내 코드 점검이 함께 쓴다
 #    코드, 언어, 난이도, 주제, ※ 꼭 설명할 곳(marks: 줄 범위 + 모범 설명 + 핵심 표현)
-#    화면에는 public_reading() 만 보낸다 (모범 설명·핵심 표현은 첨삭 뒤에만)
+#    화면에는 public_code() 만 보낸다 (모범 설명·핵심 표현은 첨삭 뒤에만)
 # ─────────────────────────────────────────────────────────────
 
 
@@ -864,36 +864,36 @@ def guess_concept(code, start, end):
     return "data_update"
 
 
-def save_reading(learner, **fields):
-    """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootId, regenCount, origin, keep(upload 면 짧게)"""
-    reading_id = new_id()   # 시간순 UUID: id 앞부분만 봐도 언제 만든 코드인지 알 수 있다
-    keep = min(keep_seconds(learner, fields.pop("keep", "reading")), keep_seconds(learner, "reading"))
-    item = {"pk": code_pk(reading_id), "sk": INFO, "id": reading_id, "owner": learner["id"], "language": fields.pop("language", None) or "python",
-            "createdAt": now_ms(), "rootId": fields.pop("rootId", None) or reading_id, "regenCount": fields.pop("regenCount", 0),
+def save_code(user, **fields):
+    """읽을 코드 하나를 저장하고 돌려준다. fields: source, level, topic, title, code, marks, rootCodeId, regenCount, origin, keep(upload 면 짧게)"""
+    code_id = new_id()   # 시간순 UUID: id 앞부분만 봐도 언제 만든 코드인지 알 수 있다
+    keep = min(keep_seconds(user, fields.pop("keep", "code")), keep_seconds(user, "code"))
+    item = {"pk": code_pk(code_id), "sk": INFO, "codeId": code_id, "userId": user["userId"], "language": fields.pop("language", None) or "python",
+            "createdAt": now_ms(), "rootCodeId": fields.pop("rootCodeId", None) or code_id, "regenCount": fields.pop("regenCount", 0),
             TTL_ATTR: ttl_after(keep), **fields}
     put_item(item)
     return item
 
 
-def load_reading(reading_id, learner):
+def load_code(code_id, user):
     """내 코드만 꺼낼 수 있다 (다른 사람의 id 를 알아도 못 봄)"""
-    if not isinstance(reading_id, str) or not re.fullmatch(r"[0-9a-f-]{36}", reading_id):
+    if not isinstance(code_id, str) or not re.fullmatch(r"[0-9a-f-]{36}", code_id):
         raise ApiError(400, "요청 값을 확인해 주세요.")
-    item = get_item(code_pk(reading_id), INFO)
-    if not item or not alive(item) or item.get("owner") not in [learner["id"], *learner.get("formerIds", [])]:
+    item = get_item(code_pk(code_id), INFO)
+    if not item or not alive(item) or item.get("userId") not in [user["userId"], *user.get("formerUserIds", [])]:
         raise ApiError(404, "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요.")
     return item
 
 
-def review_rows(reading_id):
+def review_rows(code_id):
     """코드 하나의 첨삭과 거기 딸린 다시 쓰기·튜터 대화를 한 번에 (CODE#<id> 에서 sk 가 REVIEW# 로 시작하는 것, 시간순)"""
-    return query_all(code_pk(reading_id), prefix="REVIEW#")
+    return query_all(code_pk(code_id), prefix="REVIEW#")
 
 
-def latest_review(reading_id, rows=None):
+def latest_review(code_id, rows=None):
     """가장 최근 첨삭 (CODE#<id> / REVIEW#<시각>). 튜터 대화·다시 써 보기가 이 첨삭의 항목 번호에 붙는다
     rows 에는 다시 쓰기·대화(REVIEW#<시각>#RETRY#…)도 섞여 있어서 sk 에 # 가 하나뿐인 첨삭만 고른다"""
-    reviews = [r for r in (review_rows(reading_id) if rows is None else rows) if r["sk"].count("#") == 1]
+    reviews = [r for r in (review_rows(code_id) if rows is None else rows) if r["sk"].count("#") == 1]
     return reviews[-1] if reviews else None
 
 
@@ -908,11 +908,11 @@ def review_children(review, kind, rows):
     return {int(r["sk"][len(prefix):]): r for r in rows if r["sk"].startswith(prefix)}
 
 
-def public_reading(item):
+def public_code(item):
     """화면으로 보낼 모양 (※ 지점은 줄 범위만)"""
     level = item.get("level") or 1
     return {
-        "id": item["id"], "source": item["source"], "language": item.get("language") or "python", "level": level, "levelName": LEVELS[level]["name"],
+        "codeId": item["codeId"], "source": item["source"], "language": item.get("language") or "python", "level": level, "levelName": LEVELS[level]["name"],
         "topic": item.get("topic", ""), "title": item.get("title", ""), "code": item["code"],
         "marks": [{"id": m["id"], "start": m["start"], "end": m["end"]} for m in item.get("marks", [])],
         "regenLeft": max(0, REGEN_LIMIT - item.get("regenCount", 0)), "note": item.get("note"),

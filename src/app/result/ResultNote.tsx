@@ -10,7 +10,7 @@ import { RetryBox } from "@/components/RetryBox";
 import { TutorChat } from "@/components/TutorChat";
 import { Crumb, ErrorNote, LangTag, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
-import { CONCEPT_NAMES, type Language, MARK_NAMES, type MarkKind, type Reading, type ReadingWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
+import { CONCEPT_NAMES, type Language, MARK_NAMES, type MarkKind, type CodeItem, type CodeItemWithReview, type ReviewItem, type RetryState, type ReviewResult, type TutorChat as TutorChatData } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
 
 const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
@@ -18,7 +18,7 @@ const ORDER: MarkKind[] = ["correct", "partial", "wrong", "missing"];
 /** 04 · 빨간펜 첨삭 결과: 총평 · ○△✕⬚ 개수 · 메모별 첨삭 · 모범 설명 보기 */
 export function ResultNote() {
   const id = useSearchParams().get("id") ?? "";
-  const { data, error, reload } = useApi<ReadingWithReview>(id ? `/reading?id=${encodeURIComponent(id)}` : null);
+  const { data, error, reload } = useApi<CodeItemWithReview>(id ? `/code?codeId=${encodeURIComponent(id)}` : null);
 
   if (error) return <Page><ErrorNote message={error} onRetry={reload} /><BackLinks /></Page>;
   if (!id || (data && !data.review)) {
@@ -36,16 +36,16 @@ export function ResultNote() {
     );
   }
   if (!data) return <Page><Waiting text="첨삭지를 펼치는 중이에요…" /></Page>;
-  return <ResultBody reading={data.reading} review={data.review!} chats={data.chats ?? {}} retries={data.retries ?? {}} />;
+  return <ResultBody codeItem={data.codeItem} review={data.review!} chats={data.chats ?? {}} retries={data.retries ?? {}} />;
 }
 
 function ResultBody({
-  reading,
+  codeItem,
   review,
   chats,
   retries,
 }: {
-  reading: Reading;
+  codeItem: CodeItem;
   review: ReviewResult;
   chats: Record<string, TutorChatData>;
   retries: Record<string, RetryState>;
@@ -61,9 +61,9 @@ function ResultBody({
         <div className="max-w-xl">
           <Crumb>3장 · 빨간펜 첨삭</Crumb>
           <h1 className="mt-2 flex flex-wrap items-center gap-3 text-2xl sm:text-3xl">
-            {reading.title || reading.topic}
-            <Stamp>{reading.levelName}</Stamp>
-            <LangTag language={reading.language} />
+            {codeItem.title || codeItem.topic}
+            <Stamp>{codeItem.levelName}</Stamp>
+            <LangTag language={codeItem.language} />
           </h1>
           <p className="hand mt-3 text-2xl text-pen-red">
             <MarkText text={review.summary} />
@@ -92,8 +92,8 @@ function ResultBody({
             <span className="marker">형광펜</span>은 내 메모, <b className="text-pen-red">※</b> 는 꼭 설명할 곳이에요. 오른쪽 첨삭에 마우스를 올리면 그 범위가 분홍색으로 보여요.
           </p>
           <CodeView
-            code={reading.code}
-            language={reading.language}
+            code={codeItem.code}
+            language={codeItem.language}
             stars={review.items.filter((it) => it.marked).map((it) => it.start)}
             highlights={memoItems}
             labels={memoItems.map((_, i) => circled(i + 1))}
@@ -110,15 +110,15 @@ function ResultBody({
               <ItemRow
                 key={i}
                 item={item}
-                code={reading.code}
-                language={reading.language}
+                code={codeItem.code}
+                language={codeItem.language}
                 label={item.kind === "memo" ? circled(memoItems.indexOf(item) + 1) : "※"}
                 onFocus={() => setActive(item)}
                 talking={!!chats[String(i)]?.turns.length}
                 retry={
                   item.mark !== "correct" ? (
                     <RetryBox
-                      readingId={reading.id}
+                      codeId={codeItem.codeId}
                       item={i}
                       firstMark={item.mark}
                       firstText={item.memo}
@@ -128,7 +128,7 @@ function ResultBody({
                   ) : null
                 }
               >
-                <TutorChat readingId={reading.id} item={i} initial={chats[String(i)]} onLook={(n) => setActive({ start: n, end: n })} />
+                <TutorChat codeId={codeItem.codeId} item={i} initial={chats[String(i)]} onLook={(n) => setActive({ start: n, end: n })} />
               </ItemRow>
             ))}
           </div>
@@ -139,11 +139,11 @@ function ResultBody({
         <Link href="/study" className="mr-auto text-sm text-pen-blue underline">
           내 공부에서 개념별로 보기
         </Link>
-        <Link href={`/read/?id=${reading.id}`} className="btn-line">
+        <Link href={`/read/?id=${codeItem.codeId}`} className="btn-line">
           같은 코드 다시 읽기
         </Link>
-        <Link href={reading.source === "inspect" ? "/check" : "/practice"} className="btn-ink">
-          {reading.source === "inspect" ? "다른 코드 점검" : "새 문제 받기"}
+        <Link href={codeItem.source === "inspect" ? "/check" : "/practice"} className="btn-ink">
+          {codeItem.source === "inspect" ? "다른 코드 점검" : "새 문제 받기"}
         </Link>
       </div>
     </Page>
