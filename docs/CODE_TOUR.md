@@ -139,14 +139,14 @@
 ```
 
 1. **화면이 보냄**: `src/lib/api.ts` 의 `apiPost("/review", {...})` → 헤더 `x-session-id` 에 학습자(또는 로그인 토큰)
-2. **입구** `lambda_function.py:52` `lambda_handler(event, context)` — 단계는 3개뿐
+2. **입구** `lambda_function.py:54` `lambda_handler(event, context)` — 단계는 3개뿐
    1. `read_request(event)` (`common.py:139`): 함수 URL 이 준 event 에서 경로·메서드·헤더·본문(JSON)·IP 꺼내기
    2. `/admin` 이면 `admin.require_admin` (`admin.py:32`) 으로 관리자 코드 확인
    3. `run_route(req, ROUTES)` (`common.py:199`)
-3. **경로 표**: `lambda_function.py:47~49` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
+3. **경로 표**: `lambda_function.py:49~51` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
    ```python
    ROUTES = {"GET /health": health}
-   for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin):
+   for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin, experiment):
        ROUTES.update(need(feature, "ROUTES"))
    ```
 4. **`run_route`** (`common.py:199`): `"POST /review"` 로 표에서 함수를 찾아 실행
@@ -293,7 +293,7 @@ npm run smoke    # 모든 API 를 순서대로 불러 보는 점검 — scripts/
 ```
 
 ### 3-4. 추천 공부 순서 (하루 30분씩)
-1. `lambda_function.py` 전체 (64줄) — 입구와 경로 표
+1. `lambda_function.py` 전체 (66줄) — 입구와 경로 표
 2. `common.py` 3·4번 구역 — 요청·응답, DB 도구 7개
 3. `common.py` 6번 구역 `get_user` — 학습자가 어떻게 생기고 이어지는지
 4. `practice.py` `start_practice` → `make_code` — 가장 중요한 흐름 (단계 주석만 먼저)

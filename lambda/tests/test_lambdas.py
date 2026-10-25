@@ -514,7 +514,7 @@ class Entry(unittest.TestCase):
         entry = load_lambda("lambda_function")
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /code",
-            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate",
+            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate", "POST /admin/experiment",
             "GET /me", "GET /auth/start", "GET /auth/callback/google", "GET /auth/callback/github", "POST /auth/logout"})
 
 

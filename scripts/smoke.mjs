@@ -235,6 +235,13 @@ try {
   const twice = await call("POST", "/admin/migrate", {});
   check(twice.moved === 0 && twice.renamed === 0, "다시 눌러도 더 옮길 것이 없음");
 
+  // ── 논문 실험 경로: 문항 하나를 만들고 단계 기록 (저장하지 않음), 일반 요청은 그대로
+  const exp = await call("POST", "/admin/experiment", { no: 1, language: "python", level: 2, topic: "카페 주문" });
+  check(exp.origin === "ai" && exp.attempts.length >= 1 && Array.isArray(exp.attempts[0].rule_problems) && exp.code && exp.marks.length >= 2,
+    `실험 경로: 단계 기록 (시도 ${exp.attempts.length}번, ${exp.seconds}초)`);
+  await call("POST", "/admin/experiment", { language: "java", level: 2, topic: "x" }, {}, 400);
+  check((await call("POST", "/practice", { level: 1, topic: "카페 주문" })).marks.length >= 2, "실험 뒤에도 연습 모드는 그대로");
+
   // ── 관리자 코드: 정한 코드만 통과, 틀리면 401, 10번 틀리면 잠시 막힘
   await call("POST", "/admin/code", { code: "smoke-code-1234" });
   await call("GET", "/admin/overview", undefined, {}, 401);

@@ -97,7 +97,7 @@ AI 가 코드를 만들 때(내 코드 분석 때) 함께 정하고, 없거나 �
 src/app/                    화면: page.tsx(01) practice/(02) read/(03) result/(04) check/(05) admin/
 src/components/             NoteHeader(제목·로그인·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
 src/lib/                    api.ts(서버 부르기) api-types.ts(응답 모양) secrets.ts(민감 정보 가리기) highlight.ts(문법 색칠) memos.ts(메모 임시 저장)
-lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·tutor_chat·study·auth·admin.py(기능) samples.py·samples_js.py(예시 코드)
+lambda/api/                 jojo_api: lambda_function.py(입구) common.py(공통) topics·practice·inspect_code·review·tutor_chat·study·auth·admin·experiment.py(기능) samples.py·samples_js.py(예시 코드)
 lambda/tests/               Python 단위 테스트
 tests/                      TypeScript 단위 테스트 (민감 정보·문법 색칠·경계)
 scripts/                    local-api.mjs + local_lambdas.py(로컬 실행), smoke.mjs(전체 흐름), verify_samples.py(예시 코드 실행 검증)
@@ -168,6 +168,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 | `GET /study` | `study.py` | |
 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | `auth.py` | |
 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | `admin.py` (`x-admin-token`) | |
+| `POST /admin/experiment` | `experiment.py` (`x-admin-token`) | 논문 실험: 문항 하나 + 단계 기록 (저장 안 함) |
 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
 규칙: pk = 무엇의 것인지 + id · sk = 종류 (+ 시각·번호) · 운영 데이터는 `OPS#`. 이름은 `common.py` 4번 구역의 `user_pk`·`studyrec_sk`·`code_pk`·`login_pk`·`account_pk`·`auth_pk` 로만 만든다. 예전 이름의 데이터는 `POST /admin/migrate`(`admin.py` `new_key`)로 옮긴다.

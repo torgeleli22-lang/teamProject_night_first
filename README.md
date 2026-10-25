@@ -204,6 +204,7 @@ src/
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
 | `auth.py` | Google·GitHub 로그인 (OAuth, 라이브러리 없음) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | — |
 | `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | — |
+| `experiment.py` | 논문 실험 (`x-admin-token` 필요): 연습 문항 하나를 만들고 규칙 검사·교차 검토 단계 기록 (저장 안 함, `docs/EXPERIMENT.md`) | `POST /admin/experiment` | `code_generation`, `code_check` |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 (Python 8개) · 랜덤 주제 목록 | — | — |
 | `samples_js.py` | AI 를 못 쓸 때의 JavaScript 예시 코드 7개 (`samples.py` 가 합침) | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
