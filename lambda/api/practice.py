@@ -32,7 +32,7 @@ LEVEL_GUIDE = {
         2: "25~45줄. 함수 2~4개가 서로를 불러요. 리스트·딕셔너리를 써요.",
         3: ("100~130줄. 기능 서너 개가 이어지는 작은 프로그램. 클래스, 재귀, 예외 처리 중 2가지 이상이 흐름의 중심이고, 함수 4개 이상이 서로를 불러요. "
             "마지막에 실행 예시와 print 결과가 있어요. 줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
-        4: ("180~270줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
+        4: ("170~250줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
             "자료구조(딕셔너리·리스트·힙·큐·스택·그래프 중 2개 이상)와 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디 등)가 흐름의 중심이에요. "
             "입력 검증과 예외 처리, 알고리즘끼리 비교하거나 결과를 요약하는 부분, 마지막에 실행 예시와 print 결과가 있어요. "
             "줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
@@ -42,7 +42,7 @@ LEVEL_GUIDE = {
         2: "25~45줄. 함수 2~4개가 서로를 불러요. 배열·객체와 배열 메서드(map·filter·find·reduce 중 1~2개)를 써요.",
         3: ("100~125줄 (닫는 괄호 줄 포함). 기능 서너 개가 이어지는 작은 프로그램. 클래스(this), 재귀, 예외 처리(throw·try/catch), 콜백 함수 중 2가지 이상이 흐름의 중심이고, 함수 4개 이상이 서로를 불러요. "
             "마지막에 실행 예시와 console.log 결과가 있어요. 줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
-        4: ("180~270줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
+        4: ("170~250줄. 실제 문제를 푸는 작은 프로그램. 클래스 1~2개와 함수 6개 이상이 서로를 부르고, "
             "자료구조(객체·배열·Map·Set·배열로 만든 큐·스택·힙·그래프 중 2개 이상)와 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디 등)가 흐름의 중심이에요. "
             "입력 검증과 예외 처리(throw·try/catch), 알고리즘끼리 비교하거나 결과를 요약하는 부분, 마지막에 실행 예시와 console.log 결과가 있어요. "
             "줄 수를 채우려고 같은 코드를 반복하거나 주석·빈 줄로 늘리지 마세요."),
@@ -50,7 +50,7 @@ LEVEL_GUIDE = {
 }
 MIN_LINES = {1: 0, 2: 0, 3: 100, 4: 120}     # 중급·고급은 너무 짧으면 다시 만든다
 MAX_LINES = {1: 30, 2: 60, 3: 150, 4: 300}
-TARGET_LINES = {"python": {1: 20, 2: 45, 3: 130, 4: 270}, "javascript": {1: 20, 2: 45, 3: 125, 4: 270}}   # 안내한 줄 수의 위쪽 (너무 길면 여기까지 줄이게)
+TARGET_LINES = {"python": {1: 20, 2: 45, 3: 130, 4: 250}, "javascript": {1: 20, 2: 45, 3: 125, 4: 250}}   # 안내한 줄 수의 위쪽 (너무 길면 여기까지 줄이게)
 MARK_COUNT = {1: 1, 2: 2, 3: 3, 4: 5}        # ※ 꼭 설명할 곳 수
 OUTPUT_TOKENS = {1: 3000, 2: 3000, 3: 10000, 4: 16000}   # AI 답(코드 + ※ 설명) 최대 길이
 REASONS = {"too_long": "코드가 너무 길었어요", "unknown_concept": "모르는 개념이 있었어요", "complex_flow": "흐름이 복잡했어요"}
@@ -138,7 +138,7 @@ SCHEMA = {
                 "explanation": {"type": "string"}, "keywords": {"type": "array", "items": {"type": "string"}},
                 "concept": {"type": "string", "description": "branch · loop_update · call_flow · data_update · class_state · exception · recursion · algorithm 중 하나 (모르면 서버가 규칙으로 정함)"},
             },
-            "required": ["startLine", "endLine", "startNo", "endNo", "why", "explanation", "keywords"],
+            "required": ["startLine", "endLine", "startNo", "endNo", "explanation", "keywords"],   # why 는 빠져도 답을 버리지 않는다 (빈 값)
         }},
     },
     "required": ["title", "code", "marks"],
@@ -257,7 +257,7 @@ def make_code(req, level, topic, user, prompt_extra, focus=None, language="pytho
         feedback = "\n".join([
             "방금 만든 코드(아래)에 문제가 있었어요. 문제를 고친 코드와 ※ 지점을 다시 만들어 주세요:",
             *[f"- {p}" for p in problems],
-            f"- 고치면서 길이는 {MAX_LINES[level]}줄 이하로, ※ 지점은 서로 겹치지 않는 {MARK_COUNT[level]}곳으로 지켜 주세요",
+            f"- 고치면서 늘리지 말고 길이는 {TARGET_LINES[language][level]}줄 안쪽으로 (넘으면 버려지는 한도 {MAX_LINES[level]}줄), ※ 지점은 서로 겹치지 않는 {MARK_COUNT[level]}곳으로 지켜 주세요",
             f"<previous_code>\n{numbered(code)}\n</previous_code>",
         ])
         print("[generate] 다시 만듦:", problems)

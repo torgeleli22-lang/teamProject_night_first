@@ -47,6 +47,15 @@ class GeneratedCode(unittest.TestCase):
         long_js = {"title": "t", "code": "\n".join(["let a = 1;"] * 160 + ["console.log(a);"]), "marks": []}
         _, _, problems = practice.check_generated(long_js, 3, "javascript")
         self.assertTrue(any("161줄이라 너무 길어요" in p and "36줄 이상 줄여 125줄 안쪽" in p for p in problems), problems)
+
+    def test_mark_without_why_is_kept(self):
+        # why 가 빠진 ※ 지점도 AI 답 전체를 버리지 않는다 (스키마 검사 통과, 빈 why)
+        r = practice.sample_as_ai(next(s for s in samples.SAMPLES if s["level"] == 1))
+        r["marks"][0].pop("why")
+        r.pop("_mock")
+        self.assertEqual(common.check_schema(r, practice.SCHEMA), [])
+        _, marks, problems = practice.check_generated(r, 1)
+        self.assertEqual((problems, marks[0]["why"]), ([], ""))
         long = next(s for s in samples.SAMPLES if s["level"] == 4)
         _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
         self.assertEqual((problems, len(marks)), ([], 5))
