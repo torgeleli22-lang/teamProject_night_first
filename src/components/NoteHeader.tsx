@@ -55,7 +55,18 @@ function LoginBox() {
     setFailed(takeLoginFromUrl());
     setReady(true);
   }, []);
-  const { data: me } = useApi<Me>(ready ? "/me" : null);
+  const { data: me, error, reload } = useApi<Me>(ready ? "/me" : null);
+  if (error) {
+    // 서버에 물어보지 못하면 로그인 자리를 비워 두지 않고 알려 준다
+    return (
+      <span className="flex items-center gap-2 text-xs text-ink-500">
+        로그인 상태를 확인하지 못했어요
+        <button type="button" className="underline hover:text-pen-red" onClick={reload}>
+          다시 시도
+        </button>
+      </span>
+    );
+  }
   if (!me) return <span className="h-5" />;
 
   if (me.member) {

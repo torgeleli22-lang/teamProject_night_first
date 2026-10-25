@@ -228,6 +228,7 @@ try {
   // 키는 이미 새 이름인데 필드만 예전 이름인 항목 (learnerId → userId)
   const oldLogin = "0d0d0d0d-1111-4222-8333-444455556666";
   await db.send(new BatchWriteItemCommand({ RequestItems: { jojo_table: [{ PutRequest: { Item: toAttr({ pk: `LOGIN#${oldLogin}`, sk: "USER", learnerId: oldUser, provider: "google", createdAt: 1, jojo_ttl: ttl }).M } }] } }));
+  check((await call("GET", "/study", undefined, { "x-session-id": oldLogin })).summary.codes === 1, "옮기기 전에도 예전 이름(learnerId)의 로그인 토큰으로 학습자를 찾음");
   const renamed = await call("POST", "/admin/migrate", {});
   check(renamed.renamed >= 1 && renamed.moved === 0, `필드 이름만 예전인 항목 고치기 (${renamed.renamed}개)`);
   check((await call("GET", "/study", undefined, { "x-session-id": oldLogin })).summary.codes === 1, "고친 로그인 토큰이 userId 로 학습자를 찾음");
