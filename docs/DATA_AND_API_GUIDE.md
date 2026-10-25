@@ -55,7 +55,7 @@
 | `CODE#<코드 id>` / `REVIEW#<첨삭 시각>#CHAT#<항목>` | ● | ● | ● | | AI 튜터에게 질문 (10번) | 코드와 같이 |
 | `AUTH#<state>` / `STATE` | ● | | | | 로그인 버튼을 누를 때 (회원이 되기 직전) | 10분 |
 
-다시 쓰기·튜터 대화는 **그 첨삭의 sk 뒤에 붙여** 이름을 지어요. 그래서 `query_all(code_pk(id), prefix="REVIEW#")` 한 번(`common.py:888` `review_rows`)으로 첨삭과 그 아래 기록을 함께 읽어요. `#` 이 하나뿐인 sk(`REVIEW#<시각>`)가 첨삭 자체예요.
+다시 쓰기·튜터 대화는 **그 첨삭의 sk 뒤에 붙여** 이름을 지어요. 그래서 `query_all(code_pk(id), prefix="REVIEW#")` 한 번(`common.py:891` `review_rows`)으로 첨삭과 그 아래 기록을 함께 읽어요. `#` 이 하나뿐인 sk(`REVIEW#<시각>`)가 첨삭 자체예요.
 
 ### 1-2. 회원 (Google 로그인)
 
@@ -83,7 +83,7 @@
 | 항목 (pk / sk) | C | R | U | D | 언제 | 코드 |
 |---|---|---|---|---|---|---|
 | `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:32`, `admin.py:178` |
-| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:170` → `common.py:773` `set_meta` |
+| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:170` → `common.py:776` `set_meta` |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:125` |
 | `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:145` |
 | `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:152` |
@@ -115,12 +115,12 @@ DB 도구는 모두 `common.py` 4번 구역에 있어요:
 | 재료 | 만드는 코드 | 예 | 쓰는 곳 |
 |---|---|---|---|
 | 이름 함수 | `user_pk` · `studyrec_sk` · `code_pk` · `login_pk` · `account_pk` · `auth_pk` (`common.py` 4번 구역) | `user_pk("019a…")` → `USER#019a…` | 모든 pk·sk |
-| 시간순 id | `new_id()` `common.py:929` — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
+| 시간순 id | `new_id()` `common.py:932` — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
 | 무작위 id | `str(uuid.uuid4())` (파이썬 표준, 전부 무작위) | `3c90fba9-a5c3-4c44-b98e-e363f1dae667` | 로그인 토큰 (비밀번호 같은 값이라 시각을 넣지 않음) · 예전에 만든 학습자·코드 id |
 | 시간순 번호 | `pad(time_id())` `common.py:326`, `:331` — 밀리초×1000 + 0~999, 앞을 0으로 16자리 | `1792592284764123` | `REVIEW#…`, `OPS#AILOG` |
-| 한국 날짜 | `day_key()` `common.py:784` (UTC+9) | `2026-10-24` | `OPS#STATS` |
+| 한국 날짜 | `day_key()` `common.py:787` (UTC+9) | `2026-10-24` | `OPS#STATS` |
 | 월 | `month_key()` `common.py:542` | `2026-10` | `OPS#USAGE` |
-| 첨삭 아래 기록 키 | `review_key(review, kind, index)` `common.py:900` | `REVIEW#1792592284764123#CHAT#003` | 다시 쓰기·튜터 대화 |
+| 첨삭 아래 기록 키 | `review_key(review, kind, index)` `common.py:903` | `REVIEW#1792592284764123#CHAT#003` | 다시 쓰기·튜터 대화 |
 
 > **시간순 UUID (`new_id`)**: 지금처럼 36글자 uuid 모양이라 id 검사(`SESSION_ID`, `load_code`)·화면 주소·예전 uuid4 데이터를 그대로 함께 쓸 수 있어요.
 > 앞 12글자(하이픈 빼고)가 만든 시각(밀리초, 16진수)이라 콘솔에서 id 를 정렬하면 만든 순서가 되고, `int("019a1b2c3d4e", 16)` 로 시각을 꺼낼 수 있어요.
@@ -204,10 +204,10 @@ put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": "goo
 
 ### 2-4. 읽을 코드 `CODE#<코드 id> / INFO`
 
-**언제**: 연습 코드 받기(`practice.py:148`), 더 쉽게·어렵게(`:168`), 내 코드 점검 시작(`inspect_code.py:71`)
+**언제**: 연습 코드 받기(`practice.py:153`), 더 쉽게·어렵게(`:173`), 내 코드 점검 시작(`inspect_code.py:71`)
 
 ```python
-# lambda/api/common.py:867  save_code
+# lambda/api/common.py:870  save_code
 code_id = new_id()                                                  # ① 새 코드 id (시간순 UUID)
 keep = min(keep_seconds(user, fields.pop("keep", "code")), keep_seconds(user, "code"))
 item = {"pk": code_pk(code_id), "sk": INFO,                         # ② pk = CODE# + id, sk = 고정 "INFO"
@@ -217,7 +217,7 @@ item = {"pk": code_pk(code_id), "sk": INFO,                         # ② pk = C
         TTL_ATTR: ttl_after(keep), **fields}                           #    source, level, topic, title, code, marks …
 put_item(item)                                                         # ③ 저장
 ```
-화면에는 `public_code(item)` (`common.py:911`) 으로 **모범 설명을 뺀** 모양만 보내요.
+화면에는 `public_code(item)` (`common.py:914`) 으로 **모범 설명을 뺀** 모양만 보내요.
 
 **저장된 모양** (marks 의 explanation·keywords 는 DB 에만 있어요)
 ```json
@@ -229,7 +229,7 @@ put_item(item)                                                         # ③ 저
   "origin": "ai", "rootCodeId": "3c90fba9-…", "regenCount": 0, "createdAt": 1792…, "jojo_ttl": 1792… }
 ```
 
-**읽기** `common.py:878` `load_code(code_id, user)`
+**읽기** `common.py:881` `load_code(code_id, user)`
 1. id 가 36글자 uuid 모양인지 (아니면 400)
 2. `get_item(code_pk(id), INFO)`
 3. `userId` 가 나 또는 `formerUserIds` 중 하나인지 (아니면 404)
@@ -243,15 +243,15 @@ put_item({"pk": code_pk(item["codeId"]),                   # 같은 코드 서�
           "memos": memos, "result": result, "createdAt": now_ms(),
           TTL_ATTR: ttl_after(max(1, int(item.get(TTL_ATTR, 0) - now_ms() / 1000)))})   # 코드와 같은 날 삭제
 ```
-**읽기** `common.py:888` `review_rows` — `query_all(code_pk(id), prefix="REVIEW#")` 로 첨삭과 그 아래 기록을 한 번에 읽고,
-`common.py:893` `latest_review` 가 그중 `#` 이 하나뿐인 sk(첨삭 자체)의 마지막(최신) 것을 골라요.
+**읽기** `common.py:891` `review_rows` — `query_all(code_pk(id), prefix="REVIEW#")` 로 첨삭과 그 아래 기록을 한 번에 읽고,
+`common.py:896` `latest_review` 가 그중 `#` 이 하나뿐인 sk(첨삭 자체)의 마지막(최신) 것을 골라요.
 
 ### 2-6. 다시 써 보기 `REVIEW#<t>#RETRY#…` · 튜터 대화 `REVIEW#<t>#CHAT#…`
 
 ```python
 rows = review_rows(id)                                  # 첨삭 + 그 아래 기록 (한 번 읽기)
 rv = latest_review(id, rows)
-key = review_key(rv, "RETRY", index)                    # common.py:900 → "REVIEW#1792592284764123#RETRY#002"
+key = review_key(rv, "RETRY", index)                    # common.py:903 → "REVIEW#1792592284764123#RETRY#002"
 attempts = review_children(rv, "RETRY", rows).get(index, {}).get("attempts", [])   # review.py:134  있으면 이어서
 attempts.append({...})
 put_item({"pk": code_pk(id), "sk": key, "attempts": attempts, …})   # review.py:156  같은 키로 덮어써 이어 쓰기
@@ -275,7 +275,7 @@ put_item({**key, "codeId": code_item["codeId"], "source": …, "level": …, "la
 ### 2-8. 운영 항목 `OPS#…` — `update_item` 의 ADD 로 숫자 더하기
 
 ```python
-# 하루 사용 수  common.py:792
+# 하루 사용 수  common.py:795
 update_item(OPS_STATS, f"DAY#{day_key()}", set_values={TTL_ATTR: 90일}, add_values={"reviews": 1})
 
 # AI 사용량  common.py:588
@@ -286,7 +286,7 @@ update_item(OPS_LIMIT, f"{key}#{window_start}", set_values={TTL_ATTR: 구간 끝
 ```
 - ADD 는 항목이 없으면 새로 만들어 주고, 여러 Lambda 가 동시에 더해도 숫자가 틀리지 않아요.
 - AI 호출 기록은 한 건씩 새 줄: `put_item({"pk": OPS_AILOG, "sk": pad(time_id()), "task": …, "ok": …})` (`common.py:599`)
-- 설정: `set_meta("ai_switch", "off")` → `put_item({"pk": "OPS#CONFIG", "sk": "ai_switch", "value": "off"})` (`common.py:773`, 관리자 `admin.py:172`)
+- 설정: `set_meta("ai_switch", "off")` → `put_item({"pk": "OPS#CONFIG", "sk": "ai_switch", "value": "off"})` (`common.py:776`, 관리자 `admin.py:172`)
 
 ---
 
