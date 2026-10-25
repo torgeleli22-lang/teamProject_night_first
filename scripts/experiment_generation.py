@@ -1,14 +1,18 @@
 """
-문항 생성·검증 실험 (논문 표 1) — 실제 Lambda 코드(lambda/api/practice.make_code)로 연습 문항을 만들고 단계별 결과를 기록한다.
+문항 생성·검증 실험 (논문 표 1) — 서비스와 같은 코드(practice.make_code)로 연습 문항을 만들고 단계별 결과를 모은다.
 
   언어 2(Python·JavaScript) × 난이도 4 × 반복 5 = 40문항 (기본값)
   문항마다: ① 출제 → ② 규칙 검사 → ③ AI 교차 검토(모범 설명 교정) → (걸리면 한 번 재생성) → 그래도 안 되면 예시 코드
-  서비스 코드는 바꾸지 않고, 단계 함수를 감싸서 결과만 옆에 적는다.
+  단계 기록은 lambda/api/experiment.py 가 한다 (서비스 코드는 그대로, 단계 함수를 감싸서 기록만)
 
-실행 (AWS CloudShell 권장 — docs/EXPERIMENT.md):
-  python3.11 scripts/experiment_generation.py                 # 실제 AI(Bedrock), 40문항, 4개씩 동시에
-  python3.11 scripts/experiment_generation.py --resume DIR    # 중간에 끊겼으면 이어서
-  AI_MODE=mock python3 scripts/experiment_generation.py --offline-db --reps 1   # 비용 없이 스크립트만 확인
+두 가지 방법:
+  Lambda 로 (권장 — Bedrock 권한은 Lambda 실행 역할에 있음, 서비스와 같은 Python 3.13·모델):
+    python3 scripts/experiment_generation.py --url https://<함수 URL>        # 관리자 코드를 물어봄 (화면에 보이지 않음)
+  이 컴퓨터에서 직접 (Bedrock·DynamoDB 권한이 있는 AWS 계정일 때):
+    python3.11 scripts/experiment_generation.py --local
+  비용 없이 스크립트만 확인:
+    AI_MODE=mock MOCK_DELAY_SEC=0 python3 scripts/experiment_generation.py --local --offline-db --reps 1
+  중간에 끊겼으면 같은 명령에 --resume experiment_out/<시각>
 
 결과 (experiment_out/<시각>/):
   results.jsonl  문항 하나당 한 줄 (모든 단계 기록)      results.csv  표로 보기
@@ -16,6 +20,7 @@
 """
 import argparse
 import csv
+import getpass
 import json
 import os
 import random
@@ -23,112 +28,64 @@ import statistics
 import subprocess
 import sys
 import threading
-import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
-# 1. Lambda 코드 불러오기 (환경 변수는 import 전에 정한다)
+# 1. 주제 목록 (서비스의 랜덤 주제) — samples.py 는 boto3 없이 읽힌다
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "lambda", "api"))
-os.environ.setdefault("AI_MODE", "live")
-os.environ.setdefault("TABLE_NAME", "jojo_table")
-
-import common    # noqa: E402
-import practice  # noqa: E402
 from samples import ADVANCED_TOPIC_POOL, TOPIC_POOL  # noqa: E402
 
 LEVEL_NAMES = {1: "입문", 2: "초급", 3: "중급", 4: "고급"}
-_local = threading.local()   # 지금 이 스레드가 만들고 있는 문항의 기록
 
 
-def rec():
-    return getattr(_local, "rec", None)
+# ───────────────────────── 2. 문항 하나 만들기 (Lambda 로 / 이 컴퓨터에서) ─────────────────────────
 
 
-# ───────────────────────── 2. 단계 함수 감싸기 (결과만 기록, 동작은 그대로) ─────────────────────────
-
-_orig = {
-    "check_generated": practice.check_generated,
-    "ai_check_code": practice.ai_check_code,
-    "ask_ai": practice.ask_ai,
-    "log_usage": common.log_usage,
-}
-
-
-def check_generated(r, level, language="python"):
-    """② 규칙 검사: 시도마다 문제 목록을 적는다"""
-    code, marks, problems = _orig["check_generated"](r, level, language)
-    rec()["attempts"].append({"lines": len(code.split("\n")), "marks": len(marks), "rule_problems": problems,
-                              "check_problems": None, "check_ran": False, "fixed": 0})
-    return code, marks, problems
-
-
-def ai_check_code(code, marks, level, language):
-    """③ 교차 검토: 재생성할 문제와, 교체된 모범 설명 수를 적는다"""
-    before = {m["id"]: m["explanation"] for m in marks}
-    problems, fixed_marks = _orig["ai_check_code"](code, marks, level, language)
-    attempt = rec()["attempts"][-1]
-    attempt["check_ran"] = not rec().pop("_check_unavailable", False)
-    attempt["check_problems"] = problems
-    attempt["fixed"] = sum(1 for m in fixed_marks if before.get(m["id"]) != m["explanation"])
-    attempt["fixed_ids"] = [m["id"] for m in fixed_marks if before.get(m["id"]) != m["explanation"]]
-    return problems, fixed_marks
+def remote_maker(url, admin_code):
+    """POST <함수 URL>/admin/experiment — Lambda 가 만들고 단계 기록을 돌려준다"""
+    def make(item):
+        req = urllib.request.Request(url.rstrip("/") + "/admin/experiment", data=json.dumps(item).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "x-admin-token": admin_code})
+        try:
+            with urllib.request.urlopen(req, timeout=330) as res:   # Lambda 제한 시간(5분)보다 조금 길게
+                return json.loads(res.read().decode())
+        except urllib.error.HTTPError as e:
+            message = e.read().decode(errors="replace")
+            if e.code in (401, 429):
+                raise SystemExit(f"✗ 관리자 코드를 확인해 주세요 ({e.code}): {message}")
+            if e.code == 404:
+                raise SystemExit("✗ Lambda 에 실험 경로가 없어요. 콘솔에 experiment.py 를 추가하고 lambda_function.py 를 바꾼 뒤 Deploy 해 주세요.")
+            return {**item, "origin": "error", "note": f"HTTP {e.code}: {message[:300]}", "attempts": [], "ai_calls": [], "ai_errors": [],
+                    "tokens_in": 0, "tokens_out": 0, "seconds": 0, "code": "", "marks": [], "title": ""}
+        except Exception as e:   # 연결 끊김·시간 초과 → 이 문항만 오류로 남기고 계속 (--resume 으로 다시 할 수 있게 저장하지 않음)
+            raise RuntimeError(f"#{item['no']} 요청 실패: {e!r}")
+    return make
 
 
-def ask_ai(task, *args, **kwargs):
-    """AI 호출 시간·실패 이유를 적는다 (code_generation · code_check)"""
-    started = time.time()
-    try:
-        return _orig["ask_ai"](task, *args, **kwargs)
-    except common.AiUnavailable as e:
-        rec()["ai_errors"].append(f"{task}: {e}")
-        if task == "code_check":
-            rec()["_check_unavailable"] = True
-        raise
-    finally:
-        rec()["ai_calls"].append({"task": task, "sec": round(time.time() - started, 2)})
-
-
-def log_usage(task, model, inp, out, cache_read, ok, error=None, ms=0):
-    """토큰 수를 문항 기록에 더한다 (원래 기록 — OPS#USAGE · OPS#AILOG — 도 그대로)"""
-    r = rec()
-    if r is not None:
-        r["tokens_in"] += int(inp or 0)
-        r["tokens_out"] += int(out or 0)
-    return _orig["log_usage"](task, model, inp, out, cache_read, ok, error=error, ms=ms)
-
-
-def install_hooks(offline_db):
-    practice.check_generated = check_generated
-    practice.ai_check_code = ai_check_code
-    practice.ask_ai = ask_ai
-    common.log_usage = log_usage
-    practice.ai_allowed = lambda req: True   # 실험은 요청 수 한도(1시간 30번)에 막히지 않게. 월 예산 확인(check_budget)은 그대로
-    if offline_db:   # DynamoDB 없이 (내 컴퓨터에서 스크립트만 확인할 때)
+def local_maker(offline_db):
+    """이 컴퓨터에서 Lambda 코드를 직접 실행 (AWS 권한 필요)"""
+    if sys.version_info < (3, 10):
+        sys.exit("Python 3.10 이상이 필요해요 (Lambda 는 3.13). CloudShell: sudo dnf install -y python3.11 → python3.11 로 실행")
+    os.environ.setdefault("AI_MODE", "live")
+    import common
+    import experiment
+    import practice
+    experiment.install()
+    if offline_db:   # DynamoDB 없이 (월 예산 확인·사용량 기록 생략)
         common.month_cost_usd = lambda include_mock=False: 0.0
         common.ai_switch_on = lambda: True
-        _orig["log_usage"] = lambda *a, **k: None
+        experiment._orig["log_usage"] = lambda *a, **k: None
         practice.log_ai_event = lambda *a, **k: None
-
-
-# ───────────────────────── 3. 문항 하나 만들기 ─────────────────────────
-
-
-def make_one(item):
-    _local.rec = r = {**item, "attempts": [], "ai_calls": [], "ai_errors": [], "tokens_in": 0, "tokens_out": 0}
-    user = {"userId": "experiment", "recentTopics": [], "member": False}
-    req = {"ip": "experiment", "headers": {}, "user": user}
-    started = time.time()
-    try:
-        made = practice.make_code(req, item["level"], item["topic"], user, prompt_extra="", language=item["language"])
-        r.update(origin=made["origin"], note=made.get("note"), title=made["title"], code=made["code"],
-                 marks=[{k: m[k] for k in ("id", "start", "end", "concept", "explanation", "keywords")} for m in made["marks"]])
-    except Exception as e:   # 예상하지 못한 오류도 기록하고 다음 문항으로
-        r.update(origin="error", note=repr(e), title="", code="", marks=[])
-    r["seconds"] = round(time.time() - started, 2)
-    r.pop("_check_unavailable", None)
-    _local.rec = None
-    return r
+    if common.AI_MODE == "live":   # 권한·모델 접근 문제면 바로 멈춘다 (전부 예시 코드가 되는 것을 막기)
+        try:
+            common.ask_ai("experiment_preflight", "짧게 답해.", "ok 라고만 답해.",
+                          {"type": "object", "properties": {"ok": {"type": "string"}}, "required": ["ok"]}, max_tokens=50)
+        except common.AiUnavailable as e:
+            sys.exit(f"✗ AI 를 부를 수 없어요: {e}\n  이 계정에 Bedrock 권한이 없으면 --url <함수 URL> 로 Lambda 에서 실행하세요.")
+    return experiment.make_one
 
 
 def plan(reps, seed):
@@ -265,12 +222,19 @@ def main():
     ap.add_argument("--seed", type=int, default=2026, help="주제 순서·확인 문항 고르기 (같은 값이면 같은 결과)")
     ap.add_argument("--verify", type=int, default=10, help="실행 확인할 AI 문항 수 (기본 10)")
     ap.add_argument("--resume", help="이어서 할 결과 폴더 (experiment_out/…)")
-    ap.add_argument("--offline-db", action="store_true", help="DynamoDB 없이 (월 예산 확인·사용량 기록 생략) — 스크립트 확인용")
+    ap.add_argument("--url", help="Lambda 함수 URL — 이 Lambda 에서 만든다 (권장)")
+    ap.add_argument("--local", action="store_true", help="이 컴퓨터에서 Lambda 코드를 직접 실행 (AWS 권한 필요)")
+    ap.add_argument("--offline-db", action="store_true", help="--local 과 함께: DynamoDB 없이 — 스크립트 확인용")
     args = ap.parse_args()
-
-    if sys.version_info < (3, 10):
-        sys.exit("Python 3.10 이상이 필요해요 (Lambda 는 3.13). CloudShell: sudo dnf install -y python3.11 → python3.11 로 실행")
-    install_hooks(args.offline_db)
+    if bool(args.url) == bool(args.local):
+        sys.exit("--url <함수 URL> 또는 --local 중 하나를 골라 주세요 (docs/EXPERIMENT.md)")
+    if args.url:
+        code = os.environ.get("EXPERIMENT_ADMIN_CODE") or getpass.getpass("관리자 코드 (입력해도 화면에 보이지 않아요): ")
+        make_one = remote_maker(args.url, code)
+        where = f"Lambda {args.url}"
+    else:
+        make_one = local_maker(args.offline_db)
+        where = f"이 컴퓨터 (AI_MODE={os.environ.get('AI_MODE')})"
     out_dir = args.resume or os.path.join(ROOT, "experiment_out", datetime.now().strftime("%Y%m%d-%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
     jsonl = os.path.join(out_dir, "results.jsonl")
@@ -280,20 +244,16 @@ def main():
             done = {(r := json.loads(line))["no"]: r for line in f if line.strip()}
     items = [i for i in plan(args.reps, args.seed) if i["no"] not in done]
     total = len(items) + len(done)
-    print(f"AI_MODE={common.AI_MODE} · 모델 {common.MODEL_ID} · 문항 {total}개 (남은 {len(items)}개) · 동시 {args.workers}개 → {out_dir}")
-
-    # 미리 확인: 실제 AI 를 부를 수 있는지 (권한·모델 접근 문제면 바로 멈춘다 — 전부 예시 코드가 되는 것을 막기)
-    if common.AI_MODE == "live" and items:
-        try:
-            common.ask_ai("experiment_preflight", "짧게 답해.", "ok 라고만 답해.", {"type": "object", "properties": {"ok": {"type": "string"}}, "required": ["ok"]},
-                          max_tokens=50)
-        except common.AiUnavailable as e:
-            sys.exit(f"✗ AI 를 부를 수 없어요: {e}\n  CloudShell 의 권한(Bedrock InvokeModel, us-east-1)·월 예산·관리자 AI 끄기를 확인해 주세요.")
+    print(f"{where} · 문항 {total}개 (남은 {len(items)}개) · 동시 {args.workers}개 → {out_dir}", flush=True)
 
     lock = threading.Lock()
 
     def work(item):
-        r = make_one(item)
+        try:
+            r = make_one(item)
+        except RuntimeError as e:   # 연결 실패 — 저장하지 않고 넘어감 (--resume 으로 다시)
+            print(f"  ! {e}", flush=True)
+            return
         with lock:
             with open(jsonl, "a", encoding="utf-8") as f:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -322,7 +282,7 @@ def main():
     picked = verify_sheet(rows, out_dir, args.verify, args.seed)
     table, extra = summarize(rows)
     md = ["# 문항 생성·검증 실험 결과", "",
-          f"- 실행: {datetime.now():%Y-%m-%d %H:%M} · AI_MODE={common.AI_MODE} · 모델 `{common.MODEL_ID}` · seed {args.seed}",
+          f"- 실행: {datetime.now():%Y-%m-%d %H:%M} · {where} · AI_MODE={rows[0].get('aiMode', '?') if rows else '?'} · 모델 `{rows[0].get('model', '?') if rows else '?'}` · seed {args.seed}",
           f"- 문항: 언어 2 × 난이도 4 × {args.reps}회 = {len(rows)}개 (주제는 서비스의 랜덤 주제 목록)", "",
           "## 표 1", "", "| 항목 | 결과 |", "|---|---|", *[f"| {k} | {v} |" for k, v in table], "",
           "## 참고 값", "", "| 항목 | 값 |", "|---|---|", *[f"| {k} | {v} |" for k, v in extra], "",

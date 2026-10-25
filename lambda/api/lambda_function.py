@@ -1,5 +1,6 @@
 import admin
 import auth
+import experiment
 import inspect_code
 import practice
 import review
@@ -22,6 +23,7 @@ from common import AI_MODE, LANGUAGES, MAX_CODE_LINES, REGEN_LIMIT, ApiError, ai
 #     tutor_chat.py     POST /tutor                                      첨삭 뒤 메모마다 AI 튜터와 대화
 #     study.py          GET /study                                       내 공부: 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 (AI 없음)
 #     admin.py          /admin/...                                       관리자 화면 (AI 사용량·비용·AI 끄기, 관리자 코드 필요)
+#     experiment.py     POST /admin/experiment                           논문 실험: 문항 하나를 만들고 단계별 기록 (관리자 코드 필요)
 #     samples.py        AI 를 쓸 수 없을 때의 예시 코드 · 랜덤 주제 목록
 #     common.py         모든 기능이 함께 쓰는 도구 (요청·응답, 요청 수 제한, 학습자, DynamoDB, AI, 읽을 코드)
 # ─────────────────────────────────────────────────────────────
@@ -45,7 +47,7 @@ def health(req):
 
 # 경로 → 처리 함수 (기능 파일마다 있는 ROUTES 를 합친 표)
 ROUTES = {"GET /health": health}
-for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin):
+for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin, experiment):
     ROUTES.update(need(feature, "ROUTES"))
 
 

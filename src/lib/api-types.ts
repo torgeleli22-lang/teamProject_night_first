@@ -352,3 +352,25 @@ export interface AdminOverview {
   days: DayCount[];
   adminCode: { custom: boolean; recovery: boolean };
 }
+
+/** POST /admin/experiment (experiment.py) — 논문 실험: 문항 하나의 단계 기록. 화면은 쓰지 않고 scripts/experiment_generation.py 가 쓴다 */
+export interface ExperimentRecord {
+  no: number;
+  language: Language;
+  level: Level;
+  topic: string;
+  /** 시도마다: 규칙 검사 문제 · 교차 검토 문제(검토를 안 했으면 null) · 교체된 모범 설명 수 */
+  attempts: { lines: number; marks: number; rule_problems: string[]; check_problems: string[] | null; check_ran: boolean; fixed: number; fixed_ids: string[] }[];
+  origin: "ai" | "sample" | "error";
+  note: string | null;
+  title: string;
+  code: string;
+  marks: { id: string; start: number; end: number; concept: string | null; explanation: string; keywords: string[] }[];
+  seconds: number;
+  tokens_in: number;
+  tokens_out: number;
+  ai_calls: { task: string; sec: number }[];
+  ai_errors: string[];
+  model: string;
+  aiMode: string;
+}

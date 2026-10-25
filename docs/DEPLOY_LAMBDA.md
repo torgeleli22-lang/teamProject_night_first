@@ -42,6 +42,7 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
    | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화 |
    | `study.py` | 내 공부: 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 (AI 없음) |
    | `admin.py` | 관리자 (AI 사용량·비용·AI 끄기) |
+   | `experiment.py` | 논문 실험: 문항 하나 만들고 단계 기록 (관리자 코드 필요, `docs/EXPERIMENT.md`) |
    | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드 |
    | `samples_js.py` | AI 를 쓸 수 없을 때의 JavaScript 예시 코드 |
 

@@ -14,6 +14,7 @@
 | `study.py` | 내 공부 (AI 없음): 첨삭 기록 → 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 | `GET /study` |
 | `auth.py` | Google·GitHub 로그인 (선택, 환경 변수 `GOOGLE_*`·`GITHUB_*`): 로그인 토큰 발급, 익명 기록을 계정으로 옮기기 | `GET /me`, `/auth/...` |
 | `admin.py` | 관리자 화면 (`x-admin-token` 필요): AI 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `/admin/...` |
+| `experiment.py` | 논문 실험 (`x-admin-token` 필요): 문항 하나를 만들고 단계 기록 (`docs/EXPERIMENT.md`) | `POST /admin/experiment` |
 | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드(Python, 난이도마다 2개)와 랜덤 주제 목록 | |
 | `samples_js.py` | JavaScript 예시 코드 (난이도마다 1~2개, `samples.py` 가 합침) | |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | |
