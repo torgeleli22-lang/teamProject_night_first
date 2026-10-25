@@ -49,8 +49,8 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
    - **지울 파일** (예전 기능, 남아 있어도 불리지 않지만 헷갈리니 지우기): `questions.py`, `submit_answer.py`, `my_page.py`, `learner_analysis.py`, `generate_theory.py`, `load_content.py`, `content.json`, `test_events.json`
    - 각 파일은 GitHub 에서 열고 **Raw** → 전체 선택·복사 → 콘솔의 같은 이름 파일에 **전체를 바꿔** 붙여넣기 (없으면 **파일 → 새 파일**로 이름 그대로) → **Deploy**
    - 붙여넣기가 중간에 끊기면 `module 'xxx' has no attribute 'ROUTES'` 처럼 파일 이름을 알려 주는 오류가 나요. 그 파일만 다시 붙여넣으면 됩니다.
-3. **구성 → 일반 구성 → 편집**: 메모리 **512MB**, 제한 시간 **5분**
-   (화면 요청은 0.1초 안팎, AI 를 부르는 요청은 5~20초, **고급(100~200줄) 코드 만들기는 1~2분**. AI 가 만든 코드가 검사를 통과하지 못하면 한 번 더 부르기 때문에 넉넉하게 5분)
+3. **구성 → 일반 구성 → 편집**: 메모리 **512MB**, 제한 시간 **10분**
+   (화면 요청은 0.1초 안팎, AI 를 부르는 요청은 5~20초, **중급(100~150줄)·고급(150~300줄) 코드 만들기는 1~2분**. AI 가 만든 코드가 검사를 통과하지 못하면 한 번 더 부르기 때문에 넉넉하게 10분)
 4. **구성 → 환경 변수**
 
    | 키 | 값 |
@@ -172,5 +172,5 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 | 화면에 "서버에 연결하지 못했어요" / CORS 오류 | `ALLOWED_ORIGINS`(경로 없이), GitHub `API_URL` 끝의 `/` 제거, 화면 다시 배포 |
 | 연습 코드가 늘 예시 코드("준비된 예시 코드를 드려요") | 관리자 화면 AI 스위치, `AI_MODE`, CloudWatch 로그의 `[ai]` 줄 (`AccessDeniedException` → 역할의 Bedrock 권한, `monthly AI budget reached` → 월 예산) |
 | "AI 가 만든 코드가 검사를 통과하지 못해…" | 로그의 `[generate] 다시 만듦:` 줄에 이유가 있어요 (문법 오류, 너무 긺, ※ 줄을 못 찾음) |
-| `Task timed out` | 제한 시간을 5분으로 (고급 코드 만들기가 오래 걸려요) |
+| `Task timed out` | 제한 시간을 10분으로 (중급·고급 코드 만들기가 오래 걸려요) |
 | 오랜만에 열면 첫 요청이 느림 | 정상 (콜드 스타트 약 1초) |

@@ -47,11 +47,11 @@ for s in SAMPLES:
         fail(sid, f"없는 난이도 {s['level']}")
     elif not practice.MIN_LINES[s["level"]] <= len(lines) <= practice.MAX_LINES[s["level"]]:
         fail(sid, f"{len(lines)}줄이에요 ({practice.MIN_LINES[s['level']]}~{practice.MAX_LINES[s['level']]}줄이어야 해요)")
-    elif len(s["marks"]) != practice.MARK_COUNT[s["level"]] and s["level"] == 4:
-        fail(sid, f"고급은 ※ 지점이 {practice.MARK_COUNT[4]}곳이어야 해요")
+    elif len(s["marks"]) != practice.MARK_COUNT[s["level"]]:
+        fail(sid, f"{LEVELS[s['level']]['name']}은 ※ 지점이 {practice.MARK_COUNT[s['level']]}곳이어야 해요")
     # 3. ※ 지점
-    if len(clean_marks(s["code"], s["marks"], limit=5)) != len(s["marks"]) or len(s["marks"]) < 2:
-        fail(sid, "※ 지점이 2곳보다 적거나, 범위를 벗어났거나, 겹쳐요")
+    if len(clean_marks(s["code"], s["marks"], limit=5)) != len(s["marks"]):
+        fail(sid, "※ 지점이 범위를 벗어났거나 겹쳐요")
     for m in s["marks"]:
         if not (1 <= m["start"] <= m["end"] <= len(lines)):
             continue

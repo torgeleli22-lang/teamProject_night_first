@@ -50,7 +50,7 @@ def remote_maker(url, admin_code):
         req = urllib.request.Request(url.rstrip("/") + "/admin/experiment", data=json.dumps(item).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "x-admin-token": admin_code})
         try:
-            with urllib.request.urlopen(req, timeout=330) as res:   # Lambda 제한 시간(5분)보다 조금 길게
+            with urllib.request.urlopen(req, timeout=630) as res:   # Lambda 제한 시간(10분)보다 조금 길게
                 return json.loads(res.read().decode())
         except urllib.error.HTTPError as e:
             message = e.read().decode(errors="replace")

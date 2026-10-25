@@ -39,9 +39,11 @@ class Samples(unittest.TestCase):
 
 class GeneratedCode(unittest.TestCase):
     def test_advanced_level_needs_length(self):
-        short = next(s for s in samples.SAMPLES if s["level"] == 3)
+        short = next(s for s in samples.SAMPLES if s["level"] == 2)
         _, _, problems = practice.check_generated(practice.sample_as_ai(short), 4)
         self.assertTrue(any("고급으로는 너무 짧아요" in p for p in problems))
+        _, _, problems = practice.check_generated(practice.sample_as_ai(short), 3)
+        self.assertTrue(any("중급으로는 너무 짧아요" in p for p in problems))
         long = next(s for s in samples.SAMPLES if s["level"] == 4)
         _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
         self.assertEqual((problems, len(marks)), ([], 5))
@@ -55,19 +57,22 @@ class GeneratedCode(unittest.TestCase):
     def test_mark_problems_say_why(self):
         code = "total = 0\nfor x in [1, 2, 3]:\n    if x > 1:\n        total += x\nprint(total)"
         mk = lambda s, e, sn, en: {"startLine": s, "endLine": e, "startNo": sn, "endNo": en, "why": "w", "explanation": "e", "keywords": ["k"]}
-        # 겹침: for 범위(2~4) 안에 if 범위(3~4) → 하나만 남아 실패, 이유는 '겹쳐요'
+        # 겹침: for 범위(2~4) 안에 if 범위(3~4) → 하나만 남아 실패(초급은 2곳), 이유는 '겹쳐요'
         _, marks, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("for x in [1, 2, 3]:", "total += x", 2, 4),
-                                                                                             mk("if x > 1:", "total += x", 3, 4)]}, 1)
+                                                                                             mk("if x > 1:", "total += x", 3, 4)]}, 2)
         self.assertEqual(len(marks), 1)
         self.assertTrue(any("겹쳐요" in p and "2~4번 줄" in p for p in problems), problems)
         self.assertFalse(any("찾지 못했어요" in p for p in problems))
         # 못 찾은 줄: 어떤 줄인지 알려 줌
         _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("for x in [1, 2, 3]:", "total += x", 2, 4),
-                                                                                         mk("print(total + 1)", "print(total + 1)", 5, 5)]}, 1)
+                                                                                         mk("print(total + 1)", "print(total + 1)", 5, 5)]}, 2)
         self.assertTrue(any("찾지 못했어요" in p and "print(total + 1)" in p for p in problems), problems)
         # 수가 부족: 한 곳만 줌
-        _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 1)
+        _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 2)
         self.assertTrue(any("1곳뿐" in p for p in problems), problems)
+        # 입문은 1곳이면 통과
+        _, marks, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 1)
+        self.assertEqual((len(marks), problems), (1, []))
 
     def test_javascript_shape(self):
         js = practice.js_shape_problems
@@ -77,10 +82,11 @@ class GeneratedCode(unittest.TestCase):
         self.assertIn("여는 괄호가 없어요", js("const a = 1;\n}\nconsole.log(a);")[0])
         self.assertIn("따옴표", js('const a = "abc;\nconsole.log(a);')[0])
         self.assertIn("템플릿", js("const a = `abc ${b}\nconsole.log(a);")[0])
-        self.assertTrue(any("Math.random" in p for p in js("console.log(Math.random());")))
+        self.assertEqual(js("console.log(Math.random(), new Date(2026, 2, 2), Date.now());"), [])   # 결과가 달라지는 기능은 됨 (AI 검토가 설명을 확인)
+        self.assertTrue(any("fetch" in p for p in js('fetch("https://example.com");\nconsole.log(1);')))
         self.assertTrue(any("console.log" in p for p in js("const a = 1;")))
         self.assertTrue(any("Python" in p for p in js("def f():\n  return 1\nconsole.log(f());")))
-        self.assertEqual(js('console.log("document.title 과 Math.random 은 글자일 뿐이에요");'), [])   # 문자열 안은 보지 않음
+        self.assertEqual(js('console.log("document.title 과 fetch( 는 글자일 뿐이에요");'), [])   # 문자열 안은 보지 않음
 
     def test_javascript_samples_are_picked_for_javascript(self):
         user = {"recentTopics": []}
@@ -92,9 +98,10 @@ class GeneratedCode(unittest.TestCase):
         import ast
         ok = "import heapq\nfrom collections import deque\ndef f(a, *args, **kw):\n    try:\n        return [y for y in a if (z := y)]\n    except ValueError as e:\n        print(e, args, kw, z)\nprint(f([1]), heapq, deque)"
         self.assertEqual(practice.py_ast_problems(ast.parse(ok)), [])
-        bad = "import random\nname = input()\ntotal = 0\nfor i in range(3):\n    totl += i\nprint(total, prise)"
+        self.assertEqual(practice.py_ast_problems(ast.parse("import random\nimport time\nfrom datetime import datetime\nrandom.seed(1)\nprint(random.randint(1, 6), time, datetime)")), [])
+        bad = "import os\nimport numpy\nname = input()\ntotal = 0\nfor i in range(3):\n    totl += i\nprint(total, prise)"
         problems = practice.py_ast_problems(ast.parse(bad))
-        self.assertTrue(any("random 모듈" in p for p in problems))
+        self.assertTrue(any("os 모듈" in p for p in problems) and any("numpy 모듈" in p for p in problems))   # 운영체제 · 표준 라이브러리가 아닌 모듈
         self.assertTrue(any("input()" in p for p in problems))
         self.assertTrue(any("totl" in p for p in problems) and any("prise" in p for p in problems))   # 오타
         self.assertIn("print", practice.py_ast_problems(ast.parse("x = 1"))[0])
@@ -139,15 +146,15 @@ class CodeCheckPipeline(unittest.TestCase):
         practice.ask_ai = fake
         return practice.make_code({}, 1, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
 
-    ok = {"output": "", "codeProblems": [], "marks": [{"id": "m1", "ok": True}, {"id": "m2", "ok": True}]}
+    ok = {"output": "", "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
 
     def test_passes_and_fixes_wrong_explanation(self):
-        fixed = {**self.ok, "marks": [{"id": "m1", "ok": False, "problem": "합계가 틀림", "explanation": "고친 설명이에요.", "keywords": ["고친"]},
-                                      {"id": "m2", "ok": True}]}
+        fixed = {**self.ok, "marks": [{"id": "m1", "ok": False, "problem": "합계가 틀림", "explanation": "고친 설명이에요.", "keywords": ["고친"]}]}
         made = self.run_with([fixed])
         self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_check"]))
         self.assertEqual((made["marks"][0]["explanation"], made["marks"][0]["keywords"]), ("고친 설명이에요.", ["고친"]))
-        self.assertEqual(made["marks"][1]["explanation"], self.sample["marks"][1]["explanation"])   # 맞은 설명은 그대로
+        made = self.run_with([self.ok])
+        self.assertEqual(made["marks"][0]["explanation"], self.sample["marks"][0]["explanation"])   # 맞은 설명은 그대로
 
     def test_code_problem_makes_it_again(self):
         made = self.run_with([{**self.ok, "codeProblems": ["7번째 줄: 없는 메뉴를 찾아 오류"]}, self.ok])

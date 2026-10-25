@@ -36,9 +36,6 @@ print("결제할 금액:", total)""",
             {"start": 6, "end": 8, "concept": "loop_update", "why": "반복문이 합계를 만드는 곳",
              "explanation": "order 의 메뉴를 하나씩 꺼내 menu 에서 가격을 찾고 total 에 더해요. 반복이 끝나면 total 은 3000 + 3500 + 3500 = 10000원이에요.",
              "keywords": ["하나씩", "가격", "더해", "10000"]},
-            {"start": 10, "end": 12, "concept": "branch", "why": "조건에 따라 금액이 바뀌는 곳",
-             "explanation": "합계가 10000원 이상이면 1000원을 빼고 안내 문구를 출력해요. 지금은 정확히 10000원이라 조건이 참이 되어 9000원이 돼요.",
-             "keywords": ["이상", "할인", "1000", "9000"]},
         ],
     },
     {
@@ -66,9 +63,6 @@ print("통과한 학생:", passed, "명")""",
             {"start": 6, "end": 11, "concept": "branch", "why": "등급을 정하는 순서",
              "explanation": "점수를 위에서부터 차례로 검사해요. 90 이상이면 A, 아니면 70 이상인지 보고 B, 둘 다 아니면 재시험이에요. 먼저 맞은 조건 하나만 실행돼요.",
              "keywords": ["차례", "90", "70", "하나만"]},
-            {"start": 13, "end": 14, "concept": "branch", "why": "통과한 학생을 세는 곳",
-             "explanation": "등급이 재시험이 아니면 passed 를 1 늘려요. 95·72·88점 세 명이 통과해서 마지막에 3명이 출력돼요.",
-             "keywords": ["재시험", "아니", "1", "3명"]},
         ],
     },
     {
@@ -121,9 +115,6 @@ print("발주 필요:", restock_report())""",
             {"start": 19, "end": 22, "concept": "call_flow", "why": "check_stock 을 불러 판매를 막는 곳",
              "explanation": "sell 은 먼저 check_stock 을 불러 상태를 받아요. 없는 상품이거나 품절이면 판매 불가 메시지를 찍고 False 를 돌려주며 끝나요. 컵라면이 여기서 멈춰요.",
              "keywords": ["check_stock", "판매 불가", "False", "끝"]},
-            {"start": 29, "end": 34, "concept": "loop_update", "why": "발주가 필요한 상품을 모으는 곳",
-             "explanation": "inventory 의 상품마다 check_stock 을 불러 품절이나 재고 부족이면 need 에 넣어요. 바나나우유(3개 남음)와 컵라면이 들어가서 ['바나나우유', '컵라면'] 이 출력돼요.",
-             "keywords": ["상품마다", "check_stock", "need", "바나나우유", "컵라면"]},
         ],
     },
     {
@@ -160,9 +151,6 @@ print(borrow("준호", "어린 왕자"))""",
             {"start": 10, "end": 12, "concept": "data_update", "why": "대출을 기록하는 곳",
              "explanation": "빌릴 수 있으면 books 를 False 로 바꿔 대출 중으로 표시하고, loans 에 누가 빌렸는지 적은 뒤 안내 문구를 돌려줘요.",
              "keywords": ["False", "loans", "누가", "기록"]},
-            {"start": 19, "end": 22, "concept": "call_flow", "why": "실행 순서에 따라 결과가 달라지는 곳",
-             "explanation": "민지가 먼저 빌려서 준호의 첫 요청은 '이미 대출 중이에요'가 돼요. give_back 으로 다시 True 가 되면 준호가 빌릴 수 있어요.",
-             "keywords": ["민지", "준호", "이미", "반납", "다시"]},
         ],
     },
     {
@@ -171,89 +159,273 @@ print(borrow("준호", "어린 왕자"))""",
         "topic": "은행 계좌",
         "title": "은행 계좌 (클래스와 예외 처리)",
         "code": """# 은행 계좌 (클래스와 예외 처리)
+class BankError(Exception):
+    pass
+
+
+class NotEnoughMoney(BankError):
+    def __init__(self, owner, need, have):
+        super().__init__(f"{owner}님 잔액 부족 (필요 {need}원, 잔액 {have}원)")
+        self.short = need - have
+
+
 class Account:
-    def __init__(self, owner, balance=0):
+    def __init__(self, owner, balance=0, limit=50000):
         self.owner = owner
         self.balance = balance
+        self.limit = limit
         self.history = []
 
     def deposit(self, amount):
         if amount <= 0:
-            raise ValueError("입금액은 0보다 커야 해요")
+            raise BankError("입금액은 0보다 커야 해요")
         self.balance += amount
         self.history.append(("입금", amount))
 
     def withdraw(self, amount):
+        if amount <= 0:
+            raise BankError("출금액은 0보다 커야 해요")
+        if amount > self.limit:
+            raise BankError(f"한 번에 {self.limit}원까지만 뺄 수 있어요")
         if amount > self.balance:
-            raise ValueError("잔액이 부족해요")
+            raise NotEnoughMoney(self.owner, amount, self.balance)
         self.balance -= amount
         self.history.append(("출금", amount))
 
 
-acc = Account("지수", 10000)
-for kind, amount in [("입금", 5000), ("출금", 20000), ("출금", 3000)]:
-    try:
-        if kind == "입금":
-            acc.deposit(amount)
-        else:
-            acc.withdraw(amount)
-    except ValueError as e:
-        print(kind, amount, "실패:", e)
+class Bank:
+    def __init__(self):
+        self.accounts = {}
+        self.failed = []
 
-print(acc.owner, "잔액:", acc.balance)
-print("기록:", acc.history)""",
+    def open(self, owner, balance=0):
+        if owner in self.accounts:
+            raise BankError(f"{owner}님 계좌는 이미 있어요")
+        self.accounts[owner] = Account(owner, balance)
+        return self.accounts[owner]
+
+    def find(self, owner):
+        if owner not in self.accounts:
+            raise BankError(f"{owner}님 계좌가 없어요")
+        return self.accounts[owner]
+
+    def transfer(self, sender, receiver, amount):
+        source = self.find(sender)
+        target = self.find(receiver)
+        source.withdraw(amount)
+        try:
+            target.deposit(amount)
+        except BankError:
+            source.deposit(amount)
+            raise
+        return f"{sender} → {receiver} {amount}원"
+
+    def run(self, orders):
+        done = 0
+        for kind, *args in orders:
+            try:
+                if kind == "이체":
+                    message = self.transfer(*args)
+                elif kind == "입금":
+                    self.find(args[0]).deposit(args[1])
+                    message = f"{args[0]} 입금 {args[1]}원"
+                else:
+                    self.find(args[0]).withdraw(args[1])
+                    message = f"{args[0]} 출금 {args[1]}원"
+            except NotEnoughMoney as e:
+                self.failed.append(kind)
+                print("실패:", e, f"/ {e.short}원 모자라요")
+            except BankError as e:
+                self.failed.append(kind)
+                print("실패:", e)
+            else:
+                done += 1
+                print("완료:", message)
+        return done
+
+    def add_interest(self, rate):
+        paid = {}
+        for owner, account in self.accounts.items():
+            interest = int(account.balance * rate)
+            if interest > 0:
+                account.deposit(interest)
+                paid[owner] = interest
+        return paid
+
+
+def summary(bank):
+    total = 0
+    for owner, account in sorted(bank.accounts.items()):
+        count = len(account.history)
+        print(f"{owner}: {account.balance}원 (거래 {count}건)")
+        total += account.balance
+    return total
+
+
+bank = Bank()
+bank.open("지수", 30000)
+bank.open("민호", 5000)
+bank.open("하린")
+
+orders = [
+    ("입금", "하린", 12000),
+    ("이체", "지수", "민호", 8000),
+    ("출금", "민호", 20000),
+    ("이체", "민호", "서윤", 1000),
+    ("출금", "지수", 60000),
+    ("입금", "하린", -500),
+    ("출금", "하린", 2000),
+]
+
+done = bank.run(orders)
+print("성공", done, "건 / 실패", len(bank.failed), "건:", bank.failed)
+
+paid = bank.add_interest(0.01)
+print("이자:", paid)
+
+print("총 잔액:", summary(bank))
+try:
+    bank.open("지수")
+except BankError as e:
+    print("계좌 개설 실패:", e)""",
         "marks": [
-            {"start": 14, "end": 18, "concept": "exception", "why": "출금이 막히는 조건",
-             "explanation": "출금액이 잔액보다 크면 ValueError 를 일으키고 함수가 바로 멈춰요. 그래서 잔액과 기록은 바뀌지 않아요. 충분하면 잔액에서 빼고 기록에 남겨요.",
-             "keywords": ["잔액", "크면", "ValueError", "멈", "바뀌지"]},
-            {"start": 23, "end": 29, "concept": "exception", "why": "오류가 나도 반복이 이어지는 곳",
-             "explanation": "try 안에서 오류가 나면 except 로 건너뛰어 실패 메시지를 출력하고, 반복은 다음 거래로 계속돼요. 2만 원 출금만 실패해요.",
-             "keywords": ["try", "except", "건너", "계속", "실패"]},
-            {"start": 31, "end": 32, "concept": "class_state", "why": "마지막 상태",
-             "explanation": "10000 + 5000 - 3000 = 12000원이 남고, 기록에는 성공한 입금 5000과 출금 3000 두 건만 있어요.",
-             "keywords": ["12000", "두 건", "성공"]},
+            {"start": 25, "end": 33, "concept": "exception", "why": "출금이 막히는 조건의 순서",
+             "explanation": "withdraw 는 0 이하인지, 한도(50000원)를 넘는지, 잔액보다 큰지를 차례로 검사해서 하나라도 걸리면 예외를 던지고 멈춰요. 그래서 잔액과 기록은 바뀌지 않아요. 지수의 60000원 출금은 한도에, 민호의 20000원 출금은 잔액(13000원)에 걸려요.",
+             "keywords": ["차례", "한도", "잔액", "예외", "바뀌지"]},
+            {"start": 52, "end": 61, "concept": "call_flow", "why": "이체가 두 계좌를 차례로 바꾸는 곳",
+             "explanation": "transfer 는 먼저 두 계좌를 find 로 찾고, 보내는 계좌에서 withdraw 한 뒤 받는 계좌에 deposit 해요. 입금이 실패하면 뺀 돈을 다시 넣고(raise) 오류를 위로 보내요. 서윤 계좌는 없어서 find 에서 바로 멈추므로 민호의 돈은 빠지지 않아요.",
+             "keywords": ["find", "withdraw", "deposit", "되돌", "서윤"]},
+            {"start": 65, "end": 83, "concept": "exception", "why": "오류 종류에 따라 다르게 처리하고 반복을 이어 가는 곳",
+             "explanation": "주문마다 try 안에서 처리하고, NotEnoughMoney 는 위의 except 에서 모자란 금액까지, 나머지 BankError 는 아래 except 에서 메시지만 출력해요. 오류가 없을 때만 else 에서 성공 수를 늘려서 성공 3건, 실패 4건이 돼요.",
+             "keywords": ["try", "NotEnoughMoney", "BankError", "else", "3건"]},
         ],
     },
     {
         "id": "sample-folder",
         "level": 3,
         "topic": "폴더 용량 계산",
-        "title": "폴더 안 파일 크기 합치기 (재귀)",
-        "code": """# 폴더 안 파일 크기 합치기 (재귀)
-folder = {
-    "사진": {"여행.jpg": 300, "가족.jpg": 200},
-    "문서": {"과제.pdf": 120, "백업": {"옛날.pdf": 80}},
+        "title": "폴더 정리 도우미 (재귀)",
+        "code": """# 폴더 정리 도우미 (재귀와 예외 처리)
+class FolderError(Exception):
+    pass
+
+
+drive = {
+    "사진": {
+        "여행": {"바다.jpg": 300, "산.jpg": 250, "영상.mp4": 900},
+        "가족.jpg": 200,
+    },
+    "문서": {
+        "과제.pdf": 120,
+        "백업": {"옛날.pdf": 80, "2025": {"보고서.docx": 60, "메모.txt": 4}},
+    },
+    "음악": {},
     "메모.txt": 5,
 }
 
+
+def is_file(item):
+    return isinstance(item, int)
+
+
 def total_size(item):
-    if isinstance(item, int):
+    if is_file(item):
         return item
     size = 0
-    for name, child in item.items():
+    for child in item.values():
         size += total_size(child)
     return size
 
-def biggest(folder):
-    best_name, best_size = None, -1
-    for name, child in folder.items():
-        s = total_size(child)
-        if s > best_size:
-            best_name, best_size = name, s
-    return best_name, best_size
 
-print("전체:", total_size(folder))
-print("가장 큰 것:", biggest(folder))""",
+def count_files(item):
+    if is_file(item):
+        return 1
+    return sum(count_files(child) for child in item.values())
+
+
+def find_files(item, ext, path=""):
+    found = []
+    for name, child in item.items():
+        here = f"{path}/{name}"
+        if is_file(child):
+            if name.endswith(ext):
+                found.append((here, child))
+        else:
+            found += find_files(child, ext, here)
+    return found
+
+
+def depth(item):
+    if is_file(item) or not item:
+        return 0
+    return 1 + max(depth(child) for child in item.values())
+
+
+def open_path(root, path):
+    current = root
+    for part in path.strip("/").split("/"):
+        if is_file(current):
+            raise FolderError(f"{part} 앞의 것은 파일이라 들어갈 수 없어요")
+        if part not in current:
+            raise FolderError(f"{part} 이(가) 없어요")
+        current = current[part]
+    return current
+
+
+def largest_file(item, path=""):
+    best = ("", -1)
+    for name, child in item.items():
+        here = f"{path}/{name}"
+        candidate = (here, child) if is_file(child) else largest_file(child, here)
+        if candidate[1] > best[1]:
+            best = candidate
+    return best
+
+
+def show(item, indent=0):
+    for name, child in sorted(item.items()):
+        if is_file(child):
+            print("  " * indent + f"- {name} ({child}MB)")
+        else:
+            print("  " * indent + f"+ {name}/ ({total_size(child)}MB)")
+            show(child, indent + 1)
+
+
+def report(root, paths):
+    for path in paths:
+        try:
+            target = open_path(root, path)
+        except FolderError as e:
+            print(f"{path}: 열 수 없어요 — {e}")
+            continue
+        if is_file(target):
+            print(f"{path}: 파일 {target}MB")
+        else:
+            print(f"{path}: 폴더 {total_size(target)}MB, 파일 {count_files(target)}개")
+
+
+show(drive)
+print("전체:", total_size(drive), "MB / 파일", count_files(drive), "개")
+print("가장 깊은 단계:", depth(drive))
+
+print("pdf 파일:")
+for path, size in find_files(drive, ".pdf"):
+    print(" ", path, size, "MB")
+
+report(drive, ["사진/여행", "문서/백업/2025/메모.txt", "문서/과제.pdf/표지", "영화"])
+
+print("가장 큰 파일:", largest_file(drive))
+print("문서 안에서 가장 큰 파일:", largest_file(drive["문서"], "/문서"))""",
         "marks": [
-            {"start": 9, "end": 10, "concept": "recursion", "why": "재귀가 멈추는 곳",
-             "explanation": "숫자(파일 크기)를 만나면 더 들어가지 않고 그 값을 그대로 돌려줘요. 재귀가 멈추는 곳이에요.",
-             "keywords": ["숫자", "멈", "그대로", "파일"]},
-            {"start": 12, "end": 14, "concept": "recursion", "why": "자기 자신을 다시 부르는 곳",
-             "explanation": "폴더(딕셔너리)면 안의 항목마다 total_size 를 다시 불러 크기를 더해요. 백업 폴더처럼 안에 폴더가 있어도 같은 방법으로 끝까지 들어가요.",
-             "keywords": ["다시", "항목마다", "더해", "폴더", "안"]},
-            {"start": 18, "end": 21, "concept": "loop_update", "why": "가장 큰 항목을 고르는 곳",
-             "explanation": "맨 위 항목마다 크기를 구해 지금까지 가장 큰 것보다 크면 바꿔요. 사진 500, 문서 200, 메모 5 라서 ('사진', 500) 이 돼요.",
-             "keywords": ["가장", "크면", "바꿔", "사진", "500"]},
+            {"start": 24, "end": 30, "concept": "recursion", "why": "재귀가 멈추고 다시 들어가는 곳",
+             "explanation": "파일(숫자)을 만나면 그 크기를 그대로 돌려주며 재귀가 멈춰요. 폴더면 안의 항목마다 total_size 를 다시 불러 더해서, 백업/2025 처럼 깊은 폴더도 끝까지 들어가요. 전체는 1919MB 예요.",
+             "keywords": ["숫자", "멈", "다시 불러", "더해", "1919"]},
+            {"start": 39, "end": 48, "concept": "recursion", "why": "경로를 이어 붙이며 파일을 모으는 곳",
+             "explanation": "항목마다 지금 경로에 이름을 붙여요. 파일이고 확장자가 맞으면 found 에 넣고, 폴더면 find_files 를 다시 불러 찾은 목록을 found 에 이어 붙여요. 그래서 /문서/과제.pdf 와 /문서/백업/옛날.pdf 두 개가 나와요.",
+             "keywords": ["경로", "확장자", "다시 불러", "이어 붙", "옛날.pdf"]},
+            {"start": 57, "end": 65, "concept": "exception", "why": "잘못된 경로에서 예외로 멈추는 곳",
+             "explanation": "경로를 / 로 나눠 한 단계씩 들어가요. 지금 것이 파일인데 더 들어가려 하거나, 이름이 없으면 FolderError 를 던져 멈춰요. report 가 이것을 except 로 받아 '열 수 없어요'를 출력하고 다음 경로로 넘어가서, 과제.pdf/표지 와 영화 가 실패해요.",
+             "keywords": ["한 단계씩", "파일", "FolderError", "except", "다음"]},
         ],
     },
     {

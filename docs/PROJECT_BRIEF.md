@@ -64,17 +64,17 @@
 | --- | --- | --- |
 | 1 입문 | 변수·조건문·반복문이 위에서 아래로 | 10~20줄 / 30줄 |
 | 2 초급 | 함수 여러 개가 서로를 부름, 리스트·딕셔너리 | 25~45줄 / 60줄 |
-| 3 중급 | 클래스·재귀·예외 처리처럼 흐름이 오감 | 35~60줄 / 80줄 |
-| 4 고급 | 실제 문제를 푸는 작은 프로그램: 클래스·함수 6개 이상, 자료구조 2개 이상 + 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디), 입력 검증·예외, 알고리즘 비교·요약 | 120~190줄 / 최소 100줄 · 최대 200줄, ※ 5곳, 랜덤 주제는 알고리즘용 목록 |
+| 3 중급 | 기능 서너 개가 이어지는 작은 프로그램: 클래스·재귀·예외 처리 중 2가지 이상, 함수 4개 이상 | 110~140줄 / 최소 100줄 · 최대 150줄 |
+| 4 고급 | 실제 문제를 푸는 작은 프로그램: 클래스·함수 6개 이상, 자료구조 2개 이상 + 알고리즘 1~2개(최단 경로·동적 계획법·정렬·이진 탐색·재귀·백트래킹·그리디), 입력 검증·예외, 알고리즘 비교·요약 | 180~270줄 / 최소 120줄 · 최대 300줄, 랜덤 주제는 알고리즘용 목록 |
 
 ### 4.1.1 언어 (`common.LANGUAGES`, 화면 `LANGUAGE_NAMES`)
-- **Python**: AI 가 만든 코드를 `ast` 로 검사 — 문법, 허용하지 않은 모듈·함수, 정의하지 않은 이름(오타), print (`practice.py_ast_problems`, 실행하지 않음).
-- **JavaScript**: Lambda 에 Node.js 가 없어서 `practice.js_shape_problems` 로 겉모양만 검사 — 괄호 ( ) [ ] { } 짝, 따옴표·템플릿 문자열·/* */ 주석·정규식이 닫혔는지, import·require·fetch·document·process·Math.random·Date.now 를 쓰지 않았는지, 마지막 console.log. 문자열·주석 안의 글자는 보지 않는다.
+- **Python**: AI 가 만든 코드를 `ast` 로 검사 — 문법, 쓰지 않기로 한 모듈(파일·네트워크·운영체제, 표준 라이브러리가 아닌 것)·함수, 정의하지 않은 이름(오타), print (`practice.py_ast_problems`, 실행하지 않음).
+- **JavaScript**: Lambda 에 Node.js 가 없어서 `practice.js_shape_problems` 로 겉모양만 검사 — 괄호 ( ) [ ] { } 짝, 따옴표·템플릿 문자열·/* */ 주석·정규식이 닫혔는지, import·require·fetch·document·process·setInterval 을 쓰지 않았는지, 마지막 console.log. 문자열·주석 안의 글자는 보지 않는다.
 - 예시 코드는 언어마다 난이도별 1개 이상 (`samples.py`, `samples_js.py`), `npm run verify` 가 Python·node 로 실제 실행한다.
 - 언어별로 다른 곳: `practice.CODE_RULES`·`LEVEL_GUIDE`, 예시 코드, 화면 `src/lib/highlight.ts`. 첨삭·튜터·내 공부·개념 추정(`common.guess_concept`, 두 언어 규칙을 함께 봄)은 같은 코드를 쓴다. 난이도 추천·개념별 약점은 언어를 섞어 계산한다 (흐름을 읽는 힘은 언어와 크게 상관없음).
 
 ### 4.2 ※ 꼭 설명할 곳 (marks)
-코드마다 2~4곳 (고급은 5곳). 흐름을 이해해야만 설명할 수 있는 곳(조건 분기, 값을 바꾸는 반복, 함수가 다른 함수를 부르는 곳, 예외·재귀). 각 지점은 `start`·`end`(줄 범위), `why`, `explanation`(모범 설명, 첨삭 기준), `keywords`(핵심 표현 3~5개, 규칙 첨삭용) 를 가진다.
+코드마다 입문 1곳 · 초급 2곳 · 중급 3곳 · 고급 5곳. 흐름을 이해해야만 설명할 수 있는 곳(조건 분기, 값을 바꾸는 반복, 함수가 다른 함수를 부르는 곳, 예외·재귀). 각 지점은 `start`·`end`(줄 범위), `why`, `explanation`(모범 설명, 첨삭 기준), `keywords`(핵심 표현 3~5개, 규칙 첨삭용) 를 가진다.
 AI 는 줄 번호를 자주 잘못 세서, 생성 응답은 **줄의 글자(`startLine`·`endLine`)** 로 받고 서버가 코드에서 그 줄을 찾는다 (같은 줄이 여러 개면 AI 가 적은 번호에 가장 가까운 줄, `practice.find_line`).
 
 ### 4.3 개념 꼬리표 (`common.CONCEPTS`)
@@ -152,7 +152,7 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 ```
 브라우저 ──→ GitHub Pages (정적 화면, Next.js output: export)
    │  JSON (x-session-id) — 주소 하나라 HTTPS 연결을 계속 다시 씀
-   └─→ jojo_api 함수 URL (Python, 512MB, 5분) ──→ DynamoDB jojo_table (서울)
+   └─→ jojo_api 함수 URL (Python, 512MB, 10분) ──→ DynamoDB jojo_table (서울)
                                                  └─→ Bedrock Claude Haiku 4.5 (us-east-1, Converse)
 ```
 

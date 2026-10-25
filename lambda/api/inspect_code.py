@@ -29,7 +29,7 @@ MASK = "********"
 
 SYSTEM_PROMPT = """너는 프로그래밍 입문자가 자기 코드(또는 AI 가 짜 준 코드)를 제대로 읽었는지 점검하도록 도와주는 선생님이야.
 주어진 코드 범위에서 다음을 정해.
-- level: 이 코드를 읽는 난이도 1 입문(변수·조건·반복), 2 초급(함수끼리 부르기·리스트·딕셔너리), 3 중급(클래스·재귀·예외·비동기 흐름), 4 고급(100줄 넘는 프로그램에서 자료구조와 알고리즘(최단 경로·동적 계획법·정렬·탐색 등)이 흐름의 중심)
+- level: 이 코드를 읽는 난이도 1 입문(변수·조건·반복), 2 초급(함수끼리 부르기·리스트·딕셔너리), 3 중급(클래스·재귀·예외·비동기 흐름), 4 고급(150줄 넘는 프로그램에서 자료구조와 알고리즘(최단 경로·동적 계획법·정렬·탐색 등)이 흐름의 중심)
 - levelReason: 그렇게 본 이유 한 문장
 - marks: 흐름을 이해해야만 설명할 수 있는 곳 2~4곳 (고급은 5곳까지) (조건 분기, 값을 바꾸는 반복, 함수가 다른 함수를 부르는 곳, 예외·재귀)
   · 반드시 '점검할 범위' 안의 줄만. startNo·endNo 는 왼쪽에 적힌 줄 번호 그대로. 범위끼리 겹치면 안 돼.
@@ -182,8 +182,8 @@ def find_functions(code):
 def rule_analysis(code, functions):
     """AI 없이: 문법 요소로 난이도, 함수마다 조건·반복이 있는 첫 덩어리를 ※ 지점으로"""
     level = 3 if re.search(r"^\s*class\s|\btry:|\braise\b|\basync\b", code, re.M) else 2 if len(find_functions(code)) >= 2 else 1
-    # 100줄 넘고 함수가 많으며 알고리즘에 쓰는 도구(힙·이진 탐색·큐·재귀 표·정렬 기준)가 보이면 고급
-    if len(code.split("\n")) >= 100 and len(find_functions(code)) >= 6 and re.search(r"\bheapq\b|\bbisect\b|\bdeque\b|lru_cache|\bmemo\b|\bdp\b|sorted\(.*key=", code):
+    # 150줄 넘고 함수가 많으며 알고리즘에 쓰는 도구(힙·이진 탐색·큐·재귀 표·정렬 기준)가 보이면 고급
+    if len(code.split("\n")) >= 150 and len(find_functions(code)) >= 6 and re.search(r"\bheapq\b|\bbisect\b|\bdeque\b|lru_cache|\bmemo\b|\bdp\b|sorted\(.*key=", code):
         level = 4
     lines = code.split("\n")
     marks = []
