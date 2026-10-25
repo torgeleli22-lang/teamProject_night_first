@@ -94,7 +94,7 @@
 - 학습자 정보(`PROFILE`)와 같은 서랍이라 `query_all(user_pk(나))` 한 번이면 둘 다 나와요
 
 #### 읽을 코드 `CODE#<id> / INFO`
-- **쓰기**: `common.py:867` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:147` `start_practice`, `:167` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
+- **쓰기**: `common.py:867` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:148` `start_practice`, `:168` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
 - **읽기**: `common.py:878` `load_code(code_id, user)` — **userId 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
 - **화면으로 보낼 모양**: `common.py:911` `public_code` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
 
@@ -176,7 +176,7 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 | 6 | `finally: log_usage` `:580` | 성공·실패 모두 토큰·비용 기록 (`OPS#USAGE`, `OPS#AILOG`) |
 
 **부르는 쪽의 약속**: `ask_ai` 는 실패하면 `AiUnavailable` 을 던져요. 부르는 쪽은 꼭 받아서 **AI 없는 길**로 가요.
-- 연습 코드 → 예시 코드 (`practice.py:348` `pick_sample`)
+- 연습 코드 → 예시 코드 (`practice.py:350` `pick_sample`)
 - 첨삭 → 규칙 첨삭 (`review.py:198` `rule_review`: 핵심 표현이 메모에 들어 있는지)
 - 튜터 → 규칙 답 (`tutor_chat.py:127` `rule_answer`)
 - 주제 판정 → 규칙 판정 (`topics.py:86` `rule_check`)
@@ -187,27 +187,27 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 
 각 처리 함수 안에 `# 1.` `# 2.` 단계 주석이 있어요. **주석만 위에서 아래로 읽어도 흐름이 보여요.**
 
-#### ① 연습 코드 받기 — `POST /practice` → `practice.py:147` `start_practice`
+#### ① 연습 코드 받기 — `POST /practice` → `practice.py:148` `start_practice`
 ```
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      field() common.py:223
    get_user(req)                                           common.py:468
-2. make_code()                                                practice.py:228
-   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:348
+2. make_code()                                                practice.py:229
+   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:350
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
    └ 최대 2번 반복:
        ① 출제   ask_ai("code_generation")
-       ② 규칙 검사 check_generated                             practice.py:300
-            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:391
-            JavaScript: js_shape_problems (괄호·따옴표 짝)       practice.py:455
-            줄 수 · ※ 줄 찾기 find_line                         practice.py:336
-       ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:268
-            틀린 모범 설명 고치기 fix_explanations               practice.py:286
+       ② 규칙 검사 check_generated                             practice.py:301
+            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:393
+            JavaScript: js_shape_problems (괄호·따옴표 짝)       practice.py:457
+            줄 수 · ※ 줄 찾기 find_line                         practice.py:338
+       ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:269
+            틀린 모범 설명 고치기 fix_explanations               practice.py:287
        걸리면 이유 + 방금 코드를 붙여 ① 로 한 번 더, 2번 다 안 되면 예시 코드
 3. save_code (CODE#id / INFO) · remember_topic · count_event
    return public_code(item)   ← 모범 설명은 빼고
 ```
-- 더 쉽게·더 어렵게 `practice.py:167` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
-- 다시 열기 `GET /code` `practice.py:200` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
+- 더 쉽게·더 어렵게 `practice.py:168` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
+- 다시 열기 `GET /code` `practice.py:201` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
 
 #### ② 첨삭 받기 — `POST /review` → `review.py:63` `review`
 ```
