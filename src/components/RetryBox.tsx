@@ -13,14 +13,14 @@ const MAX_CHARS = 500;
  * 처음 메모가 있으면 그 글에서 고쳐 쓰게 미리 채워 둔다.
  */
 export function RetryBox({
-  readingId,
+  codeId,
   item,
   firstMark,
   firstText,
   initial,
   onLook,
 }: {
-  readingId: string;
+  codeId: string;
   item: number;
   firstMark: keyof typeof MARK_NAMES;
   firstText: string;
@@ -39,7 +39,7 @@ export function RetryBox({
     setBusy(true);
     setError(null);
     try {
-      const r = await apiPost<RetryReply>("/review/retry", { readingId, item, text: text.trim() });
+      const r = await apiPost<RetryReply>("/review/retry", { codeId, item, text: text.trim() });
       setState({ attempts: r.attempts, left: r.left });
     } catch (e) {
       setError((e as Error).message);

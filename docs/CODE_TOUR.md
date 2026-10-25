@@ -43,14 +43,14 @@
 
 | 항목 | pk | sk | 들어 있는 것 | 자동 삭제 |
 |---|---|---|---|---|
-| 학습자 | `USER#<사용자 id>` | `PROFILE` | 난이도, 최근 주제 10개, (로그인) member·이름·제공자, formerIds | 12시간 · 로그인 1년 |
+| 학습자 | `USER#<사용자 id>` | `PROFILE` | 난이도, 최근 주제 10개, (로그인) member·이름·제공자, formerUserIds | 12시간 · 로그인 1년 |
 | 내 공부 | `USER#<사용자 id>` | `STUDYREC#<코드 id>` | 개념별 처음/최고 판정, 내 설명, 코드 몇 줄 | 1일 · 로그인 1년 |
-| 읽을 코드 | `CODE#<코드 id>` | `INFO` | owner(만든 학습자), 코드, 언어, 난이도, ※ 지점(모범 설명 포함) | 1일 · 로그인 30일 |
+| 읽을 코드 | `CODE#<코드 id>` | `INFO` | userId(만든 학습자), 코드, 언어, 난이도, ※ 지점(모범 설명 포함) | 1일 · 로그인 30일 |
 | 첨삭 결과 | `CODE#<코드 id>` | `REVIEW#<시각>` | 메모, 결과(○△✕ 개수·항목별 코멘트) | 코드와 같이 |
 | 다시 써 보기 | `CODE#<코드 id>` | `REVIEW#<첨삭 시각>#RETRY#<항목>` | 다시 쓴 설명·판정 (3번) | 코드와 같이 |
 | 튜터 대화 | `CODE#<코드 id>` | `REVIEW#<첨삭 시각>#CHAT#<항목>` | 질문·답 (10번) | 코드와 같이 |
-| 로그인 토큰 | `LOGIN#<토큰 uuid4>` | `USER` | learnerId, provider | 30일 (쓰면 늘어남) |
-| 소셜 계정 | `ACCOUNT#google:<고유 번호>` | `USER` | learnerId (→ 학습자) | 없음 |
+| 로그인 토큰 | `LOGIN#<토큰 uuid4>` | `USER` | userId, provider | 30일 (쓰면 늘어남) |
+| 소셜 계정 | `ACCOUNT#google:<고유 번호>` | `USER` | userId (→ 학습자) | 없음 |
 | 로그인 시작 | `AUTH#<state>` | `STATE` | provider, returnTo, anonSid | 10분 |
 | 하루 사용 수 | `OPS#STATS` | `DAY#날짜` | practices, reviews … 개수 | 90일 |
 | AI 사용량 | `OPS#USAGE` | `월#작업#모델` | 호출·토큰·실패 수 | 없음 |
@@ -60,7 +60,7 @@
 
 > 예전 이름(2026년 10월까지): `LEARNER` → `USER#…/PROFILE`, `STUDY#…/R#…` → `USER#…/STUDYREC#…`, `READ#…/CODE` → `CODE#…/INFO`,
 > `RETRY#t#n`·`CHAT#t#n` → `REVIEW#t#RETRY#n`·`REVIEW#t#CHAT#n`, `LOGIN`·`ACCOUNT`·`AUTH` → `LOGIN#…`·`ACCOUNT#…`·`AUTH#…`,
-> `STATS`·`USAGE`·`AILOG`·`META`·`RL` → `OPS#STATS`·`OPS#USAGE`·`OPS#AILOG`·`OPS#CONFIG`·`OPS#LIMIT`. 옮기기: 관리자 화면 '예전 데이터 옮기기' (`admin.py` `migrate`)
+> `STATS`·`USAGE`·`AILOG`·`META`·`RL` → `OPS#STATS`·`OPS#USAGE`·`OPS#AILOG`·`OPS#CONFIG`·`OPS#LIMIT`. 필드도 `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`. 옮기기: 관리자 화면 '예전 데이터 옮기기' (`admin.py` `migrate`)
 
 자세한 필드 표: `docs/PROJECT_BRIEF.md` §9.2
 
@@ -78,15 +78,15 @@
 
 > **TTL(자동 삭제)**: 항목에 `jojo_ttl = 유닉스 시각(초)`를 넣어 두면, 그 시각이 지난 뒤 DynamoDB 가 알아서 지워요.
 > 지우는 데 몇 시간 늦을 수 있어서 읽을 때 `alive()` 로 한 번 더 걸러요.
-> 보관 기간은 한 곳에서 정해요: `common.py:459` `keep_seconds(learner, what)` (로그인 여부·종류별).
+> 보관 기간은 한 곳에서 정해요: `common.py:459` `keep_seconds(user, what)` (로그인 여부·종류별).
 
 ### 1-4. 항목마다 "누가 쓰고 누가 읽나"
 
 #### 학습자 `USER#<id> / PROFILE`
-- **만들기**: `common.py:468` `get_learner(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:488`)
-- **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `USER#<id>/PROFILE` 직접, 로그인은 `LOGIN#<토큰>/USER` → `learnerId` → `USER#<id>/PROFILE`
-- **고치기**: `common.py:495` `use_learner` (15분마다 lastSeen·기한 늘리기), `:506` `remember_topic` (최근 주제·난이도)
-- **로그인 계정**: `auth.py:190` `account_learner` (member 학습자 만들기), `auth.py:206` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
+- **만들기**: `common.py:468` `get_user(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:488`)
+- **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `USER#<id>/PROFILE` 직접, 로그인은 `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE`
+- **고치기**: `common.py:495` `use_user` (15분마다 lastSeen·기한 늘리기), `:506` `remember_topic` (최근 주제·난이도)
+- **로그인 계정**: `auth.py:190` `account_user` (member 학습자 만들기), `auth.py:206` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
 
 #### 내 공부 `USER#<id> / STUDYREC#<코드 id>`
 - 쓰기: 첨삭할 때 `study.py:49` `record_review` (코드 하나당 한 줄), 다시 써서 나아지면 `study.py:72` `record_retry`
@@ -94,9 +94,9 @@
 - 학습자 정보(`PROFILE`)와 같은 서랍이라 `query_all(user_pk(나))` 한 번이면 둘 다 나와요
 
 #### 읽을 코드 `CODE#<id> / INFO`
-- **쓰기**: `common.py:867` `save_reading` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:139` `start_practice`, `:159` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
-- **읽기**: `common.py:878` `load_reading(id, learner)` — **owner 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
-- **화면으로 보낼 모양**: `common.py:911` `public_reading` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
+- **쓰기**: `common.py:867` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:139` `start_practice`, `:159` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
+- **읽기**: `common.py:878` `load_code(code_id, user)` — **userId 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
+- **화면으로 보낼 모양**: `common.py:911` `public_code` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
 
 #### 첨삭 `REVIEW#<시각>` · 다시 쓰기 `…#RETRY#` · 튜터 `…#CHAT#` (모두 `CODE#<id>` 서랍 안)
 - 다시 쓰기·대화는 **첨삭의 sk 뒤에** 붙어요: `REVIEW#<시각>` → `REVIEW#<시각>#RETRY#002`, `REVIEW#<시각>#CHAT#000`
@@ -190,7 +190,7 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 #### ① 연습 코드 받기 — `POST /practice` → `practice.py:139` `start_practice`
 ```
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      field() common.py:223
-   get_learner(req)                                           common.py:468
+   get_user(req)                                           common.py:468
 2. make_code()                                                practice.py:220
    ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:331
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
@@ -203,15 +203,15 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
        ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:259
             틀린 모범 설명 고치기 fix_explanations               practice.py:277
        걸리면 이유 + 방금 코드를 붙여 ① 로 한 번 더, 2번 다 안 되면 예시 코드
-3. save_reading (CODE#id / INFO) · remember_topic · count_event
-   return public_reading(item)   ← 모범 설명은 빼고
+3. save_code (CODE#id / INFO) · remember_topic · count_event
+   return public_code(item)   ← 모범 설명은 빼고
 ```
 - 더 쉽게·더 어렵게 `practice.py:159` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
-- 다시 열기 `GET /reading` `practice.py:192` `get_reading`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
+- 다시 열기 `GET /code` `practice.py:192` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
 
 #### ② 첨삭 받기 — `POST /review` → `review.py:63` `review`
 ```
-1. 내 코드 꺼내기 load_reading · 메모 검사 read_memos           review.py:169
+1. 내 코드 꺼내기 load_code · 메모 검사 read_memos           review.py:169
 2. 누락(⬚) 정하기 — AI 없이: ※ 범위와 겹치는 메모가 없으면 누락   overlaps review.py:183
 3. 메모가 있으면 ask_ai("review") → 안 되면 rule_review          review.py:198
 4. 결과 모으기 build_result (코드 위치 순서, 모범 설명은 이제 포함) review.py:223
@@ -242,7 +242,7 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 ```
 GET /auth/start     start     :55   AUTH/state 저장 → Google 로그인 화면으로 302
 GET /auth/callback  callback  :81   state 확인·삭제 → fetch_profile :168 (code → 토큰 → sub·이름)
-                                    → account_learner :189 → adopt_anonymous :205
+                                    → account_user :189 → adopt_anonymous :205
                                     → LOGIN/토큰 저장 → 화면#login=토큰 으로 302
 GET /me             me        :49   지금 학습자 (로그인 버튼 보이기)
 POST /auth/logout   logout    :106  LOGIN 삭제
@@ -257,8 +257,8 @@ POST /auth/logout   logout    :106  LOGIN 삭제
 | 걱정 | 막는 곳 |
 |---|---|
 | 요금 폭탄 | `check_budget` (월 예산), `ai_allowed` (1시간 AI 요청 수), `hit_limit` (IP 당 1분 600번), 관리자 AI 끄기 |
-| 남의 코드 보기 | `load_reading` 의 owner 확인 |
-| 답 미리 보기 | `public_reading` 이 모범 설명을 빼고 보냄 |
+| 남의 코드 보기 | `load_code` 의 userId 확인 |
+| 답 미리 보기 | `public_code` 가 모범 설명을 빼고 보냄 |
 | 비밀 값 노출 | 화면 `src/lib/secrets.ts` + Lambda `mask_secrets` 두 번 가림, 키는 Lambda 환경 변수에만 |
 | AI 가 이상한 형식 | 도구(JSON Schema)로만 답받기 + `check_schema` |
 | AI 가 틀린 코드·설명 | 규칙 검사 + AI 검토 (`practice.py`) |
@@ -295,7 +295,7 @@ npm run smoke    # 모든 API 를 순서대로 불러 보는 점검 — scripts/
 ### 3-4. 추천 공부 순서 (하루 30분씩)
 1. `lambda_function.py` 전체 (64줄) — 입구와 경로 표
 2. `common.py` 3·4번 구역 — 요청·응답, DB 도구 7개
-3. `common.py` 6번 구역 `get_learner` — 학습자가 어떻게 생기고 이어지는지
+3. `common.py` 6번 구역 `get_user` — 학습자가 어떻게 생기고 이어지는지
 4. `practice.py` `start_practice` → `make_code` — 가장 중요한 흐름 (단계 주석만 먼저)
 5. `review.py` `review` → `build_result` — 누락 판정(규칙)과 AI 첨삭이 어떻게 합쳐지는지
 6. `common.py` 7번 구역 `ask_ai` — AI 부르기와 대체 경로
@@ -303,7 +303,7 @@ npm run smoke    # 모든 API 를 순서대로 불러 보는 점검 — scripts/
 8. `auth.py` — 로그인 (OAuth) 은 마지막에
 
 **스스로 확인 질문**
-- `GET /reading?id=…` 로 남의 코드 id 를 넣으면 어디서 막히나요? (힌트: `load_reading`)
-- 첨삭 전에 화면이 모범 설명을 모르는 이유는? (힌트: `public_reading`)
+- `GET /code?codeId=…` 로 남의 코드 id 를 넣으면 어디서 막히나요? (힌트: `load_code`)
+- 첨삭 전에 화면이 모범 설명을 모르는 이유는? (힌트: `public_code`)
 - AI 를 끄면 첨삭은 어떻게 되나요? (힌트: `review` 3번 단계)
 - 로그인 안 한 학습자의 기록은 언제 사라지나요? (힌트: `keep_seconds`, `jojo_ttl`)

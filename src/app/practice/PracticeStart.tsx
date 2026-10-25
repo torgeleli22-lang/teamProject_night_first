@@ -15,7 +15,7 @@ import {
   LEVEL_NAMES,
   type Level,
   type RandomTopic,
-  type Reading,
+  type CodeItem,
   type StudyOverview,
   type TopicCheck,
 } from "@/lib/api-types";
@@ -80,8 +80,8 @@ export function PracticeStart() {
     setBusy("make");
     setError(null);
     try {
-      const reading = await apiPost<Reading>("/practice", { level, topic, language, ...(focus ? { focus } : {}) });
-      router.push(`/read/?id=${reading.id}`);
+      const codeItem = await apiPost<CodeItem>("/practice", { level, topic, language, ...(focus ? { focus } : {}) });
+      router.push(`/read/?id=${codeItem.codeId}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);

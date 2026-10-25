@@ -99,10 +99,10 @@ sequenceDiagram
 | 1~3 시작 | `auth.py` → `start`, `safe_return` | 돌아갈 화면은 `ALLOWED_ORIGINS` 의 주소만 (다른 사이트로 토큰이 새지 않게) |
 | 6~7 state 확인 | `auth.py` → `callback` | state 는 10분 안에 한 번만 — 가짜 콜백·다시 보내기 차단 |
 | 8~9 사용자 확인 | `auth.py` → `fetch_profile` | client_secret 은 Lambda 환경 변수에만, 화면에 오지 않음. 이메일은 받지 않음 |
-| 10 계정 찾기 | `auth.py` → `account_learner` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT#google:<sub>`, `ACCOUNT#github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
-| 11 기록 옮기기 | `auth.py` → `adopt_anonymous` | 옮긴 익명 id 는 `formerIds` 에 남겨 예전 코드도 열림. 올린 코드는 그대로 1일 |
+| 10 계정 찾기 | `auth.py` → `account_user` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT#google:<sub>`, `ACCOUNT#github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
+| 11 기록 옮기기 | `auth.py` → `adopt_anonymous` | 옮긴 익명 id 는 `formerUserIds` 에 남겨 예전 코드도 열림. 올린 코드는 그대로 1일 |
 | 12~14 토큰 | `auth.py` → `callback`, 화면 `src/lib/api.ts` → `takeLoginFromUrl` | 토큰은 무작위 uuid4 (시각 없음), 학습자 id 자체를 보내도 회원으로 받지 않음 |
-| 15~16 이후 요청 | `common.py` → `get_learner`, `use_learner` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
+| 15~16 이후 요청 | `common.py` → `get_user`, `use_user` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
 
 ---
 
@@ -197,7 +197,7 @@ src/
 | `lambda_function.py` | **입구**: 경로 → 기능 파일, 관리자 코드 확인, `GET /health` | `GET /health` | — |
 | `common.py` | **공통 도구** (아래 5.2) | — | — |
 | `topics.py` | 랜덤 주제 · 직접 적은 주제 판정 | `GET /topic/random`, `POST /topic/check` | `topic_check` |
-| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · AI 검토 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /reading` | `code_generation`, `code_check` |
+| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · AI 검토 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /code` | `code_generation`, `code_check` |
 | `inspect_code.py` | 내 코드: 민감 정보 가리기 · 함수 찾기 · 난이도·※ | `POST /inspect`, `POST /inspect/start` | `code_inspection` |
 | `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 | `POST /review`, `POST /review/retry` | `review`, `review_retry` |
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
@@ -219,10 +219,10 @@ src/
 | 3. 요청·응답 | `read_request`(함수 URL 이벤트 → dict), `reply`, `cors_headers`, `run_route`(오류 처리), `field`(요청 값 확인) |
 | 4. DynamoDB 도구 | `get_item` `put_item` `query_all` `update_item` `ttl_after` … |
 | 5. 요청 수 제한 | `hit_limit`, `ai_allowed` |
-| 6. 학습자(세션) | `get_learner`, `remember_topic` |
+| 6. 학습자(세션) | `get_user`, `remember_topic` |
 | 7. AI 호출 | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, AI 끄기 스위치, 목업, 사용량(`OPS#USAGE`)·호출 기록(`OPS#AILOG`) |
 | 8. 설정 값 | `get_meta`, `set_meta` (AI 스위치·관리자 코드 해시) |
-| 9. 읽을 코드 | `CONCEPTS`·`guess_concept`(개념 꼬리표), `save_reading`, `load_reading`(내 코드만), `public_reading`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
+| 9. 읽을 코드 | `CONCEPTS`·`guess_concept`(개념 꼬리표), `save_code`, `load_code`(내 코드만), `public_code`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
 | 10. id 만들기 | `new_id()` — 시간순 UUID(버전 7): 앞 12글자가 만든 시각, 나머지 무작위. 학습자 id·코드 id 에 씀 (로그인 토큰은 전부 무작위 uuid4) |
 
 ### 5.3 이걸 바꾸려면 → 이 파일
@@ -244,7 +244,7 @@ src/
 | 관리자 화면의 작업 이름·실패 이유 문구 | `admin.py` → `TASKS`, `ERROR_REASONS` |
 | 개념 종류·이름, 개념 추정 규칙 | `common.py` → `CONCEPTS`, `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |
 | 난이도 추천 기준(80%·40%·최근 5개·3개 이상), 약점 기준 | `study.py` → `LEVEL_UP`, `LEVEL_DOWN`, `RECENT_PER_LEVEL`, `MIN_FOR_LEVEL`, `MIN_FOR_WEAK` |
-| 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `common.py` → `ANON_HOURS`, `ANON_READING_HOURS`, `MEMBER_DAYS`, `READING_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
+| 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `common.py` → `ANON_HOURS`, `ANON_CODE_HOURS`, `MEMBER_DAYS`, `CODE_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
 | 새 기능 경로 추가 | 기능 파일을 새로 만들고 `ROUTES` 를 둔 뒤 `lambda_function.py` 의 `for feature in (…)` 에 추가 (함수를 늘리지 않음) |
 
 ### 5.4 DynamoDB 항목 (테이블 `jojo_table`, pk / sk)
@@ -271,7 +271,7 @@ src/
 | `OPS#CONFIG` | `ai_switch` · `admin_code_hash` | AI 스위치, 관리자 코드 |
 | `OPS#LIMIT` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 |
 
-예전 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)으로 저장된 데이터는 관리자 화면의 **예전 데이터 옮기기**(`POST /admin/migrate`)로 옮겨요.
+예전 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등 · 필드 `learnerId`, `readingId`, `owner` 등)으로 저장된 데이터는 관리자 화면의 **예전 데이터 옮기기**(`POST /admin/migrate`)로 옮겨요.
 
 항목 모양을 바꾸면 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke` 로 확인해요. 자세한 표: `docs/PROJECT_BRIEF.md` §9.2
 

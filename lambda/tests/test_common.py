@@ -45,7 +45,7 @@ class Cost(unittest.TestCase):
         self.assertAlmostEqual(cost, 1.5)
 
 
-class Readings(unittest.TestCase):
+class CodeItems(unittest.TestCase):
     CODE = "\n".join(f"line{i}" for i in range(1, 21))
 
     def test_clean_marks_sorts_clamps_and_drops_overlaps(self):
@@ -53,10 +53,10 @@ class Readings(unittest.TestCase):
                                                {"start": 3, "end": 6, "why": "겹침"}, {"start": 0, "end": 1}])
         self.assertEqual([(m["id"], m["start"], m["end"]) for m in marks], [("m1", 1, 1), ("m2", 2, 4), ("m3", 10, 20)])
 
-    def test_public_reading_hides_model_explanation(self):
-        item = {"id": "x", "source": "practice", "language": "python", "level": 2, "code": self.CODE, "regenCount": 2,
+    def test_public_code_hides_model_explanation(self):
+        item = {"codeId": "x", "source": "practice", "language": "python", "level": 2, "code": self.CODE, "regenCount": 2,
                 "marks": [{"id": "m1", "start": 1, "end": 2, "why": "w", "explanation": "모범 설명", "keywords": ["k"]}]}
-        pub = common.public_reading(item)
+        pub = common.public_code(item)
         self.assertEqual(pub["marks"], [{"id": "m1", "start": 1, "end": 2}])
         self.assertNotIn("모범 설명", str(pub))
         self.assertEqual(pub["regenLeft"], common.REGEN_LIMIT - 2)

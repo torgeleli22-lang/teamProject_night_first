@@ -7,7 +7,7 @@
 
 ![jojo_table ERD](images/jojo_table_erd.png)
 
-> 그림 원본은 `docs/images/jojo_table_erd.png` 예요. 회색 글자는 키 이름을 정리하기 전의 예전 이름이에요 (예전 데이터는 관리자 화면 **예전 데이터 옮기기**로 옮겨요).
+> 그림 원본은 `docs/images/jojo_table_erd.png` 예요. 파랑 = PK(파티션 키), 주황 = SK(정렬 키), 초록 = FK(다른 항목의 id). 선 끝 기호는 ERD 표기법(까마귀 발)이에요: `||` 하나, `o<` 0개 이상, `o|` 0 또는 1개. 점선 상자는 같은 pk 를 쓰는 항목 묶음이에요.
 
 ---
 
@@ -15,7 +15,7 @@
 
 - **테이블은 1개** (`jojo_table`). 키는 `pk`(파티션 키, 문자열) + `sk`(정렬 키, 문자열)이고, 자동 삭제 시각은 `jojo_ttl`(유닉스 초)이에요.
 - 관계형 DB 의 "테이블 여러 개"를 **pk 앞부분(접두어)**으로 나눠요. 그림의 상자 하나가 "항목 종류" 하나예요.
-- 서로 다른 종류는 **외래 키 대신 필드 값**(`owner`, `readingId`, `learnerId`)으로 이어져요. DynamoDB 가 자동으로 지켜 주지 않으므로, Lambda 코드가 직접 따라가서 읽어요.
+- 서로 다른 종류는 **외래 키 대신 필드 값**(`userId`, `codeId`)으로 이어져요. DynamoDB 가 자동으로 지켜 주지 않으므로, Lambda 코드가 직접 따라가서 읽어요.
 
 | 덩어리 | pk | 담는 것 | 그림 색 |
 |---|---|---|---|
@@ -54,26 +54,26 @@
 
 | sk | 이름 | 주요 필드 | 만드는 곳 | 자동 삭제 |
 |---|---|---|---|---|
-| `PROFILE` | 학습자 | `level`, `recentTopics`(최근 10개), `createdAt`, `lastSeen`, 로그인 학습자만 `member`·`name`·`provider`·`formerIds` | `common.get_learner`(비회원), `auth.account_learner`(회원) | 비회원: 마지막 사용 12시간 뒤 · 회원: 1년 |
-| `STUDYREC#<코드 id>` | 내 공부 기록 (코드 1개당 1줄) | `readingId`, `source`, `language`, `level`, `title`, `counts`, `items[{concept, first, best, memo, bestText …}]`, `reviews`, `reviewedAt` | `study.record_review`(첨삭 때), `study.record_retry`(다시 써서 나아질 때) | 비회원: 1일 · 회원: 1년 |
+| `PROFILE` | 학습자 | `level`, `recentTopics`(최근 10개), `createdAt`, `lastSeen`, 로그인 학습자만 `member`·`name`·`provider`·`formerUserIds` | `common.get_user`(비회원), `auth.account_user`(회원) | 비회원: 마지막 사용 12시간 뒤 · 회원: 1년 |
+| `STUDYREC#<코드 id>` | 내 공부 기록 (코드 1개당 1줄) | `codeId`, `source`, `language`, `level`, `title`, `counts`, `items[{concept, first, best, memo, bestText …}]`, `reviews`, `reviewedAt` | `study.record_review`(첨삭 때), `study.record_retry`(다시 써서 나아질 때) | 비회원: 1일 · 회원: 1년 |
 
 ### 2-2. CODE 서랍 — `pk = CODE#<코드 id>`
 
 | sk | 이름 | 주요 필드 | 만드는 곳 | 자동 삭제 |
 |---|---|---|---|---|
-| `INFO` | 읽을 코드 | `id`, `owner`, `source`(practice·inspect), `language`, `level`, `topic`, `title`, `code`, `marks[{id, start, end, why, explanation, keywords}]`, `rootId`, `regenCount`, `origin` | `common.save_reading` | 비회원: 1일 · 회원: 30일 · 올린 코드: 늘 1일 |
+| `INFO` | 읽을 코드 | `codeId`, `userId`, `source`(practice·inspect), `language`, `level`, `topic`, `title`, `code`, `marks[{id, start, end, why, explanation, keywords}]`, `rootCodeId`, `regenCount`, `origin` | `common.save_code` | 비회원: 1일 · 회원: 30일 · 올린 코드: 늘 1일 |
 | `REVIEW#<시각>` | 첨삭 (할 때마다 새 줄) | `memos[{start, end, text}]`, `result`(○△✕ 개수·항목별 코멘트) | `review.review` | 코드와 같은 날 |
 | `REVIEW#<첨삭 시각>#RETRY#<항목>` | 힌트 보고 다시 써 보기 | `attempts[{text, mark, comment, lookAt, byAi, at}]` | `review.retry` | 코드와 같은 날 |
 | `REVIEW#<첨삭 시각>#CHAT#<항목>` | AI 튜터 대화 | `turns[{role, text, lookAt, at}]` | `tutor_chat.ask_tutor` | 코드와 같은 날 |
 
-> `marks` 의 `explanation`·`keywords`(모범 설명)는 DB 에만 있어요. 화면으로는 `public_reading` 이 뺀 모양만 보내고, 모범 설명은 첨삭 결과에만 나와요.
+> `marks` 의 `explanation`·`keywords`(모범 설명)는 DB 에만 있어요. 화면으로는 `public_code` 가 뺀 모양만 보내고, 모범 설명은 첨삭 결과에만 나와요.
 
 ### 2-3. 로그인 — 각각 한 줄짜리 서랍
 
 | pk | sk | 이름 | 주요 필드 | 자동 삭제 |
 |---|---|---|---|---|
-| `LOGIN#<토큰>` | `USER` | 로그인 토큰 | `learnerId`, `provider`, `createdAt` | 30일 (쓰면 늘어남, 로그아웃하면 삭제) |
-| `ACCOUNT#<제공자>:<고유 번호>` | `USER` | 소셜 계정 → 학습자 | `learnerId`, `createdAt` | 없음 |
+| `LOGIN#<토큰>` | `USER` | 로그인 토큰 | `userId`, `provider`, `createdAt` | 30일 (쓰면 늘어남, 로그아웃하면 삭제) |
+| `ACCOUNT#<제공자>:<고유 번호>` | `USER` | 소셜 계정 → 학습자 | `userId`, `createdAt` | 없음 |
 | `AUTH#<state>` | `STATE` | 로그인 시작 기록 | `provider`, `returnTo`, `anonSid` | 10분 (콜백에서 한 번 쓰고 바로 삭제) |
 
 ### 2-4. OPS — 운영 데이터
@@ -93,13 +93,13 @@
 ```mermaid
 erDiagram
     USER_PROFILE ||--o{ USER_STUDYREC : "같은 pk USER#id"
-    USER_PROFILE ||--o{ CODE_INFO : "owner"
-    USER_STUDYREC }o--|| CODE_INFO : "readingId"
+    USER_PROFILE ||--o{ CODE_INFO : "userId"
+    USER_STUDYREC }o--|| CODE_INFO : "codeId"
     CODE_INFO ||--o{ CODE_REVIEW : "같은 pk CODE#id"
     CODE_REVIEW ||--o{ CODE_RETRY : "sk 앞부분 REVIEW#t"
     CODE_REVIEW ||--o{ CODE_CHAT : "sk 앞부분 REVIEW#t"
-    LOGIN_TOKEN }o--|| USER_PROFILE : "learnerId"
-    ACCOUNT ||--|| USER_PROFILE : "learnerId"
+    LOGIN_TOKEN }o--|| USER_PROFILE : "userId"
+    ACCOUNT ||--|| USER_PROFILE : "userId"
 
     USER_PROFILE {
         string partition_key PK "USER#학습자id"
@@ -107,19 +107,19 @@ erDiagram
         number level
         list recentTopics
         bool member
-        list formerIds
+        list formerUserIds
     }
     USER_STUDYREC {
         string partition_key PK "USER#학습자id"
         string sort_key "STUDYREC#코드id"
-        string readingId FK
+        string codeId FK
         map counts
         list items
     }
     CODE_INFO {
         string partition_key PK "CODE#코드id"
         string sort_key "INFO"
-        string owner FK
+        string userId FK
         string code
         list marks
     }
@@ -142,12 +142,12 @@ erDiagram
     LOGIN_TOKEN {
         string partition_key PK "LOGIN#토큰"
         string sort_key "USER"
-        string learnerId FK
+        string userId FK
     }
     ACCOUNT {
         string partition_key PK "ACCOUNT#google:번호"
         string sort_key "USER"
-        string learnerId FK
+        string userId FK
     }
 ```
 
@@ -156,12 +156,12 @@ erDiagram
 | 관계 | 개수 | 무엇으로 이어지나 | 코드가 따라가는 방법 |
 |---|---|---|---|
 | 학습자 → 내 공부 기록 | 1 : N | **같은 pk** `USER#<id>` | `query_all(user_pk(id), prefix="STUDYREC#")` (`study.py`) |
-| 학습자 → 읽을 코드 | 1 : N | `CODE#…/INFO` 의 `owner` = 학습자 id | `load_reading` 이 `owner` 가 나(또는 `formerIds`)인지 확인 |
-| 내 공부 기록 → 읽을 코드 | N : 1 (코드 1개당 기록 1줄) | `readingId` (= sk 의 코드 id) | 로그인할 때 `adopt_anonymous` 가 `readingId` 로 코드 서랍을 찾아 `owner` 를 바꿈 |
+| 학습자 → 읽을 코드 | 1 : N | `CODE#…/INFO` 의 `userId` = 학습자 id | `load_code` 가 `userId` 가 나(또는 `formerUserIds`)인지 확인 |
+| 내 공부 기록 → 읽을 코드 | N : 1 (코드 1개당 기록 1줄) | `codeId` (= sk 의 코드 id) | 로그인할 때 `adopt_anonymous` 가 `codeId` 로 코드 서랍을 찾아 `userId` 를 바꿈 |
 | 읽을 코드 → 첨삭 | 1 : N | **같은 pk** `CODE#<id>` | `review_rows` = `query_all(code_pk(id), prefix="REVIEW#")` |
 | 첨삭 → 다시 쓰기·튜터 대화 | 1 : N | **sk 앞부분**이 그 첨삭의 sk (`REVIEW#<t>#…`) | `review_children(첨삭, "RETRY"/"CHAT", rows)` — 위와 같은 query 결과에서 골라냄 |
-| 로그인 토큰 → 학습자 | N : 1 (기기마다 토큰) | `learnerId` | `get_learner` 2번 단계: `LOGIN#<토큰>` → `USER#<learnerId>/PROFILE` |
-| 소셜 계정 → 학습자 | 1 : 1 | `learnerId` | `account_learner`: `ACCOUNT#google:<번호>` → `USER#<learnerId>` |
+| 로그인 토큰 → 학습자 | N : 1 (기기마다 토큰) | `userId` | `get_user` 2번 단계: `LOGIN#<토큰>` → `USER#<userId>/PROFILE` |
+| 소셜 계정 → 학습자 | 1 : 1 | `userId` | `account_user`: `ACCOUNT#google:<번호>` → `USER#<userId>` |
 | 로그인 시작 → 비회원 | 1 : 0..1 | `anonSid` | 콜백에서 `adopt_anonymous(anonSid, 회원 id)` 로 비회원 기록을 회원에게 옮김 |
 | OPS | — | 학습자와 연결 없음 | 관리자 화면·안전 장치만 읽음 |
 
@@ -178,8 +178,8 @@ erDiagram
 |---|---|---|---|
 | 처음 방문 | 모든 요청 | `USER#<id>/PROFILE` 또는 `LOGIN#<토큰>/USER` | 없으면 `USER#<새 id>/PROFILE` 생성 |
 | 연습 코드 받기 | `POST /practice` | `PROFILE` | `CODE#<새 id>/INFO`, `OPS#STATS` |
-| 더 쉽게·어렵게 | `POST /practice/adjust` | `CODE#<id>/INFO` | `CODE#<새 id>/INFO` (`rootId` 로 횟수 세기) |
-| 코드 다시 열기 | `GET /reading` | `CODE#<id>/INFO` + `query(CODE#<id>, "REVIEW#")` 한 번 | — |
+| 더 쉽게·어렵게 | `POST /practice/adjust` | `CODE#<id>/INFO` | `CODE#<새 id>/INFO` (`rootCodeId` 로 횟수 세기) |
+| 코드 다시 열기 | `GET /code` | `CODE#<id>/INFO` + `query(CODE#<id>, "REVIEW#")` 한 번 | — |
 | 첨삭 받기 | `POST /review` | `CODE#<id>/INFO` | `CODE#<id>/REVIEW#<시각>`, `USER#<id>/STUDYREC#<코드 id>`, `OPS#STATS` |
 | 다시 써 보기 | `POST /review/retry` | `query(CODE#<id>, "REVIEW#")` | `…/REVIEW#<t>#RETRY#<항목>`, 나아지면 `STUDYREC#` 갱신 |
 | 튜터에게 질문 | `POST /tutor` | `query(CODE#<id>, "REVIEW#")` | `…/REVIEW#<t>#CHAT#<항목>` |
@@ -208,7 +208,19 @@ erDiagram
 | `STATS` · `USAGE` · `AILOG` · `META` / 그대로 | `OPS#STATS` · `OPS#USAGE` · `OPS#AILOG` · `OPS#CONFIG` / 그대로 |
 | `RL` / … | 옮기지 않고 삭제 (몇 분짜리 카운터, 새 이름 `OPS#LIMIT`) |
 
-바꾸는 규칙은 `lambda/api/admin.py` 의 `new_key`, 옮기는 순서(새 이름으로 쓰기 → 예전 것 지우기)는 `migrate` 에 있어요. 여러 번 실행해도 결과가 같아요.
+**필드 이름** — id 를 가리키는 필드는 pk 이름에 맞춰 `userId`(USER#) · `codeId`(CODE#) 로 통일했어요.
+
+| 항목 | 예전 필드 | 새 필드 |
+|---|---|---|
+| `USER#…/PROFILE` | `formerIds` | `formerUserIds` |
+| `USER#…/STUDYREC#…` | `readingId` · `readingTtl` | `codeId` · `codeTtl` |
+| `CODE#…/INFO` | `id` · `owner` · `rootId` | `codeId` · `userId` · `rootCodeId` |
+| `CODE#…/REVIEW#<t>` 의 `result` | `readingId` | `codeId` |
+| `LOGIN#…/USER` · `ACCOUNT#…/USER` | `learnerId` | `userId` |
+
+API 도 같은 이름을 써요: 요청 본문 `readingId` → `codeId`, `GET /reading?id=` → `GET /code?codeId=`, 응답 `reading` → `codeItem`.
+
+바꾸는 규칙은 `lambda/api/admin.py` 의 `new_key`(키)·`new_fields`(필드), 옮기는 순서(새 이름으로 쓰기 → 예전 것 지우기)는 `migrate` 에 있어요. 여러 번 실행해도 결과가 같아요.
 
 ---
 
@@ -216,5 +228,5 @@ erDiagram
 
 1. 이름은 `common.py` 4번 구역의 함수·상수만 고쳐요.
 2. 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고쳐요.
-3. 이미 저장된 데이터가 있으면 `admin.py` `new_key` 에 옮기는 규칙을 더해요.
+3. 이미 저장된 데이터가 있으면 `admin.py` `new_key`(키)·`new_fields`(필드) 에 옮기는 규칙을 더해요.
 4. `npm test`, `npm run smoke` 로 확인하고, 이 문서와 그림(`docs/images/jojo_table_erd.png`)도 함께 고쳐요.

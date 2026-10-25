@@ -4,7 +4,7 @@ import random
 import re
 
 from common import (CONCEPTS, LANGUAGES, LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, code_for_ai, count_event, field,
-                    get_learner, latest_review, load_reading, log_ai_event, numbered, public_reading, remember_topic, review_rows, save_reading)
+                    get_user, latest_review, load_code, log_ai_event, numbered, public_code, remember_topic, review_rows, save_code)
 from samples import SAMPLES
 from review import retries_for
 from tutor_chat import chats_for
@@ -13,9 +13,9 @@ from tutor_chat import chats_for
 # 연습 모드 (practice.py) — jojo_api 의 기능 파일
 #
 #   POST /practice          코드 받기          {"level": 2, "topic": "편의점 재고", "language": "python" | "javascript"}
-#   POST /practice/adjust   더 쉽게·더 어렵게   {"readingId": "...", "direction": "easier" | "harder",
+#   POST /practice/adjust   더 쉽게·더 어렵게   {"codeId": "...", "direction": "easier" | "harder",
 #                                                "reasons": ["too_long", "unknown_concept", "complex_flow"]}
-#   GET  /reading?id=...    코드 다시 열기 (같은 코드 다시 읽기, 첨삭 결과 다시 보기)
+#   GET  /code?codeId=...   코드 다시 열기 (같은 코드 다시 읽기, 첨삭 결과 다시 보기)
 #
 #   AI(Bedrock)가 Python·JavaScript 코드와 ※ 꼭 설명할 곳(2~5곳)을 만든다. ※ 의 모범 설명은 저장만 하고 화면에는 보내지 않는다.
 #   AI 를 쓸 수 없으면 samples.py 의 예시 코드(같은 언어)를 대신 준다.
@@ -144,16 +144,16 @@ def start_practice(req):
         raise ApiError(400, "주제를 골라 주세요.")
     focus = field(req["body"], "focus", "str", choices=list(CONCEPTS))   # '내 공부'의 '이 개념 집중 연습'
     language = field(req["body"], "language", "str", default="python", choices=list(LANGUAGES))
-    learner = get_learner(req)
+    user = get_user(req)
 
     # 2. 코드 만들기 (AI → 안 되면 예시 코드)
-    made = make_code(req, level, topic, learner, prompt_extra=focus_prompt(focus), focus=focus, language=language)
+    made = make_code(req, level, topic, user, prompt_extra=focus_prompt(focus), focus=focus, language=language)
 
     # 3. 저장하고, 최근 주제·난이도 기억
-    item = save_reading(learner, source="practice", level=level, topic=topic, focus=focus, language=language, **made)
-    remember_topic(learner, topic, level)
+    item = save_code(user, source="practice", level=level, topic=topic, focus=focus, language=language, **made)
+    remember_topic(user, topic, level)
     count_event("practices")
-    return public_reading(item)
+    return public_code(item)
 
 
 def adjust(req):
@@ -161,8 +161,8 @@ def adjust(req):
     body = req["body"]
     direction = field(body, "direction", "str", required=True, choices=["easier", "harder"])
     reasons = [r for r in field(body, "reasons", "list", default=[], max_len=3) if r in REASONS]
-    learner = get_learner(req)
-    old = load_reading(field(body, "readingId", "str", required=True, max_len=60), learner)
+    user = get_user(req)
+    old = load_code(field(body, "codeId", "str", required=True, max_len=60), user)
     if old["source"] != "practice":
         raise ApiError(400, "내 코드 점검에서는 난이도를 바꿀 수 없어요.")
 
@@ -179,22 +179,22 @@ def adjust(req):
         f"<current_code>\n{old['code']}\n</current_code>",
     ])
     language = old.get("language") or "python"
-    made = make_code(req, level, old["topic"], learner, prompt_extra="\n".join(p for p in [extra, focus_prompt(old.get("focus"))] if p),
+    made = make_code(req, level, old["topic"], user, prompt_extra="\n".join(p for p in [extra, focus_prompt(old.get("focus"))] if p),
                      focus=old.get("focus"), language=language)
 
     # 4. 새 코드로 저장 (처음 코드를 기준으로 몇 번째 다시 만들기인지 이어서 센다)
-    item = save_reading(learner, source="practice", level=level, topic=old["topic"], rootId=old["rootId"],
+    item = save_code(user, source="practice", level=level, topic=old["topic"], rootCodeId=old["rootCodeId"],
                         regenCount=old.get("regenCount", 0) + 1, focus=old.get("focus"), language=language, **made)
     count_event("adjusts")
-    return public_reading(item)
+    return public_code(item)
 
 
-def get_reading(req):
-    learner = get_learner(req)
-    item = load_reading(req["query"].get("id", ""), learner)
-    rows = review_rows(item["id"])   # 첨삭·다시 쓰기·튜터 대화를 한 번에 읽는다 (CODE#<id> 의 REVIEW#…)
-    review = latest_review(item["id"], rows)
-    return {"reading": public_reading(item), "review": review["result"] if review else None,
+def get_code(req):
+    user = get_user(req)
+    item = load_code(req["query"].get("codeId", ""), user)
+    rows = review_rows(item["codeId"])   # 첨삭·다시 쓰기·튜터 대화를 한 번에 읽는다 (CODE#<id> 의 REVIEW#…)
+    review = latest_review(item["codeId"], rows)
+    return {"codeItem": public_code(item), "review": review["result"] if review else None,
             "chats": chats_for(review, rows),       # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
             "retries": retries_for(review, rows)}   # 첨삭 항목마다 힌트를 보고 다시 써 본 기록 (review.py)
 
@@ -202,7 +202,7 @@ def get_reading(req):
 ROUTES = {
     "POST /practice": start_practice,
     "POST /practice/adjust": adjust,
-    "GET /reading": get_reading,
+    "GET /code": get_code,
 }
 
 # ───────────────────────── 코드 만들기 ─────────────────────────
@@ -217,9 +217,9 @@ def focus_prompt(focus):
             f"이 흐름이 코드 곳곳에 자연스럽게 나오게 짜고, ※ 꼭 설명할 곳의 절반 이상을 이 개념(concept={focus})으로 골라 주세요.")
 
 
-def make_code(req, level, topic, learner, prompt_extra, focus=None, language="python"):
+def make_code(req, level, topic, user, prompt_extra, focus=None, language="python"):
     """AI 로 코드 + ※ 지점을 만들고 ② 규칙 검사 ③ AI 검토를 거친다. 걸리면 이유를 알려 주고 한 번 더, 그래도 안 되면 예시 코드"""
-    sample = pick_sample(level, topic, learner, focus, language)
+    sample = pick_sample(level, topic, user, focus, language)
     system = SYSTEM_PROMPT.format(language=LANGUAGES[language], rules=CODE_RULES[language])
     if not ai_allowed(req):
         return from_sample(sample, "AI 를 잠깐 많이 써서 준비된 예시 코드를 드려요.")
@@ -328,7 +328,7 @@ def find_line(lines, text, from_index, hint=None):
     return min(hits, key=lambda n: abs(n - hint)) if isinstance(hint, int) else hits[0]
 
 
-def pick_sample(level, topic, learner, focus=None, language="python"):
+def pick_sample(level, topic, user, focus=None, language="python"):
     """예시 코드 고르기: 같은 언어·난이도에서 (집중 개념이 있으면 그 개념이 든 것 먼저) 같은 주제 → 최근에 안 푼 주제 → 아무거나.
     그 난이도의 예시 코드가 없으면 가장 가까운 난이도"""
     mine = [s for s in SAMPLES if s.get("language", "python") == language]
@@ -340,7 +340,7 @@ def pick_sample(level, topic, learner, focus=None, language="python"):
     for s in same:
         if s["topic"] in topic or topic in s["topic"]:
             return s
-    fresh = [s for s in same if s["topic"] not in learner["recentTopics"]]
+    fresh = [s for s in same if s["topic"] not in user["recentTopics"]]
     return random.choice(fresh or same)
 
 

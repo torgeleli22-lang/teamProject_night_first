@@ -1,7 +1,7 @@
 import random
 import re
 
-from common import (LEVELS, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field, get_learner)
+from common import (LEVELS, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field, get_user)
 from samples import ADVANCED_TOPIC_POOL, TOPIC_POOL
 
 # ─────────────────────────────────────────────────────────────
@@ -46,11 +46,11 @@ BAD_WORDS = ["해킹", "비밀번호 훔", "도박", "불법", "폭탄", "마약
 
 
 def random_topic(req):
-    learner = get_learner(req)
+    user = get_user(req)
     level = req["query"].get("level", "")
     # 1. 고급은 알고리즘이 들어가는 주제 목록에서, 최근에 푼 주제는 빼고 뽑는다 (다 풀었으면 전체에서)
     topics = ADVANCED_TOPIC_POOL if level == "4" else TOPIC_POOL
-    pool = [t for t in topics if t not in learner["recentTopics"]] or topics
+    pool = [t for t in topics if t not in user["recentTopics"]] or topics
     return {"topic": random.choice(pool)}
 
 
@@ -62,7 +62,7 @@ def check_topic(req):
         raise ApiError(400, "주제를 적어 주세요.")
     if len(text) > MAX_TOPIC_CHARS:
         raise ApiError(400, f"주제는 {MAX_TOPIC_CHARS}자까지 적을 수 있어요.")
-    get_learner(req)
+    get_user(req)
 
     # 2. AI 판정 (요청 한도를 넘었거나 AI 를 쓸 수 없으면 규칙 판정)
     count_event("topicChecks")

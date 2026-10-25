@@ -7,7 +7,7 @@
 | `lambda_function.py` | **입구**: 경로 → 기능 파일, 관리자 코드 확인, 연결 확인 | `GET /health` |
 | `common.py` | 모든 기능이 함께 쓰는 도구: 설정, 요청·응답(CORS), 요청 수 제한, 학습자, DynamoDB, AI 호출(월 예산·AI 끄기), 읽을 코드 저장·꺼내기 | |
 | `topics.py` | 주제 고르기: 랜덤(AI 없음) · 직접 적은 주제 판정(AI) | `GET /topic/random`, `POST /topic/check` |
-| `practice.py` | 연습 코드(Python·JavaScript) + ※ 지점 만들기(AI, 문법·겉모양 검사) · 더 쉽게/어렵게(5번까지) · 다시 읽기 | `POST /practice` `/practice/adjust`, `GET /reading` |
+| `practice.py` | 연습 코드(Python·JavaScript) + ※ 지점 만들기(AI, 문법·겉모양 검사) · 더 쉽게/어렵게(5번까지) · 다시 읽기 | `POST /practice` `/practice/adjust`, `GET /code` |
 | `inspect_code.py` | 내 코드 점검: 민감 정보 가리기·함수 찾기(AI 없음) → 난이도·※ 지점(AI) | `POST /inspect` `/inspect/start` |
 | `review.py` | 빨간펜 첨삭: 누락(규칙) + ○△✕·코멘트·모범 설명(AI), 힌트 보고 다시 쓴 설명 다시 채점(3번까지) | `POST /review` `/review/retry` |
 | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화: 메모별 첨삭 하나에 대해 묻고 답하기(10번까지), 대화 저장 | `POST /tutor` |
@@ -34,7 +34,7 @@ GitHub 에서 파일을 열고 **Raw** 를 누르면 복사하기 쉬워요. 한
 ## 고칠 만한 곳
 | 바꾸고 싶은 것 | 위치 |
 |---|---|
-| 최대 줄 수, 다시 만들기 횟수, 보관 기간, 메모 수 | `common.py` 1번 설정 (`MAX_CODE_LINES`, `REGEN_LIMIT`, `READING_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `MAX_MEMOS`) |
+| 최대 줄 수, 다시 만들기 횟수, 보관 기간, 메모 수 | `common.py` 1번 설정 (`MAX_CODE_LINES`, `REGEN_LIMIT`, `CODE_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `MAX_MEMOS`) |
 | 난이도별 코드 길이·문법·※ 수 | `practice.py` 의 `LEVEL_GUIDE`, `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | 코드 만들기·첨삭·주제 판정·튜터 말투와 규칙 | 각 파일의 `SYSTEM_PROMPT` |
 | 튜터 질문 횟수·글자 수 | `common.py` 의 `MAX_TUTOR_TURNS`, `MAX_TUTOR_CHARS` |
