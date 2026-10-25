@@ -70,7 +70,7 @@
 | `CODE#…` / `INFO` 등 | | | | | 보관 기간만 다름 | **30일** (올린 코드는 그대로 1일) |
 | `USER#<학습자 id>` / `STUDYREC#…` | | | | | 보관 기간만 다름 | **1년** |
 
-**로그인하는 순간 비회원 기록을 옮겨요** (`auth.py:206` `adopt_anonymous`):
+**로그인하는 순간 비회원 기록을 옮겨요** (`auth.py:207` `adopt_anonymous`):
 - `USER#<비회원 id>/STUDYREC#…` → `USER#<회원 id>/STUDYREC#…` 로 **새로 쓰고 옛 줄은 삭제** (pk 는 바꿀 수 없어서 복사 후 삭제)
 - 그 코드들의 `CODE#…/INFO` 는 `userId` 를 회원 id 로, 기한을 30일로 **고치기**
 - 비회원 id 를 회원 `USER#…/PROFILE` 의 `formerUserIds` 에 기억 (로그인 전에 받은 코드도 계속 열리게)
@@ -178,8 +178,8 @@ if 있으면:  update_item(user_pk(account["userId"]), PROFILE, set_values={"nam
 else:
     user_id = new_id()
     put_item({"pk": user_pk(user_id), "sk": PROFILE, "member": True, "name": "오준희", "provider": "google",
-              "level": None, "recentTopics": [], …, TTL_ATTR: 1년})          # auth.py:200
-    put_item({"pk": key, "sk": USER, "userId": user_id, …})           # auth.py:202
+              "level": None, "recentTopics": [], …, TTL_ATTR: 1년})          # auth.py:201
+    put_item({"pk": key, "sk": USER, "userId": user_id, …})           # auth.py:203
 ```
 그다음 `adopt_anonymous(anonSid, user_id)` 로 비회원 기록을 옮겨요 (1-2 참고).
 

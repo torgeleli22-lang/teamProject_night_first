@@ -422,6 +422,19 @@ class Login(unittest.TestCase):
         finally:
             auth.get_item, auth.put_item, auth.update_item = saved
 
+    def test_old_format_account_stops_instead_of_making_a_new_user(self):
+        auth = load_lambda("auth")
+        db = {(common.account_pk("google:9"), common.USER): {"learnerId": "u1"}}   # '예전 데이터 옮기기' 전
+        saved = auth.get_item, auth.put_item
+        auth.get_item = lambda pk, sk: db.get((pk, sk))
+        auth.put_item = lambda item: db.__setitem__((item["pk"], item["sk"]), dict(item))
+        try:
+            with self.assertRaises(common.ApiError):
+                auth.account_user("google", {"id": "9", "name": "김철수"})
+            self.assertEqual(len(db), 1)                     # 새 학습자를 만들지 않음
+        finally:
+            auth.get_item, auth.put_item = saved
+
     def test_unknown_provider_is_refused(self):
         with self.assertRaises(common.ApiError):
             load_lambda("auth").provider_of("kakao")
