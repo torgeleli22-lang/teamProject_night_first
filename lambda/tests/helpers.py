@@ -11,11 +11,14 @@ API_DIR = os.path.join(LAMBDA_DIR, "api")
 sys.path.insert(0, API_DIR)
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
-import common  # noqa: E402
+import ai  # noqa: E402
+import code_store  # noqa: E402
+import core  # noqa: E402
 
 
 def load_lambda(name):
     """lambda/api 의 기능 파일 (예: "review")"""
     return importlib.import_module(name)
 
-__all__ = ["common", "load_lambda"]
+
+__all__ = ["ai", "code_store", "core", "load_lambda"]

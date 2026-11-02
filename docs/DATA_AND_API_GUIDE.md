@@ -15,26 +15,26 @@
 - 모든 항목의 주소는 **pk(파티션 키) + sk(정렬 키)** 두 문자열이에요.
 - 자동 삭제: 항목에 `jojo_ttl`(유닉스 시각, 초)을 넣으면 그 시각 뒤 DynamoDB 가 지워요.
 
-### 키 이름 규칙 3가지 (`common.py` 4번 구역 위 표)
+### 키 이름 규칙 3가지 (`core.py` 4번 구역 위 표)
 
 1. **pk = 무엇의 것인지 + id** — `USER#<학습자 id>`, `CODE#<코드 id>`, `LOGIN#<토큰>` … 한 사람·한 코드의 것이 한 서랍(pk)에 모여요.
 2. **sk = 종류 (+ 시각·번호)** — `PROFILE`, `STUDYREC#<코드 id>`, `INFO`, `REVIEW#<시각>`, `REVIEW#<시각>#RETRY#002` …
 3. **운영 데이터는 `OPS#` 로 시작** — `OPS#STATS`, `OPS#USAGE`, `OPS#AILOG`, `OPS#CONFIG`, `OPS#LIMIT`
 
-이름은 모두 `common.py` 의 작은 함수로 만들어요: `user_pk(id)` · `studyrec_sk(코드 id)` · `code_pk(id)` · `login_pk(토큰)` · `account_pk("google:번호")` · `auth_pk(state)`, 그리고 고정 이름 `PROFILE` · `INFO` · `USER` · `STATE` · `OPS_…`.
+이름은 모두 `core.py` 의 작은 함수로 만들어요: `user_pk(id)` · `studyrec_sk(코드 id)` · `code_pk(id)` · `login_pk(토큰)` · `account_pk("google:번호")` · `auth_pk(state)`, 그리고 고정 이름 `PROFILE` · `INFO` · `USER` · `STATE` · `OPS_…`.
 
-> 예전 이름(`LEARNER`, `READ#…/CODE`, `STUDY#…/R#…`, `RETRY#…`, `CHAT#…`, `LOGIN`·`ACCOUNT`·`AUTH` 고정 pk, `STATS`·`USAGE`·`AILOG`·`META`·`RL`)으로 저장된 데이터는 관리자 화면의 **"예전 데이터 옮기기"**(`POST /admin/migrate`, `admin.py:191`)로 한 번에 새 이름으로 옮겨요. 바꾸는 규칙은 `admin.py:233` `new_key`(키), `admin.py:272` `new_fields`(필드 — `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`) 에 있어요.
+> 예전 이름(`LEARNER`, `READ#…/CODE`, `STUDY#…/R#…`, `RETRY#…`, `CHAT#…`, `LOGIN`·`ACCOUNT`·`AUTH` 고정 pk, `STATS`·`USAGE`·`AILOG`·`META`·`RL`)으로 저장된 데이터는 관리자 화면의 **"예전 데이터 옮기기"**(`POST /admin/migrate`, `admin.py:193`)로 한 번에 새 이름으로 옮겨요. 바꾸는 규칙은 `admin.py:235` `new_key`(키), `admin.py:274` `new_fields`(필드 — `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`) 에 있어요.
 
 ### 서버는 요청한 사람이 누구인지 어떻게 알까요?
 
 | 역할 | 화면이 보내는 헤더 | 그 값 | 화면이 보관하는 곳 | 서버가 확인하는 코드 |
 |---|---|---|---|---|
-| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `common.py:468` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
+| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:526` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
 | **회원** (Google 로그인) | `x-session-id` | **로그인 토큰** (uuid) — 학습자 id 가 아님 | `localStorage` `codereading.login` — 브라우저를 닫아도 남음 | `get_user` 2번 단계: `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE` |
-| **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:32` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
+| **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:34` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
 
 - 비회원과 회원은 **같은 헤더**를 써요. 서버가 그 값으로 `USER#<값>` 이 있는지(비회원), `LOGIN#<값>` 이 있는지(회원) 보고 구분해요.
-- 회원의 실제 학습자 id 는 화면으로 보내지 않아요. 누가 회원 학습자 id 를 직접 헤더에 넣어도 1번 단계에서 `member` 이면 받지 않아요 (`common.py:476`).
+- 회원의 실제 학습자 id 는 화면으로 보내지 않아요. 누가 회원 학습자 id 를 직접 헤더에 넣어도 1번 단계에서 `member` 이면 받지 않아요 (`core.py:534`).
 - 관리자는 학습자가 아니에요. 관리자 경로(`/admin/...`)는 학습자를 만들지 않아요.
 
 ---
@@ -55,7 +55,7 @@
 | `CODE#<코드 id>` / `REVIEW#<첨삭 시각>#CHAT#<항목>` | ● | ● | ● | | AI 튜터에게 질문 (10번) | 코드와 같이 |
 | `AUTH#<state>` / `STATE` | ● | | | | 로그인 버튼을 누를 때 (회원이 되기 직전) | 10분 |
 
-다시 쓰기·튜터 대화는 **그 첨삭의 sk 뒤에 붙여** 이름을 지어요. 그래서 `query_all(code_pk(id), prefix="REVIEW#")` 한 번(`common.py:888` `review_rows`)으로 첨삭과 그 아래 기록을 함께 읽어요. `#` 이 하나뿐인 sk(`REVIEW#<시각>`)가 첨삭 자체예요.
+다시 쓰기·튜터 대화는 **그 첨삭의 sk 뒤에 붙여** 이름을 지어요. 그래서 `query_all(code_pk(id), prefix="REVIEW#")` 한 번(`code_store.py:112` `review_rows`)으로 첨삭과 그 아래 기록을 함께 읽어요. `#` 이 하나뿐인 sk(`REVIEW#<시각>`)가 첨삭 자체예요.
 
 ### 1-2. 회원 (Google 로그인)
 
@@ -70,7 +70,7 @@
 | `CODE#…` / `INFO` 등 | | | | | 보관 기간만 다름 | **30일** (올린 코드는 그대로 1일) |
 | `USER#<학습자 id>` / `STUDYREC#…` | | | | | 보관 기간만 다름 | **1년** |
 
-**로그인하는 순간 비회원 기록을 옮겨요** (`auth.py:207` `adopt_anonymous`):
+**로그인하는 순간 비회원 기록을 옮겨요** (`auth.py:201` `adopt_anonymous`):
 - `USER#<비회원 id>/STUDYREC#…` → `USER#<회원 id>/STUDYREC#…` 로 **새로 쓰고 옛 줄은 삭제** (pk 는 바꿀 수 없어서 복사 후 삭제)
 - 그 코드들의 `CODE#…/INFO` 는 `userId` 를 회원 id 로, 기한을 30일로 **고치기**
 - 비회원 id 를 회원 `USER#…/PROFILE` 의 `formerUserIds` 에 기억 (로그인 전에 받은 코드도 계속 열리게)
@@ -82,13 +82,13 @@
 
 | 항목 (pk / sk) | C | R | U | D | 언제 | 코드 |
 |---|---|---|---|---|---|---|
-| `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:32`, `admin.py:179` |
-| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:171` → `common.py:773` `set_meta` |
-| `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:125` |
-| `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:145` |
-| `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:152` |
-| `OPS#LIMIT` / `admin-fail:<IP>#<시간 칸>` | ● | ● | ● | | 관리자 코드를 틀리면 +1, 15분에 10번이면 잠금 | `admin.py:34`, `:46` |
-| (예전 이름의 모든 항목) | ● | ● | | ● | "예전 데이터 옮기기" — 새 이름으로 쓰고 예전 것 삭제 | `admin.py:191` `migrate` |
+| `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:34`, `admin.py:181` |
+| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:173` → `core.py:596` `set_meta` |
+| `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:127` |
+| `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:147` |
+| `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:154` |
+| `OPS#LIMIT` / `admin-fail:<IP>#<시간 칸>` | ● | ● | ● | | 관리자 코드를 틀리면 +1, 15분에 10번이면 잠금 | `admin.py:36`, `:48` |
+| (예전 이름의 모든 항목) | ● | ● | | ● | "예전 데이터 옮기기" — 새 이름으로 쓰고 예전 것 삭제 | `admin.py:193` `migrate` |
 
 ### 1-4. 모두에게 공통 — 서버가 알아서 쓰는 항목
 
@@ -96,17 +96,17 @@
 |---|---|---|---|
 | `OPS#LIMIT` / `all:<IP>#<분>` | 모든 요청 (관리자 경로 제외) | IP 당 1분 600번 제한 | 시간 칸 + 60초 |
 | `OPS#LIMIT` / `new:<IP>#<시간>` | 새 학습자를 만들 때 | IP 당 1시간 120명 | 〃 |
-| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`common.py:434` `ai_allowed`) | 〃 |
+| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:488` `ai_allowed`) | 〃 |
 | `OPS#STATS` / `DAY#<날짜>` | 연습·더 쉽게·주제 판정·점검·첨삭·다시 쓰기·튜터 | 오늘 칸 +1 | 90일 |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | AI 를 부를 때마다 | 호출 수·토큰·실패 누적 | 없음 |
 | `OPS#AILOG` / `<시각>` | AI 를 부를 때마다 | 한 건씩 기록 | 14일 |
-| `OPS#CONFIG` / `ai_switch` | AI 를 부르기 전 | 30초마다 읽어 AI 꺼짐 확인 (`common.py:529`, 값 `"on"`/`"off"`) | 없음 |
+| `OPS#CONFIG` / `ai_switch` | AI 를 부르기 전 | 30초마다 읽어 AI 꺼짐 확인 (`core.py:579`, 값 `"on"`/`"off"`) | 없음 |
 
 ---
 
 ## 2. pk·sk 만들고 저장하기 — 항목마다
 
-DB 도구는 모두 `common.py` 4번 구역에 있어요:
+DB 도구는 모두 `core.py` 4번 구역에 있어요:
 `get_item(pk, sk)` `:335` · `put_item(item)` `:339` · `update_item(pk, sk, set_values, add_values)` `:366` · `delete_item(pk, sk)` `:343` · `query_all(pk, prefix)` `:347`.
 `put_item` 은 항목 딕셔너리 안에 `"pk"`, `"sk"` 를 함께 넣고, 나머지 함수는 pk·sk 를 따로 받아요.
 
@@ -114,13 +114,13 @@ DB 도구는 모두 `common.py` 4번 구역에 있어요:
 
 | 재료 | 만드는 코드 | 예 | 쓰는 곳 |
 |---|---|---|---|
-| 이름 함수 | `user_pk` · `studyrec_sk` · `code_pk` · `login_pk` · `account_pk` · `auth_pk` (`common.py` 4번 구역) | `user_pk("019a…")` → `USER#019a…` | 모든 pk·sk |
-| 시간순 id | `new_id()` `common.py:932` — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
+| 이름 함수 | `user_pk` · `studyrec_sk` · `code_pk` · `login_pk` · `account_pk` · `auth_pk` (`core.py` 4번 구역) | `user_pk("019a…")` → `USER#019a…` | 모든 pk·sk |
+| 시간순 id | `new_id()` `core.py:627` — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
 | 무작위 id | `str(uuid.uuid4())` (파이썬 표준, 전부 무작위) | `3c90fba9-a5c3-4c44-b98e-e363f1dae667` | 로그인 토큰 (비밀번호 같은 값이라 시각을 넣지 않음) · 예전에 만든 학습자·코드 id |
-| 시간순 번호 | `pad(time_id())` `common.py:326`, `:331` — 밀리초×1000 + 0~999, 앞을 0으로 16자리 | `1792592284764123` | `REVIEW#…`, `OPS#AILOG` |
-| 한국 날짜 | `day_key()` `common.py:784` (UTC+9) | `2026-10-24` | `OPS#STATS` |
-| 월 | `month_key()` `common.py:542` | `2026-10` | `OPS#USAGE` |
-| 첨삭 아래 기록 키 | `review_key(review, kind, index)` `common.py:900` | `REVIEW#1792592284764123#CHAT#003` | 다시 쓰기·튜터 대화 |
+| 시간순 번호 | `pad(time_id())` `core.py:380`, `:385` — 밀리초×1000 + 0~999, 앞을 0으로 16자리 | `1792592284764123` | `REVIEW#…`, `OPS#AILOG` |
+| 한국 날짜 | `day_key()` `core.py:605` (UTC+9) | `2026-10-24` | `OPS#STATS` |
+| 월 | `month_key()` `ai.py:29` | `2026-10` | `OPS#USAGE` |
+| 첨삭 아래 기록 키 | `review_key(review, kind, index)` `code_store.py:124` | `REVIEW#1792592284764123#CHAT#003` | 다시 쓰기·튜터 대화 |
 
 > **시간순 UUID (`new_id`)**: 지금처럼 36글자 uuid 모양이라 id 검사(`SESSION_ID`, `load_code`)·화면 주소·예전 uuid4 데이터를 그대로 함께 쓸 수 있어요.
 > 앞 12글자(하이픈 빼고)가 만든 시각(밀리초, 16진수)이라 콘솔에서 id 를 정렬하면 만든 순서가 되고, `int("019a1b2c3d4e", 16)` 로 시각을 꺼낼 수 있어요.
@@ -133,7 +133,7 @@ DB 도구는 모두 `common.py` 4번 구역에 있어요:
 **언제**: `x-session-id` 가 없거나, 있는 id 가 기한이 지났을 때 (`get_user` 3번 단계)
 
 ```python
-# lambda/api/common.py:488
+# lambda/api/core.py:546
 item = {"pk": user_pk(new_id()), "sk": PROFILE,           # ① pk = USER# + 새 시간순 UUID, sk 는 고정 "PROFILE"
         "level": None, "recentTopics": [],
         "createdAt": now, "lastSeen": now,
@@ -149,12 +149,12 @@ req["user"] = user_from_item(item)                  # ④ id = pk 에서 "USER#"
 ```
 
 **고치기**
-- 15분마다 마지막 사용 시각·기한 연장: `common.py:366` `update_item(user_pk(id), PROFILE, set_values={"lastSeen": …, "jojo_ttl": …})`
-- 주제를 고르면: `common.py:366` `update_item(user_pk(id), PROFILE, set_values={"recentTopics": […], "level": 2})`
+- 15분마다 마지막 사용 시각·기한 연장: `core.py:420` `update_item(user_pk(id), PROFILE, set_values={"lastSeen": …, "jojo_ttl": …})`
+- 주제를 고르면: `core.py:420` `update_item(user_pk(id), PROFILE, set_values={"recentTopics": […], "level": 2})`
 
 ### 2-3. 로그인 4단계 — `AUTH#` → `ACCOUNT#` → `USER#`(회원) → `LOGIN#`
 
-**① 로그인 버튼** → `GET /auth/start` (`auth.py:56`)
+**① 로그인 버튼** → `GET /auth/start` (`auth.py:51`)
 ```python
 state = secrets.token_urlsafe(24)                           # 추측할 수 없는 일회용 값
 put_item({"pk": auth_pk(state), "sk": STATE,                # auth.py:66  "AUTH#<state>" / "STATE"
@@ -163,14 +163,14 @@ put_item({"pk": auth_pk(state), "sk": STATE,                # auth.py:66  "AUTH#
 # → Google 로그인 화면으로 302 (state 를 함께 넘김)
 ```
 
-**② Google 이 돌려보냄** → `GET /auth/callback/google?code=…&state=…` (`auth.py:82`)
+**② Google 이 돌려보냄** → `GET /auth/callback/google?code=…&state=…` (`auth.py:77`)
 ```python
 saved = get_item(auth_pk(state), STATE)   # auth.py:85  우리가 보낸 state 인지
 delete_item(auth_pk(state), STATE)        # auth.py:88  한 번만 쓰게 바로 삭제
 profile = fetch_profile(...)              # auth.py:169 code → Google 토큰 → {"id": sub(고유 번호), "name": 이름}
 ```
 
-**③ 계정 → 학습자** (`auth.py:190` `account_user`)
+**③ 계정 → 학습자** (`auth.py:184` `account_user`)
 ```python
 key = account_pk(f"{provider}:{profile['id']}")              # auth.py:192  "ACCOUNT#google:1098…" (이름이 아닌 고유 번호)
 account = get_item(key, USER)                                # 전에 로그인한 적이 있나?
@@ -192,7 +192,7 @@ put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": "goo
 ```
 화면은 `#login=` 값을 `localStorage` 에 저장하고(`src/lib/api.ts` `takeLoginFromUrl`), 이후 모든 요청 헤더에 넣어요.
 
-**로그아웃** `POST /auth/logout`: `delete_item(login_pk(<토큰>), USER)` (`auth.py:110`)
+**로그아웃** `POST /auth/logout`: `delete_item(login_pk(<토큰>), USER)` (`auth.py:105`)
 
 **저장된 모양**
 ```json
@@ -204,10 +204,10 @@ put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": "goo
 
 ### 2-4. 읽을 코드 `CODE#<코드 id> / INFO`
 
-**언제**: 연습 코드 받기(`practice.py:153`), 더 쉽게·어렵게(`:173`), 내 코드 점검 시작(`inspect_code.py:71`)
+**언제**: 연습 코드 받기(`practice.py:236`), 더 쉽게·어렵게(`:271`), 내 코드 점검 시작(`inspect_code.py:105`)
 
 ```python
-# lambda/api/common.py:867  save_code
+# lambda/api/code_store.py:91  save_code
 code_id = new_id()                                                  # ① 새 코드 id (시간순 UUID)
 keep = min(keep_seconds(user, fields.pop("keep", "code")), keep_seconds(user, "code"))
 item = {"pk": code_pk(code_id), "sk": INFO,                         # ② pk = CODE# + id, sk = 고정 "INFO"
@@ -217,7 +217,7 @@ item = {"pk": code_pk(code_id), "sk": INFO,                         # ② pk = C
         TTL_ATTR: ttl_after(keep), **fields}                           #    source, level, topic, title, code, marks …
 put_item(item)                                                         # ③ 저장
 ```
-화면에는 `public_code(item)` (`common.py:914`) 으로 **모범 설명을 뺀** 모양만 보내요.
+화면에는 `public_code(item)` (`code_store.py:138`) 으로 **모범 설명을 뺀** 모양만 보내요.
 
 **저장된 모양** (marks 의 explanation·keywords 는 DB 에만 있어요)
 ```json
@@ -229,7 +229,7 @@ put_item(item)                                                         # ③ 저
   "origin": "ai", "rootCodeId": "3c90fba9-…", "regenCount": 0, "createdAt": 1792…, "jojo_ttl": 1792… }
 ```
 
-**읽기** `common.py:878` `load_code(code_id, user)`
+**읽기** `code_store.py:102` `load_code(code_id, user)`
 1. id 가 36글자 uuid 모양인지 (아니면 400)
 2. `get_item(code_pk(id), INFO)`
 3. `userId` 가 나 또는 `formerUserIds` 중 하나인지 (아니면 404)
@@ -243,20 +243,20 @@ put_item({"pk": code_pk(item["codeId"]),                   # 같은 코드 서�
           "memos": memos, "result": result, "createdAt": now_ms(),
           TTL_ATTR: ttl_after(max(1, int(item.get(TTL_ATTR, 0) - now_ms() / 1000)))})   # 코드와 같은 날 삭제
 ```
-**읽기** `common.py:888` `review_rows` — `query_all(code_pk(id), prefix="REVIEW#")` 로 첨삭과 그 아래 기록을 한 번에 읽고,
-`common.py:893` `latest_review` 가 그중 `#` 이 하나뿐인 sk(첨삭 자체)의 마지막(최신) 것을 골라요.
+**읽기** `code_store.py:112` `review_rows` — `query_all(code_pk(id), prefix="REVIEW#")` 로 첨삭과 그 아래 기록을 한 번에 읽고,
+`code_store.py:117` `latest_review` 가 그중 `#` 이 하나뿐인 sk(첨삭 자체)의 마지막(최신) 것을 골라요.
 
 ### 2-6. 다시 써 보기 `REVIEW#<t>#RETRY#…` · 튜터 대화 `REVIEW#<t>#CHAT#…`
 
 ```python
 rows = review_rows(id)                                  # 첨삭 + 그 아래 기록 (한 번 읽기)
 rv = latest_review(id, rows)
-key = review_key(rv, "RETRY", index)                    # common.py:900 → "REVIEW#1792592284764123#RETRY#002"
+key = review_key(rv, "RETRY", index)                    # code_store.py:124 → "REVIEW#1792592284764123#RETRY#002"
 attempts = review_children(rv, "RETRY", rows).get(index, {}).get("attempts", [])   # review.py:134  있으면 이어서
 attempts.append({...})
 put_item({"pk": code_pk(id), "sk": key, "attempts": attempts, …})   # review.py:156  같은 키로 덮어써 이어 쓰기
 ```
-튜터 대화도 같은 방식이에요: `tutor_chat.py:68` 읽기(`review_children(rv, "CHAT", rows)`) → `turns` 에 질문·답 추가 → `tutor_chat.py:94` 같은 키로 `put_item`.
+튜터 대화도 같은 방식이에요: `tutor_chat.py:70` 읽기(`review_children(rv, "CHAT", rows)`) → `turns` 에 질문·답 추가 → `tutor_chat.py:96` 같은 키로 `put_item`.
 `GET /code` 는 같은 `rows` 하나로 첨삭·대화·다시 쓰기를 모두 돌려줘요 (`practice.py` `get_code`).
 
 ### 2-7. 내 공부 `USER#<학습자 id> / STUDYREC#<코드 id>`
@@ -275,18 +275,18 @@ put_item({**key, "codeId": code_item["codeId"], "source": …, "level": …, "la
 ### 2-8. 운영 항목 `OPS#…` — `update_item` 의 ADD 로 숫자 더하기
 
 ```python
-# 하루 사용 수  common.py:789
+# 하루 사용 수  core.py:610
 update_item(OPS_STATS, f"DAY#{day_key()}", set_values={TTL_ATTR: 90일}, add_values={"reviews": 1})
 
-# AI 사용량  common.py:588
+# AI 사용량  ai.py:75
 update_item(OPS_USAGE, f"{month}#{task}#{model}", set_values={마지막 시각·오류}, add_values={"calls": 1, "input": 토큰, …})
 
-# 요청 수 제한  common.py:419
+# 요청 수 제한  core.py:473
 update_item(OPS_LIMIT, f"{key}#{window_start}", set_values={TTL_ATTR: 구간 끝 + 60}, add_values={"n": 1}, return_new=True)
 ```
 - ADD 는 항목이 없으면 새로 만들어 주고, 여러 Lambda 가 동시에 더해도 숫자가 틀리지 않아요.
-- AI 호출 기록은 한 건씩 새 줄: `put_item({"pk": OPS_AILOG, "sk": pad(time_id()), "task": …, "ok": …})` (`common.py:599`)
-- 설정: `set_meta("ai_switch", "off")` → `put_item({"pk": "OPS#CONFIG", "sk": "ai_switch", "value": "off"})` (`common.py:773`, 관리자 `admin.py:173`)
+- AI 호출 기록은 한 건씩 새 줄: `put_item({"pk": OPS_AILOG, "sk": pad(time_id()), "task": …, "ok": …})` (`ai.py:86`)
+- 설정: `set_meta("ai_switch", "off")` → `put_item({"pk": "OPS#CONFIG", "sk": "ai_switch", "value": "off"})` (`core.py:596`, 관리자 `admin.py:175`)
 
 ---
 
@@ -350,7 +350,7 @@ return data;
 | `x-admin-token` | 관리자 화면의 요청만 | 관리자 코드 |
 | `Origin` | 브라우저가 자동으로 | `https://torgeleli22-lang.github.io` |
 
-**응답 헤더 (Lambda → 화면)** — `common.py:189` `reply`, `:176` `cors_headers`
+**응답 헤더 (Lambda → 화면)** — `core.py:241` `reply`, `:228` `cors_headers`
 
 | 헤더 | 값 | 이유 |
 |---|---|---|
@@ -372,7 +372,7 @@ Origin: https://torgeleli22-lang.github.io
 Access-Control-Request-Method: POST
 Access-Control-Request-Headers: content-type,x-session-id
 
-204 No Content            ← run_route 맨 처음 (common.py:201): OPTIONS 면 바로 CORS 헤더만 답함
+204 No Content            ← run_route 맨 처음 (core.py:253): OPTIONS 면 바로 CORS 헤더만 답함
 access-control-allow-origin: https://torgeleli22-lang.github.io
 access-control-allow-headers: content-type,x-session-id,x-admin-token
 access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
@@ -393,7 +393,7 @@ access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
                       "http": { "method": "POST", "sourceIp": "211.234.…" } }
 }
 ```
-`read_request` (`common.py:139`) 가 이걸 다루기 쉬운 모양으로 바꿔요:
+`read_request` (`core.py:191`) 가 이걸 다루기 쉬운 모양으로 바꿔요:
 `{"method": "POST", "path": "/review", "query": {…}, "headers": {소문자 키}, "body": {JSON 을 푼 dict}, "ip": sourceIp, "origin": …}`
 - 본문이 256KB(×1.4) 를 넘으면 413, JSON 이 아니면 400
 - IP 는 화면이 보낸 헤더가 아니라 함수 URL 이 확인한 `sourceIp` 를 써요 (속일 수 없게)
@@ -414,7 +414,7 @@ access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
 | 200 | 성공 | |
 | 204 | OPTIONS (CORS 사전 요청) | |
 | 302 | 로그인 시작·콜백 (다른 주소로 보내기) | |
-| 400 | 요청 값이 틀림 (`field()` 검사, `common.py:223`) | `{"error": "주제를 골라 주세요."}` |
+| 400 | 요청 값이 틀림 (`field()` 검사, `core.py:275`) | `{"error": "주제를 골라 주세요."}` |
 | 401 | 관리자 코드가 없거나 틀림 | `{"error": "관리자 권한이 필요해요."}` |
 | 404 | 없는 경로 · 없거나 내 것이 아닌 코드 | `{"error": "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요."}` |
 | 413 | 본문이 너무 큼 | |
@@ -426,7 +426,7 @@ access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
 | 메서드 · 경로 | 누가 | 요청 본문 (POST) / 쿼리 (GET) | 응답 핵심 | 쓰는 DB 항목 |
 |---|---|---|---|---|
 | `GET /health` | 누구나 | — | `{ok, mode, ai, languages, maxCodeLines, regenLimit}` | (없음) |
-| `GET /me` | 학습자 | — | `{member, name, provider, providers:{google, github}}` | USER#/PROFILE, LOGIN# |
+| `GET /me` | 학습자 | — | `{member, name, provider, providers:{google}}` | USER#/PROFILE, LOGIN# |
 | `GET /auth/start` | 학습자 | `?provider=google&return=<화면 주소>&sid=<비회원 id>` | 302 → Google | AUTH# |
 | `GET /auth/callback/google` | (Google 이 부름) | `?code=…&state=…` | 302 → 화면`#login=<토큰>` | AUTH#, ACCOUNT#, USER#(PROFILE·STUDYREC#), LOGIN#, CODE#/INFO |
 | `POST /auth/logout` | 회원 | `{}` | `{ok}` | LOGIN# |

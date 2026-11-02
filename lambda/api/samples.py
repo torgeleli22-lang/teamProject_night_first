@@ -6,7 +6,7 @@ AI 가 만드는 코드와 모양이 같아요:
   topic   생활 속 주제        level  1 입문 · 2 초급 · 3 중급 · 4 고급
   code    Python 코드         marks  ※ 꼭 설명할 곳 (줄 범위 + 모범 설명 + 핵심 표현)
 모범 설명(explanation)과 핵심 표현(keywords)은 첨삭을 받은 뒤에만 화면에 보여요.
-concept 는 그 ※ 지점의 개념 꼬리표 (common.CONCEPTS) — '내 공부'의 개념별 약점 지도에 쓰여요.
+concept 는 그 ※ 지점의 개념 꼬리표 (core.CONCEPTS) — '내 공부'의 개념별 약점 지도에 쓰여요.
 코드를 고치면 npm run verify 로 실제 실행·※ 줄 범위를 확인하세요.
 JavaScript 예시 코드는 samples_js.py 에 있어요 (아래에서 SAMPLES 에 합쳐요).
 """

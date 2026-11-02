@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
  * 브라우저 → API(Lambda 함수 URL 하나 — lambda/api) 호출.
  * 모든 기능이 같은 주소라서 브라우저가 연결(HTTPS)을 한 번 맺고 계속 다시 쓴다 → 화면 이동·제출이 빠르다.
  * - 로그인 안 함: 학습자 id 를 sessionStorage 에 둔다 — 이 탭(창)을 닫으면 사라지고 다시 열면 새로 시작 (서버 기록도 하루 안에 지워짐)
- * - 로그인(Google·GitHub): 로그인 토큰을 localStorage 에 둔다 — 브라우저를 닫아도 이어지고, 기록이 계정에 오래 남는다.
+ * - 로그인(Google): 로그인 토큰을 localStorage 에 둔다 — 브라우저를 닫아도 이어지고, 기록이 계정에 오래 남는다.
  *   둘 다 같은 x-session-id 헤더로 보낸다 (서버가 학습자 id 인지 로그인 토큰인지 구분).
  * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
  * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables → API_URL).
@@ -53,7 +53,7 @@ function saveSession(id: string) {
 }
 
 /** 로그인 시작 주소: 끝나면 지금 화면으로 돌아오고, 이 탭에서 하던 기록을 계정으로 옮긴다 */
-export function loginUrl(provider: "google" | "github"): string {
+export function loginUrl(provider: "google"): string {
   const back = window.location.href.split("#")[0];
   const sid = store("session")?.getItem(SESSION_KEY) ?? "";
   return apiUrl(`/auth/start?provider=${provider}&return=${encodeURIComponent(back)}&sid=${encodeURIComponent(sid)}`);

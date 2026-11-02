@@ -62,11 +62,11 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 ```
 
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
-- **서버**: Lambda **하나**. 입구 파일이 경로를 보고 기능 파일로 보내요. 콘솔 코드 탭에 **그대로 붙여넣는 읽을 수 있는 코드**(Python + boto3)라 zip·빌드가 없어요.
+- **서버**: 기능별 Python Lambda **6개**로 나누는 중이에요 (`docs/LAMBDA_STRUCTURE.md`). 지금은 함수 하나(`jojo_api_py`)에서 입구 파일이 경로를 보고 기능 파일로 보내고, 공통 코드는 `core`·`ai`·`code_store` 로 나뉘어 있어요.
 - **로그인 안 함**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
-- **로그인 (Google·GitHub, 선택)**: 오른쪽 위 **로그인** → 계정 고르기. 기록을 1년(연습 코드 30일) 남기고, 로그인 전에 이 탭에서 한 공부도 계정으로 옮겨요. 받는 정보는 계정 고유 번호와 이름뿐 (`auth.py`, 보관 기간은 `common.keep_seconds`). 설정: `docs/DEPLOY_LAMBDA.md` 5단계 · 흐름: 아래 3.1
+- **로그인 (Google, 선택)**: 오른쪽 위 **로그인** → 계정 고르기. 기록을 1년(연습 코드 30일) 남기고, 로그인 전에 이 탭에서 한 공부도 계정으로 옮겨요. 받는 정보는 계정 고유 번호와 이름뿐 (`auth.py`, 보관 기간은 `core.keep_seconds`). 설정: `docs/DEPLOY_LAMBDA.md` 5단계 · 흐름: 아래 3.1
 
-### 3.1 로그인 흐름 (Google 기준, GitHub 도 같아요)
+### 3.1 로그인 흐름 (Google)
 
 ```mermaid
 sequenceDiagram
@@ -99,10 +99,10 @@ sequenceDiagram
 | 1~3 시작 | `auth.py` → `start`, `safe_return` | 돌아갈 화면은 `ALLOWED_ORIGINS` 의 주소만 (다른 사이트로 토큰이 새지 않게) |
 | 6~7 state 확인 | `auth.py` → `callback` | state 는 10분 안에 한 번만 — 가짜 콜백·다시 보내기 차단 |
 | 8~9 사용자 확인 | `auth.py` → `fetch_profile` | client_secret 은 Lambda 환경 변수에만, 화면에 오지 않음. 이메일은 받지 않음 |
-| 10 계정 찾기 | `auth.py` → `account_user` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT#google:<sub>`, `ACCOUNT#github:<id>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
+| 10 계정 찾기 | `auth.py` → `account_user` | **이름이 아니라 고유 번호로 구분**: `ACCOUNT#google:<sub>`. 동명이인은 다른 계정, 이름을 바꿔도 같은 계정 |
 | 11 기록 옮기기 | `auth.py` → `adopt_anonymous` | 옮긴 익명 id 는 `formerUserIds` 에 남겨 예전 코드도 열림. 올린 코드는 그대로 1일 |
 | 12~14 토큰 | `auth.py` → `callback`, 화면 `src/lib/api.ts` → `takeLoginFromUrl` | 토큰은 무작위 uuid4 (시각 없음), 학습자 id 자체를 보내도 회원으로 받지 않음 |
-| 15~16 이후 요청 | `common.py` → `get_user`, `use_user` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
+| 15~16 이후 요청 | `core.py` → `get_user`, `use_user` | 로그아웃(`POST /auth/logout`)하면 토큰을 지워 다시 쓸 수 없음 |
 
 ---
 
@@ -169,13 +169,13 @@ src/
 | 문법 색칠 규칙 | `src/lib/highlight.ts` + `CodeView.tsx` → `COLOR` |
 | 형광펜 겹침 색, 고른 범위 색, 분홍 표시 | `CodeView.tsx` → `bg` 계산 줄 |
 | 포스트잇 배치·끌어 옮기기·메모 쓰는 칸 | `src/components/MemoMargin.tsx` (`MemoMargin`, `DraftNote`) |
-| 메모 수·글자 수 제한 (화면) | `read/ReadNote.tsx` → `MAX_MEMOS`, `MAX_MEMO_CHARS` (서버 `common.py` 와 같게) |
+| 메모 수·글자 수 제한 (화면) | `read/ReadNote.tsx` → `MAX_MEMOS`, `MAX_MEMO_CHARS` (서버 `core.py` 와 같게) |
 | 난이도 이름·설명 | `src/lib/api-types.ts` → `LEVEL_NAMES`, `LEVEL_DESCRIPTIONS` |
 | ○△✕ 이름, 더 쉽게 이유 | `src/lib/api-types.ts` → `MARK_NAMES`, `ADJUST_REASONS` |
 | 랜덤 주제 예시(손글씨 줄) | `practice/PracticeStart.tsx` → `EXAMPLES`, `ADVANCED_EXAMPLES` |
 | 언어 탭 · 언어 설명 문구 | `practice/PracticeStart.tsx` → `LANGUAGES` · 제목 옆 언어 꼬리표는 `ui.tsx` → `LangTag` |
 | 튜터 첫 질문 버튼 | `components/TutorChat.tsx` → `STARTERS` |
-| 개념 이름 | `src/lib/api-types.ts` → `CONCEPT_NAMES` (서버 `common.CONCEPTS` 와 같게) |
+| 개념 이름 | `src/lib/api-types.ts` → `CONCEPT_NAMES` (서버 `core.CONCEPTS` 와 같게) |
 | 내 공부 화면(추천 문구·막대 색·노트 모양) | `app/study/StudyNote.tsx` |
 | 다시 써 보기 칸 문구 | `components/RetryBox.tsx` |
 | 각 화면의 문구·배치 | 4.1 의 해당 화면 파일 |
@@ -195,43 +195,45 @@ src/
 | 파일 | 하는 일 | 경로 | AI 작업 이름 |
 |---|---|---|---|
 | `lambda_function.py` | **입구**: 경로 → 기능 파일, 관리자 코드 확인, `GET /health` | `GET /health` | — |
-| `common.py` | **공통 도구** (아래 5.2) | — | — |
+| `core.py` · `ai.py` · `code_store.py` | **공통 조각** (아래 5.2) | — | — |
 | `topics.py` | 랜덤 주제 · 직접 적은 주제 판정 | `GET /topic/random`, `POST /topic/check` | `topic_check` |
-| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · 실행 추적표 · 교차 검토 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /code` | `code_generation`, `code_check` |
+| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · 실행 추적표 · 교차 검토 · 더 쉽게/어렵게 | `POST /practice`, `POST /practice/adjust` | `code_generation`, `code_trace`, `code_check` |
 | `inspect_code.py` | 내 코드: 민감 정보 가리기 · 함수 찾기 · 난이도·※ | `POST /inspect`, `POST /inspect/start` | `code_inspection` |
-| `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 | `POST /review`, `POST /review/retry` | `review`, `review_retry` |
+| `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 · 코드 다시 열기 | `POST /review`, `POST /review/retry`, `GET /code` | `review`, `review_retry` |
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
-| `auth.py` | Google·GitHub 로그인 (OAuth, 라이브러리 없음) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | — |
+| `auth.py` | Google 로그인 (OAuth) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`, `POST /auth/logout` | — |
 | `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | — |
-| `experiment.py` | 논문 실험 (`x-admin-token` 필요): 연습 문항 하나를 만들고 규칙 검사·실행 추적표·교차 검토 단계 기록 (저장 안 함, `docs/EXPERIMENT.md`) | `POST /admin/experiment` | `code_generation`, `code_check` |
+| `experiment.py` | 논문 실험 (`x-admin-token` 필요): 연습 문항 하나를 만들고 규칙 검사·실행 추적표·교차 검토 단계 기록 (저장 안 함, `docs/EXPERIMENT.md`) | `POST /admin/experiment` | `code_generation`, `code_trace`, `code_check` |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 (Python 8개) · 랜덤 주제 목록 | — | — |
 | `samples_js.py` | AI 를 못 쓸 때의 JavaScript 예시 코드 7개 (`samples.py` 가 합침) | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
 
 모든 기능 파일은 맨 위에 **설명 블록**(경로·요청·응답 모양), 처리 함수에 **단계 번호 주석**(1. 2. 3. …), 맨 아래에 **도움 함수**가 있어요. 파일마다 `ROUTES = {"POST /경로": 함수}` 표가 있고, 입구가 이 표를 합쳐요.
 
-### 5.2 `common.py` 안 (10개 구역)
+### 5.2 공통 조각 (`core.py` · `ai.py` · `code_store.py`)
+함수를 나눌 때 각 함수에 필요한 조각만 넣으려고 셋으로 나눴어요 (`docs/LAMBDA_STRUCTURE.md` §3). 방향은 `ai`·`code_store` → `core` 만.
 
-| 구역 | 들어 있는 것 |
+| 파일 · 구역 | 들어 있는 것 |
 |---|---|
-| 1. 설정 | 환경 변수(`TABLE_NAME`, `AI_MODE`, `MODEL_ID`, `ALLOWED_ORIGINS` …), **정한 값**: `MAX_CODE_LINES`(300) `REGEN_LIMIT`(5) `MAX_MEMOS`(20) `MAX_MEMO_CHARS`(500) `MAX_TUTOR_TURNS`(10) `MAX_RETRIES`(3) 보관 기간, `LEVELS`(난이도 4단계), `LIMITS`(요청 한도), `MONTHLY_BUDGET_USD`, `PRICE` |
-| 2. AWS 연결 | DynamoDB 테이블, Bedrock 클라이언트(읽기 제한 120초) |
-| 3. 요청·응답 | `read_request`(함수 URL 이벤트 → dict), `reply`, `cors_headers`, `run_route`(오류 처리), `field`(요청 값 확인) |
-| 4. DynamoDB 도구 | `get_item` `put_item` `query_all` `update_item` `ttl_after` … |
-| 5. 요청 수 제한 | `hit_limit`, `ai_allowed` |
-| 6. 학습자(세션) | `get_user`, `remember_topic` |
-| 7. AI 호출 | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, AI 끄기 스위치, 목업, 사용량(`OPS#USAGE`)·호출 기록(`OPS#AILOG`) |
-| 8. 설정 값 | `get_meta`, `set_meta` (AI 스위치·관리자 코드 해시) |
-| 9. 읽을 코드 | `CONCEPTS`·`guess_concept`(개념 꼬리표), `save_code`, `load_code`(내 코드만), `public_code`(**화면으로 보내는 모양 — 모범 설명 빼고**), `clean_marks`, `latest_review`, `count_event` |
-| 10. id 만들기 | `new_id()` — 시간순 UUID(버전 7): 앞 12글자가 만든 시각, 나머지 무작위. 학습자 id·코드 id 에 씀 (로그인 토큰은 전부 무작위 uuid4) |
+| `core.py` 1. 설정 | 환경 변수(`TABLE_NAME`, `AI_MODE`, `MODEL_ID`, `ALLOWED_ORIGINS` …), **정한 값**: `MAX_CODE_LINES`(300) `REGEN_LIMIT`(5) `MAX_MEMOS`(20) `MAX_MEMO_CHARS`(500) `MAX_TUTOR_TURNS`(10) `MAX_RETRIES`(3) 보관 기간, `LEVELS`(난이도 4단계), `CONCEPTS`(개념 꼬리표), `LIMITS`(요청 한도), `MONTHLY_BUDGET_USD`, `PRICE` |
+| `core.py` 2. AWS 연결 | DynamoDB 테이블, Bedrock 클라이언트(읽기 제한 180초) |
+| `core.py` 3. 요청·응답 | `read_request`(함수 URL 이벤트 → dict), `reply`, `cors_headers`, `run_route`(오류 처리), `field`(요청 값 확인) |
+| `core.py` 4. DynamoDB 도구 | 키 이름표(`user_pk`·`code_pk` …), `get_item` `put_item` `query_all` `update_item` `ttl_after` … |
+| `core.py` 5. 요청 수 제한 | `hit_limit`, `ai_allowed` |
+| `core.py` 6. 학습자(세션) | `get_user`, `remember_topic` |
+| `core.py` 7. 설정 값 | `get_meta`, `set_meta` (관리자 코드 해시), **AI 끄기 스위치** `ai_switch_on`·`ai_enabled` |
+| `core.py` 8. 하루 사용 수 | `day_key`, `count_event` (관리자 화면) |
+| `core.py` 9. id 만들기 | `new_id()` — 시간순 UUID(버전 7): 앞 12글자가 만든 시각, 나머지 무작위 (로그인 토큰은 전부 무작위 uuid4) |
+| `ai.py` | **`ask_ai(task, system, prompt, schema, mock=…)`** — 모든 AI 호출은 이 함수로. 월 예산 확인, 목업, 사용량(`OPS#USAGE`)·호출 기록(`OPS#AILOG`), 응답 형식 검사·고치기 |
+| `code_store.py` | `save_code`, `load_code`(내 코드만), `public_code`(**화면으로 보내는 모양 — 모범 설명·실행 추적표 빼고**), `clean_marks`, `guess_concept`, `latest_review`·`review_rows`, 줄 번호 붙이기 |
 
 ### 5.3 이걸 바꾸려면 → 이 파일
 
 | 바꾸고 싶은 것 | 파일 · 위치 |
 |---|---|
-| 업로드 줄 수, 다시 만들기·다시 쓰기·튜터 횟수, 메모 수, 보관 기간 | `common.py` 1번 설정 |
-| 난이도 이름·설명 | `common.py` → `LEVELS` (화면 `api-types.ts` 도 같이) |
+| 업로드 줄 수, 다시 만들기·다시 쓰기·튜터 횟수, 메모 수, 보관 기간 | `core.py` 1번 설정 |
+| 난이도 이름·설명 | `core.py` → `LEVELS` (화면 `api-types.ts` 도 같이) |
 | 난이도별 코드 길이·문법·※ 수·AI 답 길이 | `practice.py` → `LEVEL_GUIDE`(언어별), `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | **AI 지시문(프롬프트)** | 각 파일의 `SYSTEM_PROMPT` — 코드 만들기 `practice.py` · 주제 판정 `topics.py` · 내 코드 분석 `inspect_code.py` · 첨삭 `review.py`(`SYSTEM_PROMPT`, 다시 쓰기 `RETRY_PROMPT`) · 튜터 `tutor_chat.py` |
 | AI 답의 모양(JSON 칸) | 각 파일의 `SCHEMA` (바꾸면 그 답을 쓰는 코드와 목업도 같이) |
@@ -240,12 +242,12 @@ src/
 | 주제 판정 금지어·막연한 말·큰 말 | `topics.py` → `BAD_WORDS`, `VAGUE_WORDS`, `BIG_WORDS` |
 | 가리는 민감 정보 모양 | `inspect_code.py` → `SECRET_PATTERNS` (**화면 `src/lib/secrets.ts` 도 같이**) |
 | 예시 코드·랜덤 주제 | `samples.py` → `SAMPLES`, `TOPIC_POOL`, `ADVANCED_TOPIC_POOL` · JavaScript 는 `samples_js.py` (고치면 `npm run verify`) |
-| 언어 추가·언어별 출제 규칙 | `common.py` → `LANGUAGES` · `practice.py` → `CODE_RULES`, `LEVEL_GUIDE`, JavaScript 검사 `js_shape_problems` · 화면 `src/lib/highlight.ts`, `api-types.ts` → `Language` |
-| 요청 한도·월 예산 | `common.py` → `LIMITS`, `MONTHLY_BUDGET_USD` 또는 Lambda 환경 변수 |
+| 언어 추가·언어별 출제 규칙 | `core.py` → `LANGUAGES` · `practice.py` → `CODE_RULES`, `LEVEL_GUIDE`, JavaScript 검사 `js_shape_problems` · 화면 `src/lib/highlight.ts`, `api-types.ts` → `Language` |
+| 요청 한도·월 예산 | `core.py` → `LIMITS`, `MONTHLY_BUDGET_USD` 또는 Lambda 환경 변수 |
 | 관리자 화면의 작업 이름·실패 이유 문구 | `admin.py` → `TASKS`, `ERROR_REASONS` |
-| 개념 종류·이름, 개념 추정 규칙 | `common.py` → `CONCEPTS`, `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |
+| 개념 종류·이름, 개념 추정 규칙 | `core.py` → `CONCEPTS` · `code_store.py` → `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |
 | 난이도 추천 기준(80%·40%·최근 5개·3개 이상), 약점 기준 | `study.py` → `LEVEL_UP`, `LEVEL_DOWN`, `RECENT_PER_LEVEL`, `MIN_FOR_LEVEL`, `MIN_FOR_WEAK` |
-| 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `common.py` → `ANON_HOURS`, `ANON_CODE_HOURS`, `MEMBER_DAYS`, `CODE_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
+| 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `core.py` → `ANON_HOURS`, `ANON_CODE_HOURS`, `MEMBER_DAYS`, `CODE_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
 | 새 기능 경로 추가 | 기능 파일을 새로 만들고 `ROUTES` 를 둔 뒤 `lambda_function.py` 의 `for feature in (…)` 에 추가 (함수를 늘리지 않음) |
 
 ### 5.4 DynamoDB 항목 (테이블 `jojo_table`, pk / sk)
@@ -256,7 +258,7 @@ src/
 
 | pk | sk | 내용 |
 |---|---|---|
-규칙 3가지: **pk = 무엇의 것인지 + id**, **sk = 종류 (+ 시각·번호)**, **운영 데이터는 `OPS#`**. 이름은 `common.py` 4번 구역의 `user_pk`·`code_pk`·`studyrec_sk` 등으로만 만들어요.
+규칙 3가지: **pk = 무엇의 것인지 + id**, **sk = 종류 (+ 시각·번호)**, **운영 데이터는 `OPS#`**. 이름은 `core.py` 4번 구역의 `user_pk`·`code_pk`·`studyrec_sk` 등으로만 만들어요.
 
 | pk | sk | 내용 |
 |---|---|---|
@@ -280,7 +282,7 @@ src/
 1. GitHub 에서 바뀐 파일을 열고 **Raw** → 전체 복사 → 콘솔 `jojo_api_py` 코드 탭의 같은 이름 파일에 **전체를 바꿔** 붙여넣기 → **Deploy**
 2. 테스트 이벤트 `{"path": "/health", "method": "GET"}` → `"ok": true`
 3. 여러 파일이 서로 쓰는 함수를 옮겼다면 그 파일들을 **함께** 바꿔요 (일부만 바꾸면 `ImportError`)
-4. 설정: Python 3.13 이상 · arm64 · 512MB · 제한 시간 **10분** · 실행 역할 `SafeRole-sgu-202688` · 환경 변수는 `docs/DEPLOY_LAMBDA.md`
+4. 설정: Python 3.14 · arm64 · 512MB · 제한 시간 **10분** · 실행 역할 `SafeRole-sgu-202688` · 환경 변수는 `docs/DEPLOY_LAMBDA.md`
 
 ---
 
@@ -288,7 +290,7 @@ src/
 
 ```bash
 npm install
-python3 -m pip install boto3   # Python 3.10 이상
+npm run setup:python           # 처음 한 번: .venv 에 Lambda 라이브러리 + boto3
 npm run api                    # 터미널 1: Lambda  http://localhost:8787 (DynamoDB 흉내 서버 + 목업 AI, 비용 없음)
 npm run dev                    # 터미널 2: 화면 http://localhost:3000  (관리자: /admin)
 ```

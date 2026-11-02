@@ -3,7 +3,7 @@
 서버(Lambda)를 **어떻게 나누고, 공통 코드를 어떻게 나눠 쓰고, 오류를 어떻게 남기고, 어떻게 배포하는지** 정하는 문서예요.
 AI 가 만드는 연습 문항의 생성·검토 기준은 **`docs/GENERATION_STANDARD.md`** 에 있고, 이 문서는 그 기준이 돌아가는 서버 구조를 다뤄요.
 
-- 상태: **v1.0** (2026-11-02 확정) — 지금 코드는 아직 함수 하나(`jojo_api_py`)예요. `## 10. 전환 순서` 대로 옮겨요
+- 상태: **v1.0** (2026-11-02 확정) — 전환 1단계(공통 코드 나누기) 끝. 지금 코드는 아직 함수 하나(`jojo_api_py`, `lambda/api/`)예요. `## 10. 전환 순서` 대로 옮겨요
 - 정한 것: 함수 6개 · 공통 코드를 `core`·`ai`·`code_store` 로 나누기 · 외부 라이브러리 3가지(Powertools·Pydantic·tree-sitter) · CloudShell 명령으로 배포 · 함수마다 함수 URL
 
 ## 0. 원칙
@@ -27,10 +27,10 @@ AI 가 만드는 연습 문항의 생성·검토 기준은 **`docs/GENERATION_ST
 | `jojo_admin` | 관리자·실험 | `GET /admin/overview` · `POST /admin/ai` · `POST /admin/code` · `POST /admin/experiment` | `admin.py` · `experiment.py` + `practice.py` 묶음 | core · ai · code_store | 10분 · 512MB |
 
 - 실행 역할은 모두 지금의 SafeRole (학교 계정은 새 역할 만들기가 막혀 있어요)
-- 아키텍처는 모두 arm64, 런타임 Python 3.13
+- 아키텍처는 모두 arm64, 런타임 **Python 3.14** (지금 `jojo_api_py` 와 같게)
 - `GET /code`(코드 다시 열기)는 첨삭·튜터 기록을 함께 돌려줘서 `jojo_review` 로 옮겨요. 그러면 `practice.py` 가 첨삭 파일을 부르지 않아도 돼요
-- `POST /admin/migrate`(예전 데이터 옮기기)는 이전이 끝났으면 지워요 — 끝났는지 확인 필요
-- GitHub 로그인(`/auth/callback/github`)은 화면에서 쓰지 않으면 지워요 — 확인 필요
+- `POST /admin/migrate`(예전 데이터 옮기기)는 아직 실행 전이라 남겨요. 실행하고 확인한 뒤 지워요
+- GitHub 로그인은 쓰지 않아서 지웠어요 (Google 만)
 
 ---
 
@@ -53,21 +53,22 @@ lambda/
 
 ### 의존 규칙
 - 기능 파일은 **공통 조각만** 불러요. 기능 파일끼리는 부르지 않아요
-  - 예외: `review.py` → `study.py`(첨삭 기록 남기기), `experiment.py` → `practice.py`(같은 흐름으로 문항 만들기). `functions.json` 에 적어 둔 것만 허용
+  - 예외 (같은 함수 안에 함께 묶이는 것만): `review.py` → `study.py`(첨삭 기록 남기기) · `tutor_chat.py`(코드 다시 열 때 튜터 대화), `experiment.py` → `practice.py`(같은 흐름으로 문항 만들기). `functions.json` 에 적어 둔 것만 허용
+  - 예시 코드 `samples.py`(+ `samples_js.py`)는 기능이 아니라 자료라서 `practice.py`·`topics.py` 가 불러요
 - 공통 조각끼리는 `ai` → `core`, `code_store` → `core` 만 (반대 방향 금지)
 - 이 규칙은 테스트로 검사해요 (import 를 읽어 허용 목록과 비교)
 
 ---
 
-## 3. 공통 조각의 경계 (지금 `common.py` 를 나누는 기준)
+## 3. 공통 조각의 경계 (전환 1단계에서 예전 `common.py` 를 이렇게 나눴어요)
 
-| 지금 `common.py` | → | 새 위치 |
+| 예전 `common.py` | → | 새 위치 |
 |---|---|---|
-| 1. 설정 · 2. AWS 연결 · 3. 요청/응답 · 4. DynamoDB · 5. 요청 수 제한 · 6. 학습자 · 8. 설정 값 · 10. id | → | `core.py` |
+| 1. 설정 · 2. AWS 연결 · 3. 요청/응답 · 4. DynamoDB · 5. 요청 수 제한 · 6. 학습자 · 8. 설정 값(+ AI 끄기 스위치) · 하루 사용 수 · 10. id | → | `core.py` |
 | 7. AI 호출 (Bedrock·예산·사용량·형식 검사·고치기) | → | `ai.py` |
 | 9. 읽을 코드 (저장·꺼내기·※ 정리·개념 추정) | → | `code_store.py` |
 
-- 함수별로 쓰는 양 (지금 기준): 로그인·내 공부·관리자는 `common.py` 의 약 3분의 1, 연습·점검·첨삭은 대부분
+- 함수별로 쓰는 양: 로그인·내 공부·관리자는 공통 코드의 약 3분의 1(`core` 중심), 연습·점검·첨삭은 대부분
 - 난이도·개념 목록 같은 상수는 `core.py` 에 두고 화면(`src/lib/api-types.ts`)과 같게 유지
 
 ---
@@ -76,11 +77,11 @@ lambda/
 
 | 라이브러리 | 쓰는 곳 | 대신하는 것 | 넣는 방법 |
 |---|---|---|---|
-| **Powertools for AWS Lambda (Python) v3** | 경로 나누기(`LambdaFunctionUrlResolver`) · JSON 로그(`Logger`) · 오류 지표(`Metrics`) | `run_route`·`read_request`·`reply` 일부, `print` 로그 | AWS 공개 레이어 (`AWSLambdaPowertoolsPythonV3-python313-arm64`, 서울 리전 ARN 은 배포할 때 공식 문서에서 확인) |
+| **Powertools for AWS Lambda (Python) v3** | 경로 나누기(`LambdaFunctionUrlResolver`) · JSON 로그(`Logger`) · 오류 지표(`Metrics`) | `run_route`·`read_request`·`reply` 일부, `print` 로그 | 함수 zip 에 포함 (순수 Python 약 1MB — 레이어 버전·ARN 을 따로 관리하지 않게) |
 | **Pydantic v2** | 요청 본문 · AI 응답 형식 (Bedrock 도구 스키마를 모델에서 자동 생성) | `field()` · `check_schema()` · `repair_for_schema()` | 함수 zip 에 포함 |
 | **tree-sitter + tree-sitter-javascript** | JavaScript 진짜 문법 검사 · 함수/클래스/재귀 세기 | `js_scan` · `js_structure` (겉모양 검사) | 함수 zip 에 포함 (`jojo_practice`·`jojo_admin`) |
 
-- 버전은 `requirements.txt` 에 고정하고, 배포할 때 Lambda(arm64·Python 3.13)용 배포판을 받아요 (확인함: 모두 있음, 합계 약 4.5MB)
+- 버전은 `lambda/requirements.txt` 에 고정하고, 배포할 때 Lambda(arm64·Python 3.14)용 배포판을 받아요 (확인함: 모두 있음, 합계 약 4.5MB). 내 컴퓨터·CI 는 `npm run setup:python` 으로 같은 버전을 `.venv` 에
 - 이 셋 말고 새 라이브러리를 넣으려면 이 표에 이유를 적고 정해요
 - 쓰지 않기로 한 것: FastAPI+Mangum(경로는 Powertools 로 충분, 더 무거움), authlib(지금 Google 로그인이 잘 돌아감), jsonschema(Pydantic 으로 충분)
 - boto3 는 Lambda 런타임에 들어 있는 것을 써요 (zip 에 넣지 않음)
@@ -138,7 +139,7 @@ lambda/
 ### 처음 한 번 (콘솔)
 1. 함수 6개 만들기 (이름·런타임·arm64·SafeRole) → 제한 시간·메모리 (`## 1` 표)
 2. 환경 변수 넣기 (`## 7`, 값은 지금 `jojo_api_py` 에서 옮기기)
-3. Powertools 레이어 연결
+3. (레이어 없음 — 라이브러리는 함수 zip 에 들어 있어요)
 4. 함수 URL 만들기 (인증 없음)
 5. Google 리디렉션 URI 를 `jojo_auth` 주소로, GitHub 저장소 변수 `API_URLS` 에 주소 6개
 6. 단계별 안내는 `docs/DEPLOY_LAMBDA.md` 에
@@ -155,7 +156,7 @@ npm run deploy        # 함수마다 필요한 파일·라이브러리만 묶어
 ---
 
 ## 10. 전환 순서
-1. 공통 코드 나누기 (`common.py` → `core`·`ai`·`code_store`), 기능 파일 정리 (`GET /code` 이동, 끝난 코드 정리) — 동작은 그대로, 테스트로 확인
+1. ✅ 공통 코드 나누기 (`common.py` → `core`·`ai`·`code_store`), `GET /code` 를 `review.py` 로, GitHub 로그인 제거, 개발 도구(`.venv`·`requirements.txt`·CI Python 3.14) — 동작은 그대로
 2. 라이브러리 적용 (Powertools 경로·로그 → Pydantic 형식 → tree-sitter JavaScript 검사)
 3. 함수 6개 입구 + `functions.json` + 묶기·배포 명령 + 의존 규칙 테스트
 4. 화면 주소 나누기 (`api.ts`, `API_URLS`)

@@ -4,11 +4,10 @@ import random
 import re
 import sys
 
-from common import (CONCEPTS, LANGUAGES, LEVELS, MODEL_ID, REGEN_LIMIT, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks, code_for_ai, count_event, field,
-                    get_user, latest_review, load_code, log_ai_event, numbered, public_code, remember_topic, review_rows, save_code)
+from core import (CONCEPTS, LANGUAGES, LEVELS, MODEL_ID, REGEN_LIMIT, ApiError, ai_allowed, count_event, field, get_user, remember_topic)
+from ai import (AiUnavailable, ask_ai, log_ai_event)
+from code_store import (clean_marks, code_for_ai, load_code, numbered, public_code, save_code)
 from samples import SAMPLES
-from review import retries_for
-from tutor_chat import chats_for
 
 # ─────────────────────────────────────────────────────────────
 # 연습 모드 (practice.py) — jojo_api 의 기능 파일
@@ -16,7 +15,6 @@ from tutor_chat import chats_for
 #   POST /practice          코드 받기          {"level": 2, "topic": "편의점 재고", "language": "python" | "javascript"}
 #   POST /practice/adjust   더 쉽게·더 어렵게   {"codeId": "...", "direction": "easier" | "harder",
 #                                                "reasons": ["too_long", "unknown_concept", "complex_flow"]}
-#   GET  /code?codeId=...   코드 다시 열기 (같은 코드 다시 읽기, 첨삭 결과 다시 보기)
 #
 #   생성 기준은 docs/GENERATION_STANDARD.md (학습 목표 → 코드 요건 → ※ 지점 → 모범 설명 → 합격 기준 → 실패 처리).
 #   만든 코드는 서버에서 실행하지 않고, AI 가 실행 과정을 한 줄씩 따라간 "실행 추적표"를 근거로 모범 설명을 쓴다:
@@ -276,20 +274,9 @@ def adjust(req):
     return public_code(item)
 
 
-def get_code(req):
-    user = get_user(req)
-    item = load_code(req["query"].get("codeId", ""), user)
-    rows = review_rows(item["codeId"])   # 첨삭·다시 쓰기·튜터 대화를 한 번에 읽는다 (CODE#<id> 의 REVIEW#…)
-    review = latest_review(item["codeId"], rows)
-    return {"codeItem": public_code(item), "review": review["result"] if review else None,
-            "chats": chats_for(review, rows),       # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
-            "retries": retries_for(review, rows)}   # 첨삭 항목마다 힌트를 보고 다시 써 본 기록 (review.py)
-
-
 ROUTES = {
     "POST /practice": start_practice,
     "POST /practice/adjust": adjust,
-    "GET /code": get_code,
 }
 
 # ───────────────────────── 코드 만들기 ─────────────────────────

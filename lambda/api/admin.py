@@ -1,12 +1,14 @@
 import hashlib
 import hmac
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
-import common
-from common import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
-                    account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, estimate_cost, field, get_item, get_meta,
-                    login_pk, month_cost_usd, month_key, normalize_model, query_all, read_counter, set_meta, studyrec_sk, to_plain, user_pk)
+import core
+from core import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
+                  account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, field, get_item, get_meta, login_pk, query_all,
+                  read_counter, set_meta, studyrec_sk, to_plain, user_pk)
+from ai import (estimate_cost, month_cost_usd, month_key, normalize_model)
 
 # ─────────────────────────────────────────────────────────────
 # 관리자 (admin.py) — jojo_api 의 기능 파일
@@ -85,7 +87,7 @@ OLD_TASKS = {"content_generation": "문제 생성", "learner_analysis": "학습�
 EVENT_NAMES = ["practices", "adjusts", "topicChecks", "inspections", "reviews", "retries", "tutorChats"]
 RECENT_LOGS = 50
 
-# 실패 이유 (common.ask_ai 가 남기는 영어 오류 → 관리자가 읽을 말)
+# 실패 이유 (ai.ask_ai 가 남기는 영어 오류 → 관리자가 읽을 말)
 ERROR_REASONS = [
     ("AccessDenied", "Bedrock 권한이 없어요 (실행 역할 또는 모델 사용 신청 확인)"),
     ("Throttling", "요청이 몰려 AWS 가 잠시 거절했어요"),
@@ -172,7 +174,7 @@ def switch_ai(req):
     enabled = field(req["body"], "enabled", "bool", required=True)
     set_meta("ai_switch", "on" if enabled else "off")
     # 이 Lambda 안의 30초 캐시도 바로 바꾼다 (다른 실행 환경은 30초 안에 따라온다)
-    common._switch.update(value=enabled, checked=common.time.time())
+    core._switch.update(value=enabled, checked=time.time())
     return {"aiSwitch": enabled}
 
 
@@ -293,7 +295,7 @@ def scan_table():
     """테이블 전체 (관리자가 옮기기를 누를 때만 — 평소 기능은 쓰지 않는다)"""
     args = {}
     while True:
-        page = common.table.scan(**args)
+        page = core.table.scan(**args)
         yield from to_plain(page.get("Items", []))
         if "LastEvaluatedKey" not in page:
             return

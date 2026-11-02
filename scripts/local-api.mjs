@@ -13,9 +13,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CreateTableCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import dynalite from "dynalite";
+import { findPython } from "./python-path.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PYTHON = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+const PYTHON = findPython() || process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 /** .env 의 KEY=VALUE 줄 (이미 있는 환경 변수가 먼저) */
 function readDotEnv() {
@@ -33,7 +34,7 @@ function readDotEnv() {
 export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {}) {
   const check = spawnSync(PYTHON, ["-c", "import boto3"], { encoding: "utf8" });
   if (check.status !== 0) {
-    throw new Error(`Python 과 boto3 가 필요해요. 설치: ${PYTHON} -m pip install boto3  (Python 경로가 다르면 PYTHON=... 으로 알려 주세요)`);
+    throw new Error(`Python 과 Lambda 라이브러리가 필요해요. 준비: npm run setup:python  (Python 경로가 다르면 PYTHON=... 으로 알려 주세요)`);
   }
 
   // 1. DynamoDB 흉내 서버 + 테이블

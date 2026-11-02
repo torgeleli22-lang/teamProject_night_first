@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "setup:python": "node scripts/setup-python.mjs",
     "api": "node scripts/local-api.mjs",
     "build": "next build",
     "typecheck": "tsc --noEmit",

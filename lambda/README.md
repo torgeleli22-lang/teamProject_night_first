@@ -1,28 +1,23 @@
 # Lambda
 
-서버는 **Python Lambda 함수 하나**(`jojo_api`)예요. 콘솔 코드 탭에 그대로 붙여넣는 읽을 수 있는 코드이고, zip·빌드가 없어요.
+서버는 기능별 **Python Lambda 함수 6개**로 나눠 가는 중이에요 (구조 기준: [`docs/LAMBDA_STRUCTURE.md`](../docs/LAMBDA_STRUCTURE.md)).
+지금은 전환 1단계까지 끝나서, 공통 코드는 `core.py`·`ai.py`·`code_store.py` 로 나뉘었고 배포는 아직 함수 하나(`jojo_api_py`)예요.
 
 ```
-화면 ──JSON──▶ jojo_api (함수 URL 하나) ──▶ DynamoDB jojo_table · Bedrock Claude Haiku 4.5
+화면 ──JSON──▶ jojo_api_py (함수 URL 하나) ──▶ DynamoDB jojo_table · Bedrock Claude Haiku 4.5
+            (전환 뒤: 로그인 · 연습 · 내 코드 점검 · 첨삭 · 내 공부 · 관리자 함수 6개)
 ```
 
-| 폴더 | 내용 |
+| 폴더·파일 | 내용 |
 |---|---|
-| [`api/`](api) | `jojo_api` 의 파일들 (입구 · 공통 · 기능 파일 · 예시 코드) |
+| [`api/`](api) | 입구 · 공통 조각(`core`·`ai`·`code_store`) · 기능 파일 · 예시 코드 |
+| `requirements.txt` | Lambda 에 묶어 넣는 외부 라이브러리 (Powertools · Pydantic · tree-sitter, 버전 고정) |
 | `tests/` | Python 단위 테스트 (`npm run test:lambda`) |
 
-## 왜 함수 하나인가요? (최소 비용·최소 구성·최고 속도)
+## 왜 나누나요?
+- **오류를 기능별로 찾기 쉽게**: 로그·오류 수·실행 시간이 함수마다 따로 쌓여요
+- **한 기능의 문제가 번지지 않게**: 코드 만들기가 오래 걸리거나 실패해도 로그인·첨삭은 그대로
+- **필요한 것만**: 로그인 함수에는 AI 코드가 없고, 제한 시간·메모리도 기능마다 따로
+- 공통 코드는 저장소에 **한 벌**만 두고, 배포할 때 함수마다 필요한 조각만 골라 묶어요
 
-| | 함수 하나 + 기능 파일 | 기능마다 함수 |
-|---|---|---|
-| 콘솔에서 만들 함수 | **1개** | 5개 이상 |
-| 공통 코드(`common.py`) | **한 곳** | 함수마다 복사 |
-| 화면 설정 변수 | **`API_URL` 하나** | 기능 수만큼 |
-| 콜드 스타트 | **드묾** — 모든 요청이 같은 함수를 데워 둠 | 기능마다 따로 식음 |
-| 브라우저 연결 | **주소 하나라 HTTPS 연결을 한 번 맺고 계속 다시 씀** | 기능마다 새로 연결 |
-| 요금 | Lambda 무료 사용량 안에서 0원에 가까움 | 같음 |
-
-예전에는 코드 문제를 실제로 실행해 확인하려고 Node.js 함수(`jojo_generate_code`)가 따로 있었지만, 지금은 Python 문법 검사(`compile`)만 해서 필요 없어졌어요 (코드 실행 확인은 2단계).
-
-**원본은 이 폴더예요.** 콘솔에서 고쳤다면 같은 내용을 이 폴더에도 반영해 주세요 (팀원과 공유, 변경 기록, 자동 검사 `npm run smoke`).
-만드는 방법: [`docs/DEPLOY_LAMBDA.md`](../docs/DEPLOY_LAMBDA.md) · 내 컴퓨터에서 실행: `npm run api`
+**원본은 이 폴더예요.** 내 컴퓨터에서 실행: `npm run setup:python` (처음 한 번) → `npm run api` · 배포: [`docs/DEPLOY_LAMBDA.md`](../docs/DEPLOY_LAMBDA.md)

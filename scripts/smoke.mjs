@@ -159,10 +159,10 @@ try {
 
   // ── 로그인 (auth.py): 로컬 가짜 로그인으로 흐름 확인 — 이 탭의 기록이 계정으로 옮겨지고, 로그아웃하면 새 학습자
   const meBefore = await call("GET", "/me");
-  check(meBefore.member === false && meBefore.providers.google && meBefore.providers.github, "로그인 전: 로그인 안 한 학습자");
+  check(meBefore.member === false && meBefore.providers.google && !("github" in meBefore.providers), "로그인 전: 로그인 안 한 학습자");
   const anonSid = sid;
   const back = "http://localhost:3000/study/";
-  const startRes = await fetch(`${api.url}/auth/start?provider=github&return=${encodeURIComponent(back)}&sid=${anonSid}`, { redirect: "manual" });
+  const startRes = await fetch(`${api.url}/auth/start?provider=google&return=${encodeURIComponent(back)}&sid=${anonSid}`, { redirect: "manual" });
   check(startRes.status === 302, "로그인 시작 → 로그인 화면으로 (302)");
   const cb = await fetch(startRes.headers.get("location"), { redirect: "manual" });
   const landing = cb.headers.get("location") || "";

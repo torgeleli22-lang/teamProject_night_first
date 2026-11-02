@@ -1,7 +1,8 @@
 import random
 import re
 
-from common import (LEVELS, AiUnavailable, ApiError, ai_allowed, ask_ai, count_event, field, get_user)
+from core import (LEVELS, ApiError, ai_allowed, count_event, field, get_user)
+from ai import (AiUnavailable, ask_ai)
 from samples import ADVANCED_TOPIC_POOL, TOPIC_POOL
 
 # ─────────────────────────────────────────────────────────────

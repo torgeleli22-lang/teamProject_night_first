@@ -1,9 +1,11 @@
 import re
 
 from study import record_retry, record_review
-from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
-                    code_pk, get_user, guess_concept, latest_review, load_code, now_ms, pad, put_item, review_children, review_key, review_rows,
-                    time_id, ttl_after)
+from core import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, ApiError, ai_allowed, count_event, field, code_pk, get_user, now_ms, pad,
+                  put_item, time_id, ttl_after)
+from ai import (AiUnavailable, ask_ai)
+from code_store import (code_for_ai, guess_concept, latest_review, load_code, public_code, review_children, review_key, review_rows)
+from tutor_chat import chats_for
 
 # ─────────────────────────────────────────────────────────────
 # 빨간펜 첨삭 (review.py) — jojo_api 의 기능 파일
@@ -19,6 +21,8 @@ from common import (MAX_MEMO_CHARS, MAX_MEMOS, MAX_RETRIES, TTL_ATTR, AiUnavaila
 #   POST /review/retry   {"codeId": "...", "item": 2, "text": "힌트를 보고 다시 쓴 설명"}
 #   → 첨삭 항목 하나만 다시 채점 {"item", "attempts": [{"text", "mark", "comment", "lookAt", "byAi", "at"}], "left": 남은 횟수}
 #     힌트(첨삭 코멘트)를 보고 이해한 만큼 다시 써 보는 기회. 항목 하나에 MAX_RETRIES(3)번, CODE#<id> / REVIEW#<첨삭 시각>#RETRY#<항목>
+#
+#   GET  /code?codeId=...   코드 다시 열기 → {"codeItem", "review": 마지막 첨삭, "chats": 튜터 대화, "retries": 다시 써 본 기록}
 # ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """너는 프로그래밍 입문자의 '코드 흐름 설명 메모'를 빨간펜으로 첨삭하는 선생님이야.
@@ -161,7 +165,21 @@ def retry(req):
     return {"item": index, "attempts": attempts, "left": MAX_RETRIES - len(attempts)}
 
 
-ROUTES = {"POST /review": review, "POST /review/retry": retry}
+def get_code(req):
+    """코드 다시 열기: 코드 + 마지막 첨삭 + 첨삭 항목마다 다시 써 본 기록·튜터 대화 (연습 모드·내 코드 점검 모두)"""
+    # 1. 내 코드만 꺼내기
+    user = get_user(req)
+    item = load_code(req["query"].get("codeId", ""), user)
+
+    # 2. 첨삭·다시 쓰기·튜터 대화를 한 번에 읽는다 (CODE#<id> 의 REVIEW#…)
+    rows = review_rows(item["codeId"])
+    review = latest_review(item["codeId"], rows)
+    return {"codeItem": public_code(item), "review": review["result"] if review else None,
+            "chats": chats_for(review, rows),       # 첨삭 항목마다 AI 튜터와 나눈 대화 (tutor_chat.py)
+            "retries": retries_for(review, rows)}   # 첨삭 항목마다 힌트를 보고 다시 써 본 기록
+
+
+ROUTES = {"POST /review": review, "POST /review/retry": retry, "GET /code": get_code}
 
 # ───────────────────────── 도움 함수 ─────────────────────────
 
@@ -264,7 +282,7 @@ def rule_retry(item, memo):
 
 
 def retries_for(review, rows):
-    """GET /code 가 함께 돌려줄 다시 쓴 기록: {항목 번호: {"attempts", "left"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
+    """GET /code 가 함께 돌려줄 다시 쓴 기록: {항목 번호: {"attempts", "left"}} (rows: code_store.review_rows 로 한 번에 읽은 것)"""
     if not review:
         return {}
     return {str(i): {"attempts": r.get("attempts", []), "left": MAX_RETRIES - len(r.get("attempts", []))}

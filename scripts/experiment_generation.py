@@ -68,22 +68,23 @@ def remote_maker(url, admin_code):
 def local_maker(offline_db):
     """이 컴퓨터에서 Lambda 코드를 직접 실행 (AWS 권한 필요)"""
     if sys.version_info < (3, 10):
-        sys.exit("Python 3.10 이상이 필요해요 (Lambda 는 3.13). CloudShell: sudo dnf install -y python3.11 → python3.11 로 실행")
+        sys.exit("Python 3.10 이상이 필요해요 (Lambda 는 3.14). CloudShell: sudo dnf install -y python3.11 → python3.11 로 실행")
     os.environ.setdefault("AI_MODE", "live")
-    import common
+    import ai
+    import core
     import experiment
     import practice
     experiment.install()
     if offline_db:   # DynamoDB 없이 (월 예산 확인·사용량 기록 생략)
-        common.month_cost_usd = lambda include_mock=False: 0.0
-        common.ai_switch_on = lambda: True
+        ai.month_cost_usd = lambda include_mock=False: 0.0
+        core.ai_switch_on = lambda: True
         experiment._orig["log_usage"] = lambda *a, **k: None
         practice.log_ai_event = lambda *a, **k: None
-    if common.AI_MODE == "live":   # 권한·모델 접근 문제면 바로 멈춘다 (전부 예시 코드가 되는 것을 막기)
+    if core.AI_MODE == "live":   # 권한·모델 접근 문제면 바로 멈춘다 (전부 예시 코드가 되는 것을 막기)
         try:
-            common.ask_ai("experiment_preflight", "짧게 답해.", "ok 라고만 답해.",
+            ai.ask_ai("experiment_preflight", "짧게 답해.", "ok 라고만 답해.",
                           {"type": "object", "properties": {"ok": {"type": "string"}}, "required": ["ok"]}, max_tokens=50)
-        except common.AiUnavailable as e:
+        except ai.AiUnavailable as e:
             sys.exit(f"✗ AI 를 부를 수 없어요: {e}\n  이 계정에 Bedrock 권한이 없으면 --url <함수 URL> 로 Lambda 에서 실행하세요.")
     return experiment.make_one
 

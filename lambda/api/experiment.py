@@ -1,9 +1,10 @@
 import threading
 import time
 
-import common
+import ai
+import core
 import practice
-from common import LANGUAGES, field
+from core import (LANGUAGES, field)
 
 # ─────────────────────────────────────────────────────────────
 # 문항 생성·검증 실험 (experiment.py) — jojo_api 의 기능 파일. 논문 표 1 (docs/EXPERIMENT.md)
@@ -35,7 +36,7 @@ _orig = {
     "explanation_issues": practice.explanation_issues,
     "ask_ai": practice.ask_ai,
     "ai_allowed": practice.ai_allowed,
-    "log_usage": common.log_usage,
+    "log_usage": ai.log_usage,
 }
 
 
@@ -80,7 +81,7 @@ def ask_ai(task, *args, **kwargs):
     started = time.time()
     try:
         return _orig["ask_ai"](task, *args, **kwargs)
-    except common.AiUnavailable as e:
+    except ai.AiUnavailable as e:
         rec()["ai_errors"].append(f"{task}: {e}")
         raise
     finally:
@@ -109,7 +110,7 @@ def install():
     practice.explanation_issues = explanation_issues
     practice.ask_ai = ask_ai
     practice.ai_allowed = ai_allowed
-    common.log_usage = log_usage
+    ai.log_usage = log_usage
 
 
 # ───────────────────────── 문항 하나 만들기 ─────────────────────────
@@ -132,7 +133,7 @@ def make_one(item):
     finally:
         r["seconds"] = round(time.time() - started, 2)
         _local.rec = None
-    r.update(model=common.MODEL_ID, aiMode=common.AI_MODE)
+    r.update(model=core.MODEL_ID, aiMode=core.AI_MODE)
     return r
 
 

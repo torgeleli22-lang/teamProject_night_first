@@ -12,11 +12,11 @@ export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
   4: "100~180줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
 };
 
-/** 연습 모드 언어 (common.LANGUAGES 와 같게). 내 코드 점검은 아직 Python 만 */
+/** 연습 모드 언어 (core.LANGUAGES 와 같게). 내 코드 점검은 아직 Python 만 */
 export type Language = "python" | "javascript";
 export const LANGUAGE_NAMES: Record<Language, string> = { python: "Python", javascript: "JavaScript" };
 
-/** 개념 꼬리표 (common.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
+/** 개념 꼬리표 (core.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
 export type Concept = "branch" | "loop_update" | "call_flow" | "data_update" | "class_state" | "exception" | "recursion" | "algorithm";
 export const CONCEPT_NAMES: Record<Concept, string> = {
   branch: "조건 분기",
@@ -36,9 +36,9 @@ export interface Me {
   /** 로그인한 학습자인지 */
   member: boolean;
   name: string | null;
-  provider: "google" | "github" | null;
+  provider: "google" | null;
   /** 쓸 수 있는 로그인 (서버에 클라이언트 id 가 설정된 것) */
-  providers: { google: boolean; github: boolean };
+  providers: { google: boolean };
 }
 
 // ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────

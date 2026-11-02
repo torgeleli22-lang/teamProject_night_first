@@ -1,7 +1,8 @@
 import re
 
-from common import (LANGUAGES, LEVELS, MAX_CODE_LINES, AiUnavailable, ApiError, ai_allowed, ask_ai, clean_marks,
-                    count_event, field, get_user, numbered, public_code, save_code)
+from core import (LANGUAGES, LEVELS, MAX_CODE_LINES, ApiError, ai_allowed, count_event, field, get_user)
+from ai import (AiUnavailable, ask_ai)
+from code_store import (clean_marks, numbered, public_code, save_code)
 
 # ─────────────────────────────────────────────────────────────
 # 내 코드 점검 (inspect_code.py) — jojo_api 의 기능 파일

@@ -1,7 +1,9 @@
 import re
 
-from common import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, AiUnavailable, ApiError, ai_allowed, ask_ai, code_for_ai, count_event, field,
-                    code_pk, get_user, latest_review, load_code, now_ms, put_item, review_children, review_key, review_rows, ttl_after)
+from core import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, ApiError, ai_allowed, count_event, field, code_pk, get_user, now_ms, put_item,
+                  ttl_after)
+from ai import (AiUnavailable, ask_ai)
+from code_store import (code_for_ai, latest_review, load_code, review_children, review_key, review_rows)
 
 # ─────────────────────────────────────────────────────────────
 # AI 튜터 대화 (tutor_chat.py) — jojo_api 의 기능 파일
@@ -105,7 +107,7 @@ def chat_key(review, index):
 
 
 def chats_for(review, rows):
-    """GET /code 가 함께 돌려줄 대화: {항목 번호: {"turns", "turnsLeft"}} (rows: common.review_rows 로 한 번에 읽은 것)"""
+    """GET /code 가 함께 돌려줄 대화: {항목 번호: {"turns", "turnsLeft"}} (rows: code_store.review_rows 로 한 번에 읽은 것)"""
     if not review:
         return {}
     out = {}

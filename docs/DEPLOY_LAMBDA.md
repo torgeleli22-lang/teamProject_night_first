@@ -26,15 +26,17 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
 이미 만든 **`jojo_api_py`** 를 그대로 고쳐 씁니다 (새로 만든다면 아래 1번부터).
 
 1. Lambda → **함수 생성 → 새로 작성**
-   - 런타임 **Python 3.13 이상**(3.14 도 됨), 아키텍처 **arm64**
+   - 런타임 **Python 3.14**, 아키텍처 **arm64**
    - 기본 실행 역할 변경 → 기존 역할 사용 → **`SafeRole-sgu-202688`**
 2. **코드 탭** — 파일 목록을 아래와 똑같이 맞춥니다.
 
    | 파일 | 하는 일 |
    |---|---|
    | `lambda_function.py` | 입구 (경로 → 기능 파일) |
-   | `auth.py` | Google·GitHub 로그인 (선택, 5단계) |
-   | `common.py` | 공통 도구 (요청·응답, 요청 수 제한, 학습자, DynamoDB, AI, 읽을 코드) |
+   | `auth.py` | Google 로그인 (선택, 5단계) |
+   | `core.py` | 공통 조각: 설정·요청/응답·DynamoDB·요청 수 제한·학습자·설정 값·id |
+   | `ai.py` | 공통 조각: AI 호출·월 예산·사용량 기록 |
+   | `code_store.py` | 공통 조각: 읽을 코드 저장·꺼내기·※ 정리 |
    | `topics.py` | 주제 고르기 (랜덤 · 직접 적은 주제 판정) |
    | `practice.py` | 연습 코드 만들기 · 더 쉽게/어렵게 · 다시 읽기 |
    | `inspect_code.py` | 내 코드 점검 |
@@ -63,8 +65,8 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
    | `ADMIN_TOKEN` | 직접 정한 긴 값 (CloudShell `openssl rand -hex 24`) — **관리자 복구 코드** |
 
    - 예전 변수 `GENERATE_CODE_FUNCTION`, `AI_GENERATION_DAILY_LIMIT` 는 이제 쓰지 않아요 (지워도 됨)
-   - 선택: `MODEL_ID`, `RATE_LIMIT_*`(요청 수 제한, `common.py` 1번 설정 참고)
-   - 로그인을 쓰려면 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`·`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` (5단계)
+   - 선택: `MODEL_ID`, `RATE_LIMIT_*`(요청 수 제한, `core.py` 1번 설정 참고)
+   - 로그인을 쓰려면 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET` (5단계). 예전 `GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` 는 이제 쓰지 않아요 (지워도 됨)
 5. **테스트 탭** → 이벤트 `{"path": "/health", "method": "GET"}` → **테스트** → body 에 `"ok": true, "maxCodeLines": 300, "regenLimit": 5`
    다른 시험 이벤트(주제 판정, 연습 코드, 내 코드 훑어보기, 관리자): [`lambda/api/test_events.json`](../lambda/api/test_events.json)
 6. **함수 URL** (이미 있으면 건너뛰기): 구성 → 함수 URL → 생성 → 인증 유형 **NONE**, **CORS 는 설정하지 않음**(코드가 `ALLOWED_ORIGINS` 로 처리).
@@ -90,14 +92,13 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 4. 예전 Node.js 함수 `jojo_generate_code` 와 예전 Node.js `jojo_api` 가 남아 있으면 삭제
 5. **키·필드 이름을 바꾼 버전을 처음 올렸다면**: 관리자 화면 → **예전 데이터 옮기기** 를 한 번 누르기 (`POST /admin/migrate`). 예전 키 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름(`USER#`·`CODE#`·`OPS#`)으로 옮기고, 예전 필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId` 등)을 고쳐요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요.
 
-## 5단계. Google·GitHub 로그인 (선택)
+## 5단계. Google 로그인 (선택)
 
-로그인하면 기록이 탭을 닫아도 남아요 (학습자·'내 공부' 1년, 연습 코드 30일). 설정하지 않은 쪽 버튼은 화면에 나오지 않아요.
+로그인하면 기록이 탭을 닫아도 남아요 (학습자·'내 공부' 1년, 연습 코드 30일). 설정하지 않으면 로그인 버튼이 화면에 나오지 않아요.
 **클라이언트 보안 비밀(secret)은 Lambda 환경 변수에만** 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
 
-콜백 주소는 함수 URL 뒤에 `/auth/callback/<google 또는 github>` 를 붙인 값입니다 (함수 URL 끝의 `/` 는 하나만):
+콜백 주소는 함수 URL 뒤에 `/auth/callback/google` 을 붙인 값입니다 (함수 URL 끝의 `/` 는 하나만):
 - Google: `https://<함수 URL 도메인>/auth/callback/google`
-- GitHub: `https://<함수 URL 도메인>/auth/callback/github`
 
 **Google**
 1. [Google Cloud Console](https://console.cloud.google.com/) → 프로젝트 만들기(또는 고르기)
@@ -106,18 +107,12 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
    - 승인된 리디렉션 URI: 위 Google 콜백 주소
 4. 만들어진 **클라이언트 ID** → 환경 변수 `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET`
 
-**GitHub**
-1. GitHub → Settings → Developer settings → **OAuth Apps → New OAuth App**
-   - Homepage URL: `https://torgeleli22-lang.github.io/teamProject_night_first/`
-   - Authorization callback URL: 위 GitHub 콜백 주소
-2. **Client ID** → `GITHUB_CLIENT_ID`, **Generate a new client secret** → `GITHUB_CLIENT_SECRET`
-
 **Lambda**
-1. 코드 탭에 `auth.py` 를 새 파일로 추가하고, `common.py`·`lambda_function.py` 를 바꿔 붙여넣기 → **Deploy**
-2. 구성 → 환경 변수에 위 네 값 추가 (`ALLOWED_ORIGINS` 는 그대로 — 로그인 뒤 돌아갈 화면도 이 주소만 허용)
-3. 확인: `<함수 URL>/me` → `"providers": {"google": true, "github": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
+1. 코드 탭에 `auth.py` 를 새 파일로 추가하고, `core.py`·`lambda_function.py` 를 바꿔 붙여넣기 → **Deploy**
+2. 구성 → 환경 변수에 위 두 값 추가 (`ALLOWED_ORIGINS` 는 그대로 — 로그인 뒤 돌아갈 화면도 이 주소만 허용)
+3. 확인: `<함수 URL>/me` → `"providers": {"google": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
 
-- 받는 정보는 계정 번호와 이름뿐이에요 (이메일·저장소 권한은 요청하지 않음).
+- 받는 정보는 계정 번호와 이름뿐이에요 (이메일은 요청하지 않음).
 - 로그인하면 지금 탭에서 한 공부('내 공부', 연습 코드)가 계정으로 옮겨져요.
 - 함수 URL 이 아닌 다른 주소로 콜백을 받아야 하면 `AUTH_CALLBACK_BASE` 에 그 앞부분을 넣어요 (보통은 비워 둠).
 
@@ -145,7 +140,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 
 ## 악성 사용자·요금 폭탄 막기
 
-### 코드에 들어 있는 것 (`common.py`, 설정 없이 동작)
+### 코드에 들어 있는 것 (`core.py`·`ai.py`, 설정 없이 동작)
 | 막는 것 | 방법 |
 |---|---|
 | AI 요금 | 월 예산을 넘으면 AI 를 부르지 않고 예시 코드·규칙 판정·규칙 첨삭으로 (이번 호출의 최대 비용까지 미리 계산) |

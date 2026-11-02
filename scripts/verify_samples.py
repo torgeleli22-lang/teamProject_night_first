@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.join(ROOT, "lambda", "api"))
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 import practice  # noqa: E402
-from common import LANGUAGES, LEVELS, clean_marks  # noqa: E402
+from core import (LANGUAGES, LEVELS)
+from code_store import clean_marks  # noqa: E402
 from samples import ADVANCED_TOPIC_POOL, SAMPLES, TOPIC_POOL  # noqa: E402
 
 failures = []

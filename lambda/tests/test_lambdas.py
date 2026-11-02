@@ -3,7 +3,7 @@
 import os
 import unittest
 
-from helpers import common, load_lambda
+from helpers import ai, code_store, core, load_lambda
 
 samples = load_lambda("samples")
 topics = load_lambda("topics")
@@ -17,14 +17,14 @@ admin = load_lambda("admin")
 
 class Samples(unittest.TestCase):
     def test_every_level_has_samples_with_valid_marks(self):
-        for language in common.LANGUAGES:
+        for language in core.LANGUAGES:
             self.assertEqual({s["level"] for s in samples.SAMPLES if s.get("language", "python") == language}, {1, 2, 3, 4}, language)
         for s in samples.SAMPLES:
             if s.get("language", "python") == "python":
                 compile(s["code"], s["id"], "exec")
             else:
                 self.assertEqual(practice.js_shape_problems(s["code"]), [], s["id"])
-            marks = common.clean_marks(s["code"], s["marks"], limit=5)
+            marks = code_store.clean_marks(s["code"], s["marks"], limit=5)
             self.assertEqual(len(marks), len(s["marks"]), s["id"])   # 겹치거나 범위를 벗어난 ※ 지점이 없다
             for m in s["marks"]:
                 self.assertTrue(m["explanation"] and m["keywords"], s["id"])
@@ -60,7 +60,7 @@ class GeneratedCode(unittest.TestCase):
             for k in ("why", "explanation", "keywords"):
                 m.pop(k)
         r.pop("_mock")
-        self.assertEqual(common.check_schema(r, practice.SCHEMA), [])
+        self.assertEqual(ai.check_schema(r, practice.SCHEMA), [])
         _, marks, problems = practice.check_generated(r, 1)
         self.assertEqual((problems, marks[0]["why"], marks[0]["explanation"]), ([], "", ""))
 
@@ -284,11 +284,11 @@ class CodeCheckPipeline(unittest.TestCase):
         self.assertEqual((made["origin"], made["verification"], self.calls.count("code_generation")), ("sample", "sample_verified", 3))
 
     def test_check_unavailable_trusts_rule_checks(self):
-        made = self.run_with([common.AiUnavailable("budget")])
+        made = self.run_with([ai.AiUnavailable("budget")])
         self.assertEqual((made["origin"], made["verification"]), ("ai", "rule_checked"))
 
     def test_trace_unavailable_gives_sample(self):
-        made = self.run_with([], traces=[common.AiUnavailable("budget")])
+        made = self.run_with([], traces=[ai.AiUnavailable("budget")])
         self.assertEqual((made["origin"], self.calls), ("sample", ["code_generation", "code_trace"]))
 
 
@@ -327,10 +327,10 @@ class Inspect(unittest.TestCase):
         self.assertEqual([(f["name"], f["start"], f["end"]) for f in found], [("Shop.sell", 2, 3), ("Shop.stock", 5, 6), ("main", 8, 10)])
 
     def test_read_code_limits(self):
-        with self.assertRaises(common.ApiError):
+        with self.assertRaises(core.ApiError):
             inspect_code.read_code({"code": "print(1)", "filename": "app.js"})
-        with self.assertRaises(common.ApiError):
-            inspect_code.read_code({"code": "x = 1\n" * (common.MAX_CODE_LINES + 1), "filename": "a.py"})
+        with self.assertRaises(core.ApiError):
+            inspect_code.read_code({"code": "x = 1\n" * (core.MAX_CODE_LINES + 1), "filename": "a.py"})
         self.assertEqual(inspect_code.read_code({"code": "x = 1", "filename": "a.py"}), ("x = 1", "python"))
 
 
@@ -360,7 +360,7 @@ class RuleReview(unittest.TestCase):
 
     def test_review_keys(self):
         rv = {"sk": "REVIEW#0000000001"}
-        self.assertEqual(common.review_key(rv, "RETRY", 2), "REVIEW#0000000001#RETRY#002")
+        self.assertEqual(code_store.review_key(rv, "RETRY", 2), "REVIEW#0000000001#RETRY#002")
 
     def test_read_memos_drops_empty_and_sorts(self):
         memos = review.read_memos({"memos": [{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]}, self.ITEM["code"])
@@ -406,11 +406,11 @@ class Concepts(unittest.TestCase):
     ])
 
     def test_guess_concept_rules(self):
-        self.assertEqual(common.guess_concept(self.CODE, 3, 4), "loop_update")
-        self.assertEqual(common.guess_concept(self.CODE, 9, 9), "recursion")
-        self.assertEqual(common.guess_concept(self.CODE, 7, 8), "branch")
-        self.assertEqual(common.guess_concept(self.CODE, 10, 10), "call_flow")   # 맨 바깥에서 부르면 재귀가 아님
-        self.assertEqual(common.guess_concept(self.CODE, 11, 14), "exception")
+        self.assertEqual(code_store.guess_concept(self.CODE, 3, 4), "loop_update")
+        self.assertEqual(code_store.guess_concept(self.CODE, 9, 9), "recursion")
+        self.assertEqual(code_store.guess_concept(self.CODE, 7, 8), "branch")
+        self.assertEqual(code_store.guess_concept(self.CODE, 10, 10), "call_flow")   # 맨 바깥에서 부르면 재귀가 아님
+        self.assertEqual(code_store.guess_concept(self.CODE, 11, 14), "exception")
 
     JS = "\n".join([
         "function count(group) {",             # 1
@@ -433,20 +433,20 @@ class Concepts(unittest.TestCase):
     ])
 
     def test_guess_concept_javascript(self):
-        self.assertEqual(common.guess_concept(self.JS, 1, 7), "recursion")     # 범위가 함수 첫 줄부터: 자기 자신을 부름
-        self.assertEqual(common.guess_concept(self.JS, 4, 4), "recursion")
-        self.assertEqual(common.guess_concept(self.JS, 10, 10), "class_state")
-        self.assertEqual(common.guess_concept(self.JS, 13, 15), "exception")
-        self.assertEqual(common.guess_concept(self.JS, 16, 16), "branch")
-        self.assertEqual(common.guess_concept(self.JS, 17, 17), "call_flow")
+        self.assertEqual(code_store.guess_concept(self.JS, 1, 7), "recursion")     # 범위가 함수 첫 줄부터: 자기 자신을 부름
+        self.assertEqual(code_store.guess_concept(self.JS, 4, 4), "recursion")
+        self.assertEqual(code_store.guess_concept(self.JS, 10, 10), "class_state")
+        self.assertEqual(code_store.guess_concept(self.JS, 13, 15), "exception")
+        self.assertEqual(code_store.guess_concept(self.JS, 16, 16), "branch")
+        self.assertEqual(code_store.guess_concept(self.JS, 17, 17), "call_flow")
 
     def test_every_sample_mark_has_valid_concept(self):
         for s in samples.SAMPLES:
             for m in s["marks"]:
-                self.assertIn(m["concept"], common.CONCEPTS, s["id"])
+                self.assertIn(m["concept"], core.CONCEPTS, s["id"])
 
     def test_clean_marks_keeps_or_guesses_concept(self):
-        marks = common.clean_marks(self.CODE, [{"start": 3, "end": 4, "concept": "algorithm"}, {"start": 7, "end": 8, "concept": "모름"}])
+        marks = code_store.clean_marks(self.CODE, [{"start": 3, "end": 4, "concept": "algorithm"}, {"start": 7, "end": 8, "concept": "모름"}])
         self.assertEqual([m["concept"] for m in marks], ["algorithm", "branch"])
 
 
@@ -460,23 +460,23 @@ class TimeOrderedId(unittest.TestCase):
     def test_new_id_is_uuid7_sorted_by_time(self):
         import re
         import uuid
-        early, late = common.new_id(ms=1_700_000_000_000), common.new_id(ms=1_800_000_000_000)
+        early, late = core.new_id(ms=1_700_000_000_000), core.new_id(ms=1_800_000_000_000)
         for i in (early, late):
             self.assertEqual(uuid.UUID(i).version, 7)
-            self.assertTrue(common.SESSION_ID.match(i))                # 학습자 id 헤더 검사를 그대로 통과
+            self.assertTrue(core.SESSION_ID.match(i))                # 학습자 id 헤더 검사를 그대로 통과
             self.assertTrue(re.fullmatch(r"[0-9a-f-]{36}", i))         # load_code 의 코드 id 검사도
         self.assertLess(early, late)                                   # 문자열 정렬 = 만든 순서
         self.assertEqual(int(late.replace("-", "")[:12], 16), 1_800_000_000_000)   # 앞 12글자 = 밀리초 시각
-        self.assertNotEqual(common.new_id(ms=1), common.new_id(ms=1))  # 같은 밀리초여도 무작위 부분이 다름
+        self.assertNotEqual(core.new_id(ms=1), core.new_id(ms=1))  # 같은 밀리초여도 무작위 부분이 다름
 
 
 class KeepTime(unittest.TestCase):
     def test_anonymous_is_short_member_is_long(self):
         anon, member = {"member": False}, {"member": True}
-        self.assertEqual(common.keep_seconds(anon, "user"), common.ANON_HOURS * 3600)
-        self.assertEqual(common.keep_seconds(anon, "study"), common.ANON_CODE_HOURS * 3600)
-        self.assertEqual(common.keep_seconds(member, "study"), common.MEMBER_DAYS * 86400)
-        self.assertEqual(common.keep_seconds(member, "upload"), common.UPLOAD_KEEP_DAYS * 86400)   # 올린 코드는 로그인해도 짧게
+        self.assertEqual(core.keep_seconds(anon, "user"), core.ANON_HOURS * 3600)
+        self.assertEqual(core.keep_seconds(anon, "study"), core.ANON_CODE_HOURS * 3600)
+        self.assertEqual(core.keep_seconds(member, "study"), core.MEMBER_DAYS * 86400)
+        self.assertEqual(core.keep_seconds(member, "upload"), core.UPLOAD_KEEP_DAYS * 86400)   # 올린 코드는 로그인해도 짧게
 
 
 class Study(unittest.TestCase):
@@ -532,9 +532,9 @@ class Login(unittest.TestCase):
         auth.ALLOWED_ORIGINS[:] = ["https://example.github.io"]
         try:
             self.assertEqual(auth.safe_return("https://example.github.io/app/study/#x"), "https://example.github.io/app/study/")
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(core.ApiError):
                 auth.safe_return("https://evil.example.com/")
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(core.ApiError):
                 auth.safe_return("javascript:alert(1)")
         finally:
             auth.ALLOWED_ORIGINS[:] = allowed
@@ -543,7 +543,7 @@ class Login(unittest.TestCase):
         auth = load_lambda("auth")
         req = {"host": "abc.lambda-url.ap-northeast-2.on.aws", "domain": "abc.lambda-url.ap-northeast-2.on.aws"}
         if not auth.LOCAL_DEV and not os.environ.get("AUTH_CALLBACK_BASE"):
-            self.assertEqual(auth.callback_url(req, "github"), "https://abc.lambda-url.ap-northeast-2.on.aws/auth/callback/github")
+            self.assertEqual(auth.callback_url(req, "google"), "https://abc.lambda-url.ap-northeast-2.on.aws/auth/callback/google")
 
     def test_same_name_is_still_a_different_account(self):
         auth = load_lambda("auth")
@@ -556,44 +556,42 @@ class Login(unittest.TestCase):
             kim1 = auth.account_user("google", {"id": "1001", "name": "김철수"})
             kim2 = auth.account_user("google", {"id": "2002", "name": "김철수"})   # 동명이인
             again = auth.account_user("google", {"id": "1001", "name": "김철수(새 이름)"})   # 이름만 바뀜
-            other = auth.account_user("github", {"id": "1001", "name": "김철수"})   # 다른 제공자의 같은 번호
             self.assertNotEqual(kim1, kim2)
             self.assertEqual(kim1, again)
-            self.assertNotIn(other, (kim1, kim2))
-            self.assertEqual(db[(common.user_pk(kim1), common.PROFILE)]["name"], "김철수(새 이름)")
+            self.assertEqual(db[(core.user_pk(kim1), core.PROFILE)]["name"], "김철수(새 이름)")
         finally:
             auth.get_item, auth.put_item, auth.update_item = saved
 
     def test_old_format_account_stops_instead_of_making_a_new_user(self):
         auth = load_lambda("auth")
-        db = {(common.account_pk("google:9"), common.USER): {"learnerId": "u1"}}   # '예전 데이터 옮기기' 전
+        db = {(core.account_pk("google:9"), core.USER): {"learnerId": "u1"}}   # '예전 데이터 옮기기' 전
         saved = auth.get_item, auth.put_item
         auth.get_item = lambda pk, sk: db.get((pk, sk))
         auth.put_item = lambda item: db.__setitem__((item["pk"], item["sk"]), dict(item))
         try:
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(core.ApiError):
                 auth.account_user("google", {"id": "9", "name": "김철수"})
             self.assertEqual(len(db), 1)                     # 새 학습자를 만들지 않음
         finally:
             auth.get_item, auth.put_item = saved
 
     def test_unknown_provider_is_refused(self):
-        with self.assertRaises(common.ApiError):
+        with self.assertRaises(core.ApiError):
             load_lambda("auth").provider_of("kakao")
 
 
 class KeyNames(unittest.TestCase):
-    """키 이름표 (common.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화 · 예전 이름 옮기기 (admin.migrate)"""
+    """키 이름표 (core.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화 · 예전 이름 옮기기 (admin.migrate)"""
 
     def test_review_children_live_under_their_review(self):
         rv1 = {"sk": "REVIEW#0000000000000100", "result": {}}
         rv2 = {"sk": "REVIEW#0000000000000200", "result": {}}
-        rows = [rv1, {"sk": common.review_key(rv1, "CHAT", 0)}, {"sk": common.review_key(rv1, "RETRY", 2), "attempts": [1]},
-                rv2, {"sk": common.review_key(rv2, "CHAT", 3), "turns": []}]
-        self.assertEqual(common.review_key(rv2, "CHAT", 3), "REVIEW#0000000000000200#CHAT#003")
-        self.assertIs(common.latest_review("x", rows), rv2)                      # 대화·다시 쓰기는 첨삭으로 치지 않음
-        self.assertEqual(list(common.review_children(rv2, "CHAT", rows)), [3])  # 최신 첨삭에 딸린 것만
-        self.assertEqual(list(common.review_children(rv1, "RETRY", rows)), [2])
+        rows = [rv1, {"sk": code_store.review_key(rv1, "CHAT", 0)}, {"sk": code_store.review_key(rv1, "RETRY", 2), "attempts": [1]},
+                rv2, {"sk": code_store.review_key(rv2, "CHAT", 3), "turns": []}]
+        self.assertEqual(code_store.review_key(rv2, "CHAT", 3), "REVIEW#0000000000000200#CHAT#003")
+        self.assertIs(code_store.latest_review("x", rows), rv2)                      # 대화·다시 쓰기는 첨삭으로 치지 않음
+        self.assertEqual(list(code_store.review_children(rv2, "CHAT", rows)), [3])  # 최신 첨삭에 딸린 것만
+        self.assertEqual(list(code_store.review_children(rv1, "RETRY", rows)), [2])
 
     def test_old_names_map_to_new_names(self):
         k = admin.new_key
@@ -657,7 +655,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /code",
             "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate", "POST /admin/experiment",
-            "GET /me", "GET /auth/start", "GET /auth/callback/google", "GET /auth/callback/github", "POST /auth/logout"})
+            "GET /me", "GET /auth/start", "GET /auth/callback/google", "POST /auth/logout"})
 
 
 if __name__ == "__main__":
