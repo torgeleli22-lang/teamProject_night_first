@@ -14,7 +14,7 @@
 5. **올린 코드는 민감 정보를 가린 뒤에만 서버로 간다.** 화면(`src/lib/secrets.ts`)에서 먼저 가리고 Lambda(`inspect_code.mask_secrets`)에서 한 번 더 가린다. 두 파일의 패턴을 같게 유지한다. 올린 코드는 하루 뒤 TTL 로 지워진다.
 6. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다. Lambda 를 바꿨다면 `npm run smoke` 도.
 7. **화면 문구는 한국어 존댓말("~해요")**, 초보자·비개발자 눈높이. 틀렸을 때도 실패감을 주지 않는다.
-8. 구조는 **화면 GitHub Pages + Lambda 1개 + DynamoDB + Bedrock** 이다 (§9, §10, `docs/DEPLOY_LAMBDA.md`). 최소 비용·최소 구성·최고 속도가 목표: 화면의 모든 요청은 Python 함수 **`jojo_api`(`lambda/api/`, 함수 URL 하나)** 가 받고 기능별 파일로 나눈다. 기능마다 함수를 늘리지 않고 `lambda/api/` 에 기능 파일을 더한다. 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**로 유지한다 (zip·번들·압축·빌드 금지, 단계마다 번호 주석, boto3 외 라이브러리 없음). 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부른다 (`tests/boundaries.test.ts`).
+8. 구조는 **화면 GitHub Pages + 기능별 Lambda 6개 + DynamoDB + Bedrock** 이다 (§9, §10, **`docs/LAMBDA_STRUCTURE.md`**, `docs/DEPLOY_LAMBDA.md`). 로그·오류 수·제한 시간을 기능별로 나누고, 각 함수에는 필요한 파일만 넣는다. 공통 코드는 저장소에 한 벌(`core`·`ai`·`code_store`)만 두고 배포할 때 묶는다. 외부 라이브러리는 구조 기준 §4 에 정한 것만(Powertools·Pydantic·tree-sitter). **전환 중**: 지금 코드는 아직 함수 하나(`jojo_api_py`, `lambda/api/`)다. 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부른다 (`tests/boundaries.test.ts`). 연습 문항 생성·검토는 **`docs/GENERATION_STANDARD.md`** 를 따른다.
 9. **비밀 값(ADMIN_TOKEN, API 키, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** Lambda 환경 변수(로컬은 `.env`)에만 둔다.
 10. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager 처럼 추가 권한이 필요한 기능에 의존하지 않는다. S3 등 §10 밖의 서비스는 사람이 요청하기 전까지 넣지 않는다.
 
