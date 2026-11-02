@@ -13,7 +13,7 @@ from common import LANGUAGES, field
 #     {"attempts": [{"rule_problems", "check_problems", "check_ran", "fixed", …}], "origin": "ai"|"sample",
 #      "seconds", "tokens_in", "tokens_out", "ai_errors", "code", "marks", …}
 #
-#   - 출제 → 규칙 검사 → 교차 검토 → (재생성) → 예시 코드 흐름은 그대로이고, 단계 함수를 감싸서 기록만 한다
+#   - 출제 → 규칙 검사 A → 실행 추적표·모범 설명 → 규칙 검사 B → 교차 검토 → (재생성) → 예시 코드 흐름은 그대로이고, 단계 함수를 감싸서 기록만 한다
 #   - 만든 문항은 저장하지 않는다 (학습자 기록과 섞이지 않게). AI 사용량은 관리자 화면 비용에 그대로 잡힌다
 #   - 실험 중에만 요청 수 한도(1시간 30번)를 건너뛴다. 월 예산 확인·AI 끄기는 그대로
 #   - 실험이 아닌 요청에서는 감싼 함수가 원래 함수를 그대로 부른다 (기록 없음)
@@ -32,54 +32,59 @@ def rec():
 _orig = {
     "check_generated": practice.check_generated,
     "ai_check_code": practice.ai_check_code,
+    "explanation_issues": practice.explanation_issues,
     "ask_ai": practice.ask_ai,
     "ai_allowed": practice.ai_allowed,
     "log_usage": common.log_usage,
 }
 
 
-def check_generated(r, level, language="python"):
-    """② 규칙 검사: 시도마다 문제 목록을 적는다"""
-    code, marks, problems = _orig["check_generated"](r, level, language)
+def check_generated(r, level, language="python", focus=None):
+    """규칙 검사 A: 시도마다 문제 목록을 적는다"""
+    code, marks, problems = _orig["check_generated"](r, level, language, focus)
     if rec() is not None:
         rec()["attempts"].append({"lines": len(code.split("\n")), "marks": len(marks), "rule_problems": problems,
-                                  "check_problems": None, "check_ran": False, "fixed": 0, "fixed_ids": [],
+                                  "explain_issues": None, "final_hard": [], "check_problems": None, "check_ran": False, "fixed": 0, "fixed_ids": [],
                                   # AI 가 적은 ※ 지점 그대로 (줄 찾기·겹침 분석용)
                                   "raw_marks": [{k: m.get(k) for k in ("startLine", "endLine", "startNo", "endNo")} for m in r.get("marks", [])],
                                   "kept": [[m["start"], m["end"]] for m in marks]})
     return code, marks, problems
 
 
-def ai_check_code(code, marks, level, language):
-    """③ 교차 검토: 재생성할 문제와, 교체된 모범 설명 수를 적는다"""
+def ai_check_code(code, marks, level, language, issues=None):
+    """③ 교차 검토: 규칙 검사 B 결과, 재생성할 문제, 교체된 모범 설명 수를 적는다"""
     before = {m["id"]: m["explanation"] for m in marks}
-    problems, fixed_marks = _orig["ai_check_code"](code, marks, level, language)
+    problems, fixed_marks, review = _orig["ai_check_code"](code, marks, level, language, issues)
     if rec() is not None:
         attempt = rec()["attempts"][-1]
-        attempt["check_ran"] = not rec().pop("_check_unavailable", False)
+        attempt["explain_issues"] = issues or {}
+        attempt["check_ran"] = review is not None
         attempt["check_problems"] = problems
         attempt["fixed_ids"] = [m["id"] for m in fixed_marks if before.get(m["id"]) != m["explanation"]]
         attempt["fixed"] = len(attempt["fixed_ids"])
-    return problems, fixed_marks
+    return problems, fixed_marks, review
+
+
+def explanation_issues(code, marks, trace, extra=""):
+    """규칙 검사 B: 교차 검토 뒤 마지막 검사에서 남은 꼭 지킬 것(다시 만들게 되는 문제)을 적는다"""
+    fixed, issues = _orig["explanation_issues"](code, marks, trace, extra)
+    if rec() is not None and rec()["attempts"]:
+        rec()["attempts"][-1]["final_hard"] = [h for i in issues.values() for h in i["hard"]]
+    return fixed, issues
 
 
 def ask_ai(task, *args, **kwargs):
-    """AI 호출 시간·실패 이유를 적는다 (code_generation · code_check)"""
+    """AI 호출 시간·실패 이유를 적는다 (code_generation · code_trace · code_check)"""
     if rec() is None:
         return _orig["ask_ai"](task, *args, **kwargs)
     started = time.time()
     try:
-        result = _orig["ask_ai"](task, *args, **kwargs)
-        if task == "code_check":
-            rec().pop("_check_unavailable", None)   # 생각 없이 다시 한 검토가 성공하면 검토한 것으로
-        return result
+        return _orig["ask_ai"](task, *args, **kwargs)
     except common.AiUnavailable as e:
         rec()["ai_errors"].append(f"{task}: {e}")
-        if task == "code_check":
-            rec()["_check_unavailable"] = True
         raise
     finally:
-        rec()["ai_calls"].append({"task": task, "sec": round(time.time() - started, 2), "thinking": kwargs.get("thinking", 0)})
+        rec()["ai_calls"].append({"task": task, "sec": round(time.time() - started, 2)})
 
 
 def ai_allowed(req):
@@ -101,6 +106,7 @@ def install():
         return
     practice.check_generated = check_generated
     practice.ai_check_code = ai_check_code
+    practice.explanation_issues = explanation_issues
     practice.ask_ai = ask_ai
     practice.ai_allowed = ai_allowed
     common.log_usage = log_usage
@@ -119,12 +125,12 @@ def make_one(item):
     try:
         made = practice.make_code(req, item["level"], item["topic"], user, prompt_extra="", language=item["language"])
         r.update(origin=made["origin"], note=made.get("note"), title=made["title"], code=made["code"],
-                 marks=[{k: m.get(k) for k in ("id", "start", "end", "concept", "explanation", "keywords")} for m in made["marks"]])
+                 marks=[{k: m.get(k) for k in ("id", "start", "end", "concept", "explanation", "keywords")} for m in made["marks"]],
+                 trace=made.get("trace"), checks=made.get("checks"), verification=made.get("verification"))
     except Exception as e:   # 예상하지 못한 오류도 기록하고 돌려준다 (실험이 멈추지 않게)
         r.update(origin="error", note=repr(e), title="", code="", marks=[])
     finally:
         r["seconds"] = round(time.time() - started, 2)
-        r.pop("_check_unavailable", None)
         _local.rec = None
     r.update(model=common.MODEL_ID, aiMode=common.AI_MODE)
     return r

@@ -109,9 +109,9 @@ sell("바나나우유", 2)
 sell("컵라면", 1)
 print("발주 필요:", restock_report())""",
         "marks": [
-            {"start": 8, "end": 16, "concept": "branch", "why": "재고 상태를 정하는 함수",
-             "explanation": "상품 이름을 받아 재고 상태를 글자로 돌려줘요. 없는 상품 → 품절(0개) → 재고 부족(10개 미만) → 충분 순서로 검사하고, 먼저 맞는 조건에서 바로 돌려줘요.",
-             "keywords": ["상태", "없는 상품", "품절", "10개", "순서"]},
+            {"start": 9, "end": 16, "concept": "branch", "why": "재고 상태를 정하는 순서",
+             "explanation": "목록에 없으면 '없는 상품', 0개면 '품절', 10개 미만이면 '재고 부족', 아니면 '충분'을 위에서부터 순서대로 검사해 먼저 맞는 곳에서 돌려줘요. 처음 부를 때 바나나우유는 5개라 '재고 부족', 컵라면은 0개라 '품절'이에요.",
+             "keywords": ["순서", "품절", "재고 부족", "10개 미만"]},
             {"start": 19, "end": 22, "concept": "call_flow", "why": "check_stock 을 불러 판매를 막는 곳",
              "explanation": "sell 은 먼저 check_stock 을 불러 상태를 받아요. 없는 상품이거나 품절이면 판매 불가 메시지를 찍고 False 를 돌려주며 끝나요. 컵라면이 여기서 멈춰요.",
              "keywords": ["check_stock", "판매 불가", "False", "끝"]},
@@ -126,11 +126,17 @@ print("발주 필요:", restock_report())""",
 books = {"어린 왕자": True, "해리 포터": False, "데미안": True}   # True: 빌릴 수 있음
 loans = {}
 
-def borrow(name, title):
+def can_borrow(title):
     if title not in books:
         return "없는 책이에요"
     if not books[title]:
         return "이미 대출 중이에요"
+    return None
+
+def borrow(name, title):
+    problem = can_borrow(title)
+    if problem:
+        return problem
     books[title] = False
     loans[title] = name
     return f"{name}님이 {title}을(를) 빌렸어요"
@@ -143,14 +149,15 @@ def give_back(title):
 print(borrow("민지", "어린 왕자"))
 print(borrow("준호", "어린 왕자"))
 give_back("어린 왕자")
-print(borrow("준호", "어린 왕자"))""",
+print(borrow("준호", "어린 왕자"))
+print("대출 중:", loans)""",
         "marks": [
-            {"start": 6, "end": 9, "concept": "branch", "why": "빌릴 수 있는지 검사하는 순서",
-             "explanation": "먼저 책이 목록에 있는지, 다음으로 지금 빌릴 수 있는지(True) 확인해요. 둘 중 하나라도 걸리면 바로 return 해서 아래 줄은 실행되지 않아요.",
-             "keywords": ["목록", "대출 중", "True", "먼저", "return"]},
-            {"start": 10, "end": 12, "concept": "data_update", "why": "대출을 기록하는 곳",
-             "explanation": "빌릴 수 있으면 books 를 False 로 바꿔 대출 중으로 표시하고, loans 에 누가 빌렸는지 적은 뒤 안내 문구를 돌려줘요.",
-             "keywords": ["False", "loans", "누가", "기록"]},
+            {"start": 13, "end": 15, "concept": "call_flow", "why": "can_borrow 의 답에 따라 대출을 막는 곳",
+             "explanation": "borrow 는 먼저 can_borrow 를 불러 문제가 있는지 받아요. 두 번째 호출에서는 민지가 이미 빌려 가서 '이미 대출 중이에요'가 돌아오고, borrow 도 그 말을 그대로 돌려주며 끝나요.",
+             "keywords": ["can_borrow", "이미 대출 중", "그대로", "돌려"]},
+            {"start": 16, "end": 18, "concept": "data_update", "why": "대출을 기록하는 곳",
+             "explanation": "빌릴 수 있으면 books 의 값을 False 로 바꿔 대출 중으로 표시하고 loans 에 빌린 사람을 적어요. 반납한 뒤 준호가 다시 빌리면 loans 는 {'어린 왕자': '준호'} 가 돼요.",
+             "keywords": ["False", "loans", "빌린 사람", "준호"]},
         ],
     },
     {
@@ -183,8 +190,6 @@ class Account:
         self.history.append(("입금", amount))
 
     def withdraw(self, amount):
-        if amount <= 0:
-            raise BankError("출금액은 0보다 커야 해요")
         if amount > self.limit:
             raise BankError(f"한 번에 {self.limit}원까지만 뺄 수 있어요")
         if amount > self.balance:
@@ -199,10 +204,7 @@ class Bank:
         self.failed = []
 
     def open(self, owner, balance=0):
-        if owner in self.accounts:
-            raise BankError(f"{owner}님 계좌는 이미 있어요")
         self.accounts[owner] = Account(owner, balance)
-        return self.accounts[owner]
 
     def find(self, owner):
         if owner not in self.accounts:
@@ -213,25 +215,24 @@ class Bank:
         source = self.find(sender)
         target = self.find(receiver)
         source.withdraw(amount)
-        try:
-            target.deposit(amount)
-        except BankError:
-            source.deposit(amount)
-            raise
+        target.deposit(amount)
         return f"{sender} → {receiver} {amount}원"
+
+    def handle(self, kind, args):
+        if kind == "이체":
+            return self.transfer(*args)
+        account = self.find(args[0])
+        if kind == "입금":
+            account.deposit(args[1])
+            return f"{args[0]} 입금 {args[1]}원"
+        account.withdraw(args[1])
+        return f"{args[0]} 출금 {args[1]}원"
 
     def run(self, orders):
         done = 0
         for kind, *args in orders:
             try:
-                if kind == "이체":
-                    message = self.transfer(*args)
-                elif kind == "입금":
-                    self.find(args[0]).deposit(args[1])
-                    message = f"{args[0]} 입금 {args[1]}원"
-                else:
-                    self.find(args[0]).withdraw(args[1])
-                    message = f"{args[0]} 출금 {args[1]}원"
+                message = self.handle(kind, args)
             except NotEnoughMoney as e:
                 self.failed.append(kind)
                 print("실패:", e, f"/ {e.short}원 모자라요")
@@ -242,24 +243,6 @@ class Bank:
                 done += 1
                 print("완료:", message)
         return done
-
-    def add_interest(self, rate):
-        paid = {}
-        for owner, account in self.accounts.items():
-            interest = int(account.balance * rate)
-            if interest > 0:
-                account.deposit(interest)
-                paid[owner] = interest
-        return paid
-
-
-def summary(bank):
-    total = 0
-    for owner, account in sorted(bank.accounts.items()):
-        count = len(account.history)
-        print(f"{owner}: {account.balance}원 (거래 {count}건)")
-        total += account.balance
-    return total
 
 
 bank = Bank()
@@ -274,30 +257,22 @@ orders = [
     ("이체", "민호", "서윤", 1000),
     ("출금", "지수", 60000),
     ("입금", "하린", -500),
-    ("출금", "하린", 2000),
 ]
 
 done = bank.run(orders)
 print("성공", done, "건 / 실패", len(bank.failed), "건:", bank.failed)
-
-paid = bank.add_interest(0.01)
-print("이자:", paid)
-
-print("총 잔액:", summary(bank))
-try:
-    bank.open("지수")
-except BankError as e:
-    print("계좌 개설 실패:", e)""",
+for owner, account in bank.accounts.items():
+    print(f"{owner}: {account.balance}원, 기록 {account.history}")""",
         "marks": [
-            {"start": 25, "end": 33, "concept": "exception", "why": "출금이 막히는 조건의 순서",
-             "explanation": "withdraw 는 0 이하인지, 한도(50000원)를 넘는지, 잔액보다 큰지를 차례로 검사해서 하나라도 걸리면 예외를 던지고 멈춰요. 그래서 잔액과 기록은 바뀌지 않아요. 지수의 60000원 출금은 한도에, 민호의 20000원 출금은 잔액(13000원)에 걸려요.",
-             "keywords": ["차례", "한도", "잔액", "예외", "바뀌지"]},
-            {"start": 52, "end": 61, "concept": "call_flow", "why": "이체가 두 계좌를 차례로 바꾸는 곳",
-             "explanation": "transfer 는 먼저 두 계좌를 find 로 찾고, 보내는 계좌에서 withdraw 한 뒤 받는 계좌에 deposit 해요. 입금이 실패하면 뺀 돈을 다시 넣고(raise) 오류를 위로 보내요. 서윤 계좌는 없어서 find 에서 바로 멈추므로 민호의 돈은 빠지지 않아요.",
-             "keywords": ["find", "withdraw", "deposit", "되돌", "서윤"]},
-            {"start": 65, "end": 83, "concept": "exception", "why": "오류 종류에 따라 다르게 처리하고 반복을 이어 가는 곳",
-             "explanation": "주문마다 try 안에서 처리하고, NotEnoughMoney 는 위의 except 에서 모자란 금액까지, 나머지 BankError 는 아래 except 에서 메시지만 출력해요. 오류가 없을 때만 else 에서 성공 수를 늘려서 성공 3건, 실패 4건이 돼요.",
-             "keywords": ["try", "NotEnoughMoney", "BankError", "else", "3건"]},
+            {"start": 25, "end": 31, "concept": "exception", "why": "출금이 막히는 조건의 순서",
+             "explanation": "withdraw 는 한도(50000원)를 넘는지, 잔액보다 큰지를 차례로 검사해 걸리면 예외를 던지고 멈춰서 잔액과 기록이 바뀌지 않아요. 지수의 60000원 출금은 한도에, 민호의 20000원 출금은 잔액 13000원에 걸려요.",
+             "keywords": ["한도", "잔액", "예외", "바뀌지"]},
+            {"start": 47, "end": 52, "concept": "call_flow", "why": "이체가 두 계좌를 차례로 바꾸는 곳",
+             "explanation": "transfer 는 두 계좌를 find 로 먼저 찾은 뒤 보내는 계좌에서 withdraw, 받는 계좌에 deposit 해요. 서윤 계좌는 없어서 find 에서 바로 예외가 나므로 민호의 돈은 빠지지 않고 13000원 그대로예요.",
+             "keywords": ["find", "withdraw", "deposit", "서윤", "그대로"]},
+            {"start": 67, "end": 77, "concept": "exception", "why": "오류 종류에 따라 다르게 처리하고 반복을 이어 가는 곳",
+             "explanation": "주문마다 try 안에서 처리하고, NotEnoughMoney 는 첫 except 에서 모자란 금액(7000원)까지, 나머지 BankError 는 두 번째 except 에서 메시지만 출력해요. 오류가 없을 때만 else 에서 done 을 늘려 성공 2건, 실패 4건이 돼요.",
+             "keywords": ["try", "NotEnoughMoney", "BankError", "else", "2건"]},
         ],
     },
     {
@@ -355,12 +330,6 @@ def find_files(item, ext, path=""):
     return found
 
 
-def depth(item):
-    if is_file(item) or not item:
-        return 0
-    return 1 + max(depth(child) for child in item.values())
-
-
 def open_path(root, path):
     current = root
     for part in path.strip("/").split("/"):
@@ -370,16 +339,6 @@ def open_path(root, path):
             raise FolderError(f"{part} 이(가) 없어요")
         current = current[part]
     return current
-
-
-def largest_file(item, path=""):
-    best = ("", -1)
-    for name, child in item.items():
-        here = f"{path}/{name}"
-        candidate = (here, child) if is_file(child) else largest_file(child, here)
-        if candidate[1] > best[1]:
-            best = candidate
-    return best
 
 
 def show(item, indent=0):
@@ -406,26 +365,22 @@ def report(root, paths):
 
 show(drive)
 print("전체:", total_size(drive), "MB / 파일", count_files(drive), "개")
-print("가장 깊은 단계:", depth(drive))
 
 print("pdf 파일:")
 for path, size in find_files(drive, ".pdf"):
     print(" ", path, size, "MB")
 
-report(drive, ["사진/여행", "문서/백업/2025/메모.txt", "문서/과제.pdf/표지", "영화"])
-
-print("가장 큰 파일:", largest_file(drive))
-print("문서 안에서 가장 큰 파일:", largest_file(drive["문서"], "/문서"))""",
+report(drive, ["사진/여행", "문서/백업/2025/메모.txt", "문서/과제.pdf/표지", "영화"])""",
         "marks": [
             {"start": 24, "end": 30, "concept": "recursion", "why": "재귀가 멈추고 다시 들어가는 곳",
              "explanation": "파일(숫자)을 만나면 그 크기를 그대로 돌려주며 재귀가 멈춰요. 폴더면 안의 항목마다 total_size 를 다시 불러 더해서, 백업/2025 처럼 깊은 폴더도 끝까지 들어가요. 전체는 1919MB 예요.",
-             "keywords": ["숫자", "멈", "다시 불러", "더해", "1919"]},
+             "keywords": ["멈춰", "다시 불러", "더해", "1919"]},
             {"start": 39, "end": 48, "concept": "recursion", "why": "경로를 이어 붙이며 파일을 모으는 곳",
              "explanation": "항목마다 지금 경로에 이름을 붙여요. 파일이고 확장자가 맞으면 found 에 넣고, 폴더면 find_files 를 다시 불러 찾은 목록을 found 에 이어 붙여요. 그래서 /문서/과제.pdf 와 /문서/백업/옛날.pdf 두 개가 나와요.",
-             "keywords": ["경로", "확장자", "다시 불러", "이어 붙", "옛날.pdf"]},
-            {"start": 57, "end": 65, "concept": "exception", "why": "잘못된 경로에서 예외로 멈추는 곳",
-             "explanation": "경로를 / 로 나눠 한 단계씩 들어가요. 지금 것이 파일인데 더 들어가려 하거나, 이름이 없으면 FolderError 를 던져 멈춰요. report 가 이것을 except 로 받아 '열 수 없어요'를 출력하고 다음 경로로 넘어가서, 과제.pdf/표지 와 영화 가 실패해요.",
-             "keywords": ["한 단계씩", "파일", "FolderError", "except", "다음"]},
+             "keywords": ["경로", "확장자", "다시 불러", "이어 붙여", "옛날.pdf"]},
+            {"start": 51, "end": 59, "concept": "exception", "why": "잘못된 경로에서 예외로 멈추는 곳",
+             "explanation": "경로를 / 로 나눠 한 단계씩 들어가요. 지금 것이 파일인데 더 들어가려 하거나 이름이 없으면 FolderError 를 던져 멈춰요. report 가 이것을 except 로 받아 '열 수 없어요'를 출력하고 다음 경로로 넘어가서, 과제.pdf/표지 와 영화 가 실패해요.",
+             "keywords": ["한 단계씩", "FolderError", "except", "다음 경로"]},
         ],
     },
     {
@@ -576,13 +531,13 @@ print("노선이 가장 많이 지나는 역:", ", ".join(hubs), f"({line_count}
              "keywords": ["가장 짧은", "먼저 꺼내", "도착", "건너뛰"]},
             {"start": 52, "end": 59, "concept": "algorithm", "why": "환승 시간을 더하고 더 짧으면 기록을 바꾸는 곳",
              "explanation": "이웃 역으로 갈 때 타고 있던 노선과 다음 노선이 다르면 환승 시간 4분을 더해요. 그 합계가 지금까지 기록보다 짧을 때만 best 와 previous 를 새로 쓰고 큐에 넣어서, 나중에 경로를 거꾸로 따라갈 수 있게 해요.",
-             "keywords": ["환승", "4분", "더 짧", "previous", "큐에 넣"]},
+             "keywords": ["환승", "4분", "짧을 때만", "previous", "큐에 넣"]},
             {"start": 63, "end": 69, "concept": "recursion", "why": "경로를 거꾸로 따라가 되돌리는 곳",
              "explanation": "도착 상태에서 시작해 previous 에 적힌 바로 앞 상태를 계속 따라가며 path 에 붙여요. 출발역에 닿으면 previous 에 없어서 멈추고, 거꾸로 쌓였으니 reverse 로 출발 → 도착 순서로 뒤집어요.",
              "keywords": ["거꾸로", "앞 상태", "멈추", "뒤집"]},
             {"start": 81, "end": 88, "concept": "loop_update", "why": "같은 노선 구간을 하나로 묶는 곳",
              "explanation": "경로의 두 역씩 짝지어 보면서 앞 구간과 노선이 같으면 마지막 묶음의 도착역만 바꾸고, 노선이 바뀌면 새 묶음을 시작해요. 그래서 시청→종각→종로3가→동대문은 '1호선: 시청 → 동대문' 한 줄이 돼요.",
-             "keywords": ["같은 노선", "묶", "도착역만 바꾸", "새 묶음"]},
+             "keywords": ["같으면", "묶", "도착역만 바꾸", "새 묶음"]},
         ],
     },
     {
@@ -718,10 +673,10 @@ print("동적 계획법이 더 번 금액:", dp_total - greedy_total, "원")""",
         "marks": [
             {"start": 32, "end": 40, "concept": "exception", "why": "잘못된 주문을 걸러 내는 흐름",
              "explanation": "줄마다 시각을 분으로 바꿔 Order 를 만들고, 끝나는 시각이 시작보다 빠르면 Order 가 ValueError 를 던져요. except 에서 그 메시지를 skipped 에 모으고 다음 줄로 넘어가서, I 주문만 빠지고 나머지 8개로 계속해요.",
-             "keywords": ["ValueError", "skipped", "건너", "나머지"]},
+             "keywords": ["ValueError", "skipped", "다음 줄", "나머지"]},
             {"start": 43, "end": 45, "concept": "algorithm", "why": "이진 탐색으로 앞 주문을 찾는 곳",
              "explanation": "끝나는 시각 순으로 정렬된 ends 에서 i 번째 주문의 시작 시각보다 늦지 않게 끝나는 위치를 bisect_right 로 찾고 1을 빼요. 그래서 i 번째 주문 바로 앞에 겹치지 않게 할 수 있는 마지막 주문의 번호가 나오고, 없으면 -1 이에요.",
-             "keywords": ["이진 탐색", "끝나는 시각", "겹치지 않", "-1"]},
+             "keywords": ["bisect_right", "끝나는 시각", "겹치지 않", "-1"]},
             {"start": 54, "end": 62, "concept": "algorithm", "why": "동적 계획법 표를 채우는 곳",
              "explanation": "best[i+1] 은 앞에서부터 i 번째 주문까지 봤을 때 벌 수 있는 최대 금액이에요. i 번째를 하면 그 배달비 + 겹치지 않는 앞 주문까지의 best, 안 하면 best[i] 를 비교해 큰 쪽을 적고, 했는지는 take 에 남겨요.",
              "keywords": ["최대 금액", "하면", "안 하면", "큰 쪽", "take"]},
@@ -730,7 +685,7 @@ print("동적 계획법이 더 번 금액:", dp_total - greedy_total, "원")""",
              "keywords": ["거꾸로", "take", "건너뛰", "시간 순서"]},
             {"start": 79, "end": 86, "concept": "algorithm", "why": "비교용 욕심쟁이 방법이 왜 손해인지",
              "explanation": "배달비가 큰 F(12000원)부터 담고, 이미 담은 주문과 겹치지 않을 때만 더해요. 큰 주문 하나가 시간을 오래 차지해 D·G·H 를 못 하게 되어 25000원에 그치고, 동적 계획법(30500원)보다 5500원 적어요.",
-             "keywords": ["큰 것부터", "겹치지 않", "오래 차지", "25000", "5500"]},
+             "keywords": ["큰 F", "겹치지 않", "오래 차지", "25000", "5500"]},
         ],
     },
 ]

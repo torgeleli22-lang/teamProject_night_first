@@ -108,11 +108,21 @@ def pct(n, d):
     return f"{n}/{d} ({100 * n / d:.1f}%)" if d else "0/0"
 
 
+def agree_text(rows, key):
+    """생성 쪽·검토 쪽 추적표 비교 결과 (True/False 만 세고, 비교할 수 없던 None 은 뺀다)"""
+    values = []
+    for r in rows:
+        v = (r.get("checks") or {}).get(key)
+        values += [x for x in (v.values() if isinstance(v, dict) else [v]) if x is not None]
+    return pct(sum(values), len(values)) if values else "-"
+
+
 def summarize(rows):
     n = len(rows)
     first = [r["attempts"][0] for r in rows if r["attempts"]]
     rule_first = sum(1 for a in first if a["rule_problems"])
     check_first = sum(1 for a in first if not a["rule_problems"] and a["check_problems"])
+    explain_first = sum(1 for a in first if not a["rule_problems"] and not a["check_problems"] and a.get("final_hard"))
     rule_any = sum(1 for r in rows if any(a["rule_problems"] for a in r["attempts"]))
     check_any = sum(1 for r in rows if any(a["check_problems"] for a in r["attempts"]))
     ai = [r for r in rows if r["origin"] == "ai"]
@@ -128,6 +138,7 @@ def summarize(rows):
         ("생성 문항 수", f"{n}개"),
         ("규칙 검사 재생성 판정 (첫 생성 기준)", pct(rule_first, n)),
         ("교차 검토 재생성 판정 (첫 생성 기준, 규칙 검사 통과 후)", pct(check_first, n)),
+        ("모범 설명 규칙 재생성 판정 (첫 생성 기준, 검토 뒤에도 빈 설명·가정 표현 등이 남음)", pct(explain_first, n)),
         ("교차 검토의 모범 설명 교정 (최종 AI 문항의 ※ 지점 기준)", f"{fixed}개 / {marks_total}곳 ({100 * fixed / marks_total:.1f}%) · 문항 {fixed_items}개" if marks_total else "0"),
         ("AI 문항 최종 제공", pct(len(ai), n)),
         ("예시 코드 대체", pct(len(sample), n)),
@@ -139,6 +150,9 @@ def summarize(rows):
         ("교차 검토에 걸린 문항 (두 번째 시도 포함)", pct(check_any, n)),
         ("교차 검토를 하지 못하고 통과한 AI 문항 (검토 호출 실패)", f"{no_check}개"),
         ("실험 오류", f"{len(errors)}개"),
+        ("두 실행 추적표 일치 (최종 AI 문항의 ※ 지점, 비교 가능한 것)", agree_text(ai, "traceAgree")),
+        ("두 실행 추적표의 출력 일치 (최종 AI 문항)", agree_text(ai, "outputAgree")),
+        ("근거를 찾지 못한 숫자가 있던 ※ 지점 (교차 검토가 확인)", f"{sum(len((r.get('checks') or {}).get('unsupported') or {}) for r in ai)}곳"),
         ("AI 문항 평균 생성 시간", f"{statistics.mean([r['seconds'] for r in ai]):.1f}초" if ai else "-"),
         ("토큰 합계 (입력 / 출력)", f"{sum(r['tokens_in'] for r in rows):,} / {sum(r['tokens_out'] for r in rows):,}"),
     ]

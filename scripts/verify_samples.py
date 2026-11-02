@@ -59,10 +59,15 @@ for s in SAMPLES:
             fail(sid, f"※ {m['start']}~{m['end']}번 줄이 빈 줄로 시작하거나 끝나요")
         if not m.get("explanation") or not m.get("keywords") or not m.get("why"):
             fail(sid, f"※ {m['start']}~{m['end']}번 줄에 why·explanation·keywords 가 필요해요")
-    # 4. 목업 AI 응답 왕복
+        # 모범 설명 기준 (docs/GENERATION_STANDARD.md 4): 길이 · 가정 표현 없음 · 핵심 표현은 모두 설명 안에 있는 말
+        squash = lambda t: "".join(t.split())
+        outside = [k for k in m.get("keywords", []) if squash(k) not in squash(m.get("explanation", ""))]
+        if len(m.get("explanation", "")) > practice.EXPLANATION_MAX or practice.HYPOTHETICAL.search(m.get("explanation", "")) or outside:
+            fail(sid, f"※ {m['start']}~{m['end']}번 줄의 모범 설명이 기준과 달라요 ({practice.EXPLANATION_MAX}자 이하·가정 표현 없이·핵심 표현은 설명 안의 말: {outside})")
+    # 4. 목업 AI 응답 왕복 = 규칙 검사 A (난이도별 필수·금지 요소, 손으로 따라갈 크기, 줄 수, ※ 개수·범위·중심 개념)
     _, marks, problems = practice.check_generated(practice.sample_as_ai(s), s["level"], language)
     if problems or [(m["start"], m["end"]) for m in marks] != [(m["start"], m["end"]) for m in s["marks"]]:
-        fail(sid, f"줄 글자로 ※ 지점을 다시 찾지 못했어요 {problems}")
+        fail(sid, f"규칙 검사 A 를 통과하지 못했거나 ※ 지점을 다시 찾지 못했어요 {problems}")
     print(f"{'✗' if any(f.startswith(sid + ':') for f in failures) else '✓'} {sid} ({language}, {LEVELS.get(s['level'], {}).get('name')}, {len(lines)}줄, ※ {len(s['marks'])}곳)")
 
 for language in LANGUAGES:   # 언어마다 난이도별 예시 코드가 하나 이상 (AI 를 못 쓸 때 대신 낼 코드)

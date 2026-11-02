@@ -24,7 +24,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 **내 공부** — 첨삭이 쌓이면 **어떤 흐름(개념)을 못 읽는지**(개념별 약점 지도 → '이 개념 집중 연습'), **언제 난이도를 올리고 내릴지**(난이도 추천), **내가 잘 쓴 설명**(내 설명 노트)을 보여 줘요. 모두 AI 없이 기록으로 계산해요.
 
 **두 가지 모드**
-- **연습 모드** — 언어(Python · JavaScript), 난이도(입문 · 초급 · 중급 · 고급)와 주제(랜덤 / 직접 적기)를 고르면 AI 가 읽기 연습용 코드와 ※ 꼭 설명할 곳을 만들어요. 중급은 100~150줄, 고급은 150~300줄에 자료구조·알고리즘(최단 경로·동적 계획법 등)이 들어가요.
+- **연습 모드** — 언어(Python · JavaScript), 난이도(입문 · 초급 · 중급 · 고급)와 주제(랜덤 / 직접 적기)를 고르면 AI 가 읽기 연습용 코드와 ※ 꼭 설명할 곳을 만들어요. 중급은 60~100줄, 고급은 100~180줄에 자료구조·알고리즘(최단 경로·동적 계획법 등)이 들어가요.
 - **내 코드 점검** — 갖고 있는 Python 코드(파일 1개 또는 붙여넣기, 300줄까지)를 올리면 AI 가 난이도와 ※ 지점을 정해요. API 키·비밀번호 같은 값은 **보내기 전에 화면에서 가려요**.
 
 ## 2. 동작 방식 (사용자 흐름)
@@ -125,7 +125,7 @@ src/
 │     (각 폴더의 page.tsx 는 위 파일을 불러오기만 하는 껍데기 — 고칠 일 없음)
 ├─ components/                         여러 화면이 함께 쓰는 부품
 │  ├─ ui.tsx                           Page · Crumb · Sticky · Stamp · LangTag · PenMark · Waiting · ErrorNote
-│  ├─ MakingCode.tsx                   연습 코드를 기다리는 동안 ① 출제 ② 규칙 검사 ③ AI 검토 단계 안내
+│  ├─ MakingCode.tsx                   연습 코드를 기다리는 동안 ① 출제 ② 규칙 검사 ③ 실행 추적표 ④ 교차 검토 단계 안내
 │  ├─ WideToggle.tsx                   '넓게 보기': 공책을 브라우저 너비만큼, 늘어난 너비는 코드 칸에 (오른쪽 메모·첨삭 칸 그대로) — 읽기·첨삭 화면
 │  ├─ WideCode.tsx                     '크게 보기'(읽기 화면): FullScreen — 코드+메모 칸을 화면 가득, 메모 그대로 붙이기
 │  ├─ NoteHeader.tsx                   맨 위 제목 + 로그인 상자(LoginBox) + 오른쪽 인덱스 탭(연습 모드 / 내 코드 점검 / 내 공부)
@@ -197,14 +197,14 @@ src/
 | `lambda_function.py` | **입구**: 경로 → 기능 파일, 관리자 코드 확인, `GET /health` | `GET /health` | — |
 | `common.py` | **공통 도구** (아래 5.2) | — | — |
 | `topics.py` | 랜덤 주제 · 직접 적은 주제 판정 | `GET /topic/random`, `POST /topic/check` | `topic_check` |
-| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · AI 검토 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /code` | `code_generation`, `code_check` |
+| `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · 실행 추적표 · 교차 검토 · 더 쉽게/어렵게 · 다시 읽기 | `POST /practice`, `POST /practice/adjust`, `GET /code` | `code_generation`, `code_check` |
 | `inspect_code.py` | 내 코드: 민감 정보 가리기 · 함수 찾기 · 난이도·※ | `POST /inspect`, `POST /inspect/start` | `code_inspection` |
 | `review.py` | 빨간펜 첨삭 · 힌트 보고 다시 써 보기 | `POST /review`, `POST /review/retry` | `review`, `review_retry` |
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
 | `auth.py` | Google·GitHub 로그인 (OAuth, 라이브러리 없음) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`·`github`, `POST /auth/logout` | — |
 | `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | — |
-| `experiment.py` | 논문 실험 (`x-admin-token` 필요): 연습 문항 하나를 만들고 규칙 검사·교차 검토 단계 기록 (저장 안 함, `docs/EXPERIMENT.md`) | `POST /admin/experiment` | `code_generation`, `code_check` |
+| `experiment.py` | 논문 실험 (`x-admin-token` 필요): 연습 문항 하나를 만들고 규칙 검사·실행 추적표·교차 검토 단계 기록 (저장 안 함, `docs/EXPERIMENT.md`) | `POST /admin/experiment` | `code_generation`, `code_check` |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 (Python 8개) · 랜덤 주제 목록 | — | — |
 | `samples_js.py` | AI 를 못 쓸 때의 JavaScript 예시 코드 7개 (`samples.py` 가 합침) | — | — |
 | `test_events.json` | 콘솔 테스트 이벤트 예시 (콘솔에 넣지 않아도 됨) | — | — |
@@ -235,7 +235,7 @@ src/
 | 난이도별 코드 길이·문법·※ 수·AI 답 길이 | `practice.py` → `LEVEL_GUIDE`(언어별), `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | **AI 지시문(프롬프트)** | 각 파일의 `SYSTEM_PROMPT` — 코드 만들기 `practice.py` · 주제 판정 `topics.py` · 내 코드 분석 `inspect_code.py` · 첨삭 `review.py`(`SYSTEM_PROMPT`, 다시 쓰기 `RETRY_PROMPT`) · 튜터 `tutor_chat.py` |
 | AI 답의 모양(JSON 칸) | 각 파일의 `SCHEMA` (바꾸면 그 답을 쓰는 코드와 목업도 같이) |
-| 만든 코드 검사 기준 | `practice.py` → `check_generated` (Python `py_ast_problems`, JavaScript `js_shape_problems`) · AI 검토 `ai_check_code`, 지시문 `CHECK_PROMPT` |
+| 만든 코드 검사 기준 | `docs/GENERATION_STANDARD.md` · `practice.py` → 규칙 검사 A `check_generated` (`py_ast_problems`·`py_structure`, `js_scan`·`js_structure`, `level_problems`) · 실행 추적표 `trace_and_explain` (`TRACE_PROMPT`) · 규칙 검사 B `explanation_issues` · 교차 검토 `ai_check_code` (`CHECK_PROMPT`) |
 | AI 없을 때의 판정·첨삭·튜터 답 | `topics.rule_check`, `inspect_code.rule_analysis`, `review.rule_review`·`rule_retry`, `tutor_chat.rule_answer` |
 | 주제 판정 금지어·막연한 말·큰 말 | `topics.py` → `BAD_WORDS`, `VAGUE_WORDS`, `BIG_WORDS` |
 | 가리는 민감 정보 모양 | `inspect_code.py` → `SECRET_PATTERNS` (**화면 `src/lib/secrets.ts` 도 같이**) |
