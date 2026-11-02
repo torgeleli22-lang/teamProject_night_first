@@ -625,8 +625,9 @@ def build_messages(history, prompt):
     return out
 
 
-def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=None, salvage=None, mock_delay=None):
-    """AI 에게 정해진 형식(schema, JSON Schema)의 답을 받는다. 형식이 어긋나면 흔한 실수를 고치고, 그래도 틀리면 AiUnavailable"""
+def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=None, salvage=None, mock_delay=None, thinking=0):
+    """AI 에게 정해진 형식(schema, JSON Schema)의 답을 받는다. 형식이 어긋나면 흔한 실수를 고치고, 그래도 틀리면 AiUnavailable.
+    thinking: 답하기 전에 생각할 토큰 수 (extended thinking, 0 이면 끔). 생각을 켜면 도구를 강제할 수 없어 auto 로 둔다"""
     if not ai_enabled():
         raise AiUnavailable("AI is off")
     started = time.time()
@@ -642,6 +643,7 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
         raise AiUnavailable("AI is off")
     messages = build_messages(history, prompt)
     input_chars = len(system) + sum(len(m["content"][0]["text"]) for m in messages)
+    max_tokens += thinking   # 생각 토큰도 출력 토큰으로 센다
     check_budget(input_chars, max_tokens)
     ok, usage, error = False, {}, None
     try:
@@ -651,13 +653,14 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
                 system=[{"text": system}],
                 messages=messages,
                 inferenceConfig={"maxTokens": max_tokens},
+                **({"additionalModelRequestFields": {"thinking": {"type": "enabled", "budget_tokens": thinking}}} if thinking else {}),
                 toolConfig={
                     "tools": [{"toolSpec": {
                         "name": "answer",
                         "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다.",
                         "inputSchema": {"json": schema},
                     }}],
-                    "toolChoice": {"tool": {"name": "answer"}},
+                    "toolChoice": {"auto": {}} if thinking else {"tool": {"name": "answer"}},
                 },
             )
         except Exception as e:

@@ -81,20 +81,24 @@ SYSTEM_PROMPT = """너는 프로그래밍 입문자와 비개발자가 '코드�
 - 흐름을 이해해야만 설명할 수 있는 곳을 고른다 (조건 분기, 반복이 값을 바꾸는 곳, 함수가 다른 함수를 부르는 곳, 예외·재귀가 흐름을 바꾸는 곳).
 - startLine·endLine 에는 그 범위의 첫 줄과 끝 줄을 코드에 있는 그대로(들여쓰기 빼고) 적고, startNo·endNo 에 그 줄 번호(1부터)를 적어. 범위끼리 겹치면 안 돼.
 - why: 왜 꼭 설명해야 하는지 한 줄.
-- explanation: 이 부분의 흐름을 실제 값과 함께 2~3문장으로 설명한 모범 설명 (첨삭할 때 기준이 됨).
+- explanation: 이 코드가 실제로 실행될 때 이 부분에서 일어나는 일을 2~3문장으로 설명한 모범 설명 (첨삭할 때 기준이 됨, 비우면 안 돼).
+  값은 맨 위부터 실제 실행 순서대로 따라간 값만 — 앞의 호출로 이미 바뀐 값(먼저 팔린 재고, 먼저 빌려 간 책 등)을 반영하고, 마지막 print 에 나오는 값과 이어지게.
+  '예를 들어 ~라면' 같은 가정 대신 이 코드에서 실제로 일어나는 일로. 반복·재귀 횟수, 실행되지 않는 분기처럼 확실하지 않은 것은 단정하지 말고 흐름으로 설명해.
 - keywords: 모범 설명의 핵심 표현 3~5개 (짧게).
 - concept: 이 지점이 어떤 흐름을 읽는 곳인지 하나 — branch(조건 분기) · loop_update(반복이 값을 바꿈) · call_flow(함수가 함수를 부름) · data_update(자료구조 — 딕셔너리·리스트, 객체·배열 — 다루기) · class_state(객체 상태 바뀜) · exception(예외 흐름) · recursion(재귀·거꾸로 따라가기) · algorithm(정렬·탐색·최단 경로·동적 계획법의 중심)
 모든 문장은 한국어 존댓말("~해요")."""
 
 # ③ AI 검토: 출제 AI 와 다른 역할. 코드를 다시 쓰지 않고 문제 목록과 고친 모범 설명만 돌려준다 (답이 짧아 싸다)
 CHECK_PROMPT = """너는 읽기 연습용 {language} 코드를 학습자에게 내보내기 전에 검토하는 검토자야.
-코드를 실행할 수는 없으니, 맨 위부터 한 줄씩 실제 값을 넣어 머릿속으로 따라가 봐.
+코드를 실행할 수는 없으니, 먼저 생각 단계에서 맨 위부터 한 줄씩 변수 값을 표처럼 적으며 따라가 보고(함수 호출 순서, 바뀐 값, 반복·재귀 횟수, 출력),
+그 결과로 answer 도구를 한 번 불러 제출해.
 
 확인할 것:
 1. 실행 오류: 정의하지 않은 이름·속성·메서드, 타입이 맞지 않는 연산, 빈 목록에서 꺼내기, 0 으로 나누기, 범위를 벗어난 인덱스, 끝나지 않는 반복·재귀.
 2. output: 끝까지 실행했을 때 실제로 출력되는 내용을 짧게 적어.
 3. 난이도: 주어진 난이도 기준과 크게 다르면(너무 쉽거나 어렵거나, 길이가 맞지 않음) 문제로 적어.
 4. ※ 꼭 설명할 곳의 모범 설명(explanation): 설명에 나온 값·순서·조건·결과가 코드를 실제로 따라간 결과와 맞는지.
+   특히 앞의 호출로 이미 바뀐 값을 반영했는지, 반복·재귀 횟수와 실행되는 분기가 실제와 같은지, 가정 예시를 실제 실행처럼 썼는지 봐. 설명이 비어 있으면 ok=false 로 새로 써.
    random·Math.random·지금 시각처럼 실행할 때마다 달라지는 값이 있으면, 그 값에 상관없이 맞는 설명인지 봐 (특정 값을 단정하면 틀린 것으로).
    - 맞으면 ok=true, explanation·keywords 는 빈 값.
    - 틀리면 ok=false, problem 에 무엇이 틀렸는지 한 줄, explanation 에 코드와 맞게 고친 모범 설명(2~3문장, 실제 값 포함, 한국어 존댓말 "~해요"), keywords 에 고친 설명의 핵심 표현 3~5개.
@@ -123,6 +127,7 @@ CHECK_SCHEMA = {
     "required": ["output", "codeProblems", "marks"],
 }
 CHECK_TOKENS = 3000
+CHECK_THINKING = 4000   # AI 검토가 답하기 전에 값을 따라가며 생각할 토큰 (extended thinking)
 
 SCHEMA = {
     "type": "object",
@@ -274,9 +279,16 @@ def ai_check_code(code, marks, level, language):
         code_for_ai({"language": language, "code": code}),
         f"※ 꼭 설명할 곳과 모범 설명:\n{listed}",
     ])
+    ask = lambda thinking: ask_ai("code_check", CHECK_PROMPT.format(language=LANGUAGES[language]), prompt, CHECK_SCHEMA, max_tokens=CHECK_TOKENS, thinking=thinking,
+                                  mock=lambda: {"output": "", "codeProblems": [], "marks": [{"id": m["id"], "ok": True} for m in marks]})
     try:
-        verdict = ask_ai("code_check", CHECK_PROMPT.format(language=LANGUAGES[language]), prompt, CHECK_SCHEMA, max_tokens=CHECK_TOKENS,
-                         mock=lambda: {"output": "", "codeProblems": [], "marks": [{"id": m["id"], "ok": True} for m in marks]})
+        try:
+            verdict = ask(CHECK_THINKING)
+        except AiUnavailable as e:   # 생각을 켜면 형식(도구)을 강제할 수 없어서, 답 형식이 어긋나면 생각 없이 한 번 더
+            if not str(e).startswith(("could not parse", "response was truncated")):
+                raise
+            print("[check] 생각 없이 다시 검토:", e)
+            verdict = ask(0)
     except AiUnavailable as e:
         print("[check] AI 검토 없이 통과:", e)
         return [], marks
@@ -324,6 +336,9 @@ def check_generated(r, level, language="python"):
         else:
             missed.append(str(m["endLine"] if start else m["startLine"]).strip()[:60])
     marks = clean_marks(code, found, limit=MARK_COUNT[level])
+    for m in marks:   # 모범 설명·핵심 표현이 비면 첨삭 기준이 없다
+        if not m["explanation"].strip() or not m["keywords"]:
+            problems.append(f"※ {m['start']}~{m['end']}번 줄의 모범 설명(explanation)이나 핵심 표현(keywords)이 비어 있어요 — 실제 실행 값으로 채워 주세요")
     if len(marks) < min(MARK_COUNT[level], 2):   # 중급·고급은 2곳만 찾아도 쓴다. 원인을 나눠서 알려 준다 (다시 만들 때 AI 가 같은 실수를 하지 않게)
         if missed:
             problems.append("※ 꼭 설명할 곳의 줄을 코드에서 찾지 못했어요: " + ", ".join(f"'{s}'" for s in missed[:3]) + " (startLine·endLine 은 코드의 줄을 그대로 옮겨 적어 주세요)")

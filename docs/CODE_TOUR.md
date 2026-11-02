@@ -94,16 +94,16 @@
 - 학습자 정보(`PROFILE`)와 같은 서랍이라 `query_all(user_pk(나))` 한 번이면 둘 다 나와요
 
 #### 읽을 코드 `CODE#<id> / INFO`
-- **쓰기**: `common.py:867` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:148` `start_practice`, `:168` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
-- **읽기**: `common.py:878` `load_code(code_id, user)` — **userId 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
-- **화면으로 보낼 모양**: `common.py:911` `public_code` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
+- **쓰기**: `common.py:870` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:153` `start_practice`, `:173` `adjust`)와 내 코드 점검(`inspect_code.py:71` `start`)이 함께 써요
+- **읽기**: `common.py:881` `load_code(code_id, user)` — **userId 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
+- **화면으로 보낼 모양**: `common.py:914` `public_code` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
 
 #### 첨삭 `REVIEW#<시각>` · 다시 쓰기 `…#RETRY#` · 튜터 `…#CHAT#` (모두 `CODE#<id>` 서랍 안)
 - 다시 쓰기·대화는 **첨삭의 sk 뒤에** 붙어요: `REVIEW#<시각>` → `REVIEW#<시각>#RETRY#002`, `REVIEW#<시각>#CHAT#000`
-- 그래서 `common.py:888` `review_rows(코드 id)` 한 번(`query_all(code_pk(id), prefix="REVIEW#")`)으로 첨삭과 딸린 것이 모두 나와요
-  - 가장 최근 첨삭: `common.py:893` `latest_review` — 그중 sk 에 `#` 가 하나뿐인 것(첨삭)의 마지막
-  - 첨삭 하나에 딸린 다시 쓰기·대화: `common.py:905` `review_children(review, "RETRY"|"CHAT", rows)`
-  - sk 이름 짓기: `common.py:900` `review_key(review, "CHAT"|"RETRY", 항목 번호)` → `REVIEW#<첨삭 시각>#CHAT#003`
+- 그래서 `common.py:891` `review_rows(코드 id)` 한 번(`query_all(code_pk(id), prefix="REVIEW#")`)으로 첨삭과 딸린 것이 모두 나와요
+  - 가장 최근 첨삭: `common.py:896` `latest_review` — 그중 sk 에 `#` 가 하나뿐인 것(첨삭)의 마지막
+  - 첨삭 하나에 딸린 다시 쓰기·대화: `common.py:908` `review_children(review, "RETRY"|"CHAT", rows)`
+  - sk 이름 짓기: `common.py:903` `review_key(review, "CHAT"|"RETRY", 항목 번호)` → `REVIEW#<첨삭 시각>#CHAT#003`
 - 첨삭 쓰기: `review.py:89` (`review` 함수 4번 단계)
 - 다시 쓰기 읽기/쓰기: `review.py:134` / `review.py:156`, 목록: `review.py:266` `retries_for`
 - 튜터 읽기/쓰기: `tutor_chat.py:68` / `:94`, 목록: `tutor_chat.py:107` `chats_for`
@@ -113,9 +113,9 @@
 - `ACCOUNT#<제공자>:<번호>/USER` 읽기/쓰기 `auth.py:193` / `:203`, `LOGIN#<토큰>/USER` 쓰기 `auth.py:100`, 지우기(로그아웃) `auth.py:110`
 
 #### 운영 항목 `OPS#…`
-- `OPS#STATS`: `common.py:789` `count_event("practices")` — 하루 사용 수 +1 (`update_item` 의 ADD)
+- `OPS#STATS`: `common.py:792` `count_event("practices")` — 하루 사용 수 +1 (`update_item` 의 ADD)
 - `OPS#USAGE` · `OPS#AILOG`: `common.py:580` `log_usage`, `:595` `log_ai_event` — AI 를 부를 때마다
-- `OPS#CONFIG`: `common.py:769` `get_meta`, `:773` `set_meta` — AI 스위치(`:529` `ai_switch_on`)
+- `OPS#CONFIG`: `common.py:772` `get_meta`, `:776` `set_meta` — AI 스위치(`:529` `ai_switch_on`)
 - `OPS#LIMIT`: `common.py:417` `bump_counter`, `:429` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
 - 관리자 화면이 모아 읽기: `admin.py:122` `overview`
 
@@ -176,7 +176,7 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 | 6 | `finally: log_usage` `:580` | 성공·실패 모두 토큰·비용 기록 (`OPS#USAGE`, `OPS#AILOG`) |
 
 **부르는 쪽의 약속**: `ask_ai` 는 실패하면 `AiUnavailable` 을 던져요. 부르는 쪽은 꼭 받아서 **AI 없는 길**로 가요.
-- 연습 코드 → 예시 코드 (`practice.py:350` `pick_sample`)
+- 연습 코드 → 예시 코드 (`practice.py:365` `pick_sample`)
 - 첨삭 → 규칙 첨삭 (`review.py:198` `rule_review`: 핵심 표현이 메모에 들어 있는지)
 - 튜터 → 규칙 답 (`tutor_chat.py:127` `rule_answer`)
 - 주제 판정 → 규칙 판정 (`topics.py:86` `rule_check`)
@@ -187,27 +187,27 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 
 각 처리 함수 안에 `# 1.` `# 2.` 단계 주석이 있어요. **주석만 위에서 아래로 읽어도 흐름이 보여요.**
 
-#### ① 연습 코드 받기 — `POST /practice` → `practice.py:148` `start_practice`
+#### ① 연습 코드 받기 — `POST /practice` → `practice.py:153` `start_practice`
 ```
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      field() common.py:223
    get_user(req)                                           common.py:468
-2. make_code()                                                practice.py:229
-   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:350
+2. make_code()                                                practice.py:234
+   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:365
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
    └ 최대 2번 반복:
        ① 출제   ask_ai("code_generation")
-       ② 규칙 검사 check_generated                             practice.py:301
-            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:393
-            JavaScript: js_shape_problems (괄호·따옴표 짝)       practice.py:457
-            줄 수 · ※ 줄 찾기 find_line                         practice.py:338
-       ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:269
-            틀린 모범 설명 고치기 fix_explanations               practice.py:287
+       ② 규칙 검사 check_generated                             practice.py:313
+            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:408
+            JavaScript: js_shape_problems (괄호·따옴표 짝)       practice.py:472
+            줄 수 · ※ 줄 찾기 find_line                         practice.py:353
+       ③ AI 검토 ai_check_code → ask_ai("code_check")           practice.py:274
+            틀린 모범 설명 고치기 fix_explanations               practice.py:299
        걸리면 이유 + 방금 코드를 붙여 ① 로 한 번 더, 2번 다 안 되면 예시 코드
 3. save_code (CODE#id / INFO) · remember_topic · count_event
    return public_code(item)   ← 모범 설명은 빼고
 ```
-- 더 쉽게·더 어렵게 `practice.py:168` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
-- 다시 열기 `GET /code` `practice.py:201` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
+- 더 쉽게·더 어렵게 `practice.py:173` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
+- 다시 열기 `GET /code` `practice.py:206` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
 
 #### ② 첨삭 받기 — `POST /review` → `review.py:63` `review`
 ```

@@ -37,6 +37,38 @@ class Samples(unittest.TestCase):
             self.assertEqual([(m["start"], m["end"]) for m in marks], [(m["start"], m["end"]) for m in s["marks"]], s["id"])
 
 
+class AskAiThinking(unittest.TestCase):
+    def test_thinking_request_shape(self):
+        # 생각을 켜면: thinking 예산 + 출력 한도에 더하기 + 도구 auto, 생각 블록(reasoningContent)은 건너뛰고 answer 도구를 읽는다
+        sent = {}
+
+        class FakeBedrock:
+            def converse(self, **kw):
+                sent.update(kw)
+                return {"stopReason": "tool_use", "usage": {"inputTokens": 1, "outputTokens": 1},
+                        "output": {"message": {"content": [{"reasoningContent": {"reasoningText": {"text": "..."}}},
+                                                           {"toolUse": {"name": "answer", "input": {"x": "ok"}}}]}}}
+        saved = common.AI_MODE, common.ai_switch_on, common.check_budget, common.log_usage, common._clients.get("bedrock")
+        try:
+            common.AI_MODE, common.ai_switch_on, common.check_budget = "live", lambda: True, lambda *a: None
+            common.log_usage = lambda *a, **k: None
+            common._clients["bedrock"] = FakeBedrock()
+            schema = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
+            self.assertEqual(common.ask_ai("code_check", "s", "p", schema, max_tokens=3000, thinking=4000), {"x": "ok"})
+            self.assertEqual(sent["inferenceConfig"]["maxTokens"], 7000)
+            self.assertEqual(sent["additionalModelRequestFields"]["thinking"], {"type": "enabled", "budget_tokens": 4000})
+            self.assertEqual(sent["toolConfig"]["toolChoice"], {"auto": {}})
+            sent.clear()
+            common.ask_ai("code_check", "s", "p", schema, max_tokens=3000)
+            self.assertNotIn("additionalModelRequestFields", sent)
+            self.assertEqual(sent["toolConfig"]["toolChoice"], {"tool": {"name": "answer"}})
+        finally:
+            common.AI_MODE, common.ai_switch_on, common.check_budget, common.log_usage, bedrock = saved
+            common._clients.pop("bedrock", None)
+            if bedrock:
+                common._clients["bedrock"] = bedrock
+
+
 class GeneratedCode(unittest.TestCase):
     def test_advanced_level_needs_length(self):
         short = next(s for s in samples.SAMPLES if s["level"] == 2)
@@ -56,6 +88,12 @@ class GeneratedCode(unittest.TestCase):
         self.assertEqual(common.check_schema(r, practice.SCHEMA), [])
         _, marks, problems = practice.check_generated(r, 1)
         self.assertEqual((problems, marks[0]["why"]), ([], ""))
+
+    def test_empty_explanation_is_a_problem(self):
+        r = practice.sample_as_ai(next(s for s in samples.SAMPLES if s["level"] == 1))
+        r["marks"][0]["explanation"] = " "
+        _, _, problems = practice.check_generated(r, 1)
+        self.assertTrue(any("모범 설명(explanation)이나 핵심 표현(keywords)이 비어 있어요" in p for p in problems), problems)
         long = next(s for s in samples.SAMPLES if s["level"] == 4)
         _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
         self.assertEqual((problems, len(marks)), ([], 5))
@@ -180,6 +218,21 @@ class CodeCheckPipeline(unittest.TestCase):
         problem = {**self.ok, "codeProblems": ["무한 반복"]}
         made = self.run_with([problem, problem])
         self.assertEqual(made["origin"], "sample")
+
+    def test_check_uses_thinking_and_falls_back_without_it(self):
+        seen = []
+
+        def fake(task, system, prompt, schema, **kw):
+            seen.append((task, kw.get("thinking", 0)))
+            if task == "code_generation":
+                return {k: v for k, v in practice.sample_as_ai(self.sample).items() if k != "_mock"}
+            if kw.get("thinking"):
+                raise common.AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")   # 생각을 켜면 형식이 어긋날 수 있음
+            return self.ok
+        practice.ask_ai = fake
+        made = practice.make_code({}, 1, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
+        self.assertEqual(made["origin"], "ai")
+        self.assertEqual(seen, [("code_generation", 0), ("code_check", practice.CHECK_THINKING), ("code_check", 0)])
 
     def test_check_unavailable_trusts_rule_checks(self):
         made = self.run_with([common.AiUnavailable("budget")])

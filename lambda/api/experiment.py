@@ -69,14 +69,17 @@ def ask_ai(task, *args, **kwargs):
         return _orig["ask_ai"](task, *args, **kwargs)
     started = time.time()
     try:
-        return _orig["ask_ai"](task, *args, **kwargs)
+        result = _orig["ask_ai"](task, *args, **kwargs)
+        if task == "code_check":
+            rec().pop("_check_unavailable", None)   # 생각 없이 다시 한 검토가 성공하면 검토한 것으로
+        return result
     except common.AiUnavailable as e:
         rec()["ai_errors"].append(f"{task}: {e}")
         if task == "code_check":
             rec()["_check_unavailable"] = True
         raise
     finally:
-        rec()["ai_calls"].append({"task": task, "sec": round(time.time() - started, 2)})
+        rec()["ai_calls"].append({"task": task, "sec": round(time.time() - started, 2), "thinking": kwargs.get("thinking", 0)})
 
 
 def ai_allowed(req):
