@@ -1,5 +1,7 @@
 # 문항 생성·검증 실험 (논문 표 1)
 
+> 무엇을, 몇 문항으로, 어떤 기준으로 판정하는지는 **`docs/EVALUATION_PROTOCOL.md`** 가 정해요 (실험 전에 고정). 이 문서는 실행 방법이에요.
+
 연습 모드와 **같은 코드**(`practice.make_code`)로 문항을 만들면서 단계마다 결과를 기록합니다. 단계 기록은 Lambda 기능 파일 `lambda/api/experiment.py`(관리자 경로 `POST /admin/experiment`)가 하고, `scripts/experiment_generation.py` 가 이 경로를 40번 불러 결과를 모아 표 1 을 계산합니다. 서비스 코드는 바꾸지 않고 단계 함수(규칙 검사 · 교차 검토 · AI 호출)를 감싸서 기록만 하며, 실험이 아닌 요청에는 아무 영향이 없습니다.
 
 - 문항: 언어 2(Python · JavaScript) × 난이도 4 × 5회 = **40문항**. 주제는 서비스의 랜덤 주제 목록(고급은 알고리즘 주제)에서 고르고, `--seed` 가 같으면 같은 순서
