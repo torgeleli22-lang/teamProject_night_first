@@ -13,7 +13,7 @@ AI 사용 기준(프롬프트·검사·대체 동작)은 `docs/ai-generation-pol
 - 모범 설명·핵심 표현은 첨삭 전에 화면으로 보내지 않는다 (읽는 동안은 `code_store.public_code` 만, 모범 설명은 `POST /review` 결과에만).
 - 올린 코드는 화면(`src/lib/secrets.ts`)에서 민감 정보를 가린 뒤 보내고, Lambda(`inspect_code.py` 의 `mask_secrets`)에서 한 번 더 가린다. 두 곳의 패턴을 같게 유지한다.
 - 구조: 화면은 정적 페이지(GitHub Pages), 서버는 기능별 Python Lambda 6개(`docs/LAMBDA_STRUCTURE.md`) + DynamoDB + Bedrock. 각 함수에는 그 기능에 필요한 파일만 넣고, 공통 코드는 저장소에 한 벌만 두고 배포할 때 묶는다. 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부르며, 응답 모양은 `src/lib/api-types.ts` 에 Lambda 와 같게 유지한다.
-- Lambda 코드: 처리 함수에 단계 번호 주석. 외부 라이브러리는 `docs/LAMBDA_STRUCTURE.md` §4 에 정한 것(Powertools·Pydantic·tree-sitter)만, 새로 넣으려면 그 표에 이유를 적고 정한다. 로그·오류는 같은 문서 §5 기준.
+- Lambda 코드: 처리 함수에 단계 번호 주석. 외부 라이브러리는 `docs/LAMBDA_STRUCTURE.md` §4 에 정한 것(Powertools·Pydantic·tree-sitter)만, 새로 넣으려면 그 표에 이유를 적고 정한다. 로그·오류는 같은 문서 §5 기준 (`core.logger` JSON 로그, `print` 쓰지 않기). 요청 본문은 경로마다 `core.Body` 를 이은 모양 + `read_body`, AI 답은 `ai.AiAnswer` 를 이은 모양(도구 형식이 여기서 만들어짐).
 - DynamoDB 항목 모양(pk·sk, 필드)을 바꾸면 그 항목을 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 바꾸고 `npm run smoke` 로 확인한다.
 - 예시 코드(`lambda/api/samples.py`, JavaScript 는 `samples_js.py`)를 추가·수정하면 `npm run verify` 를 통과시킨다 (실제 실행(Python·node) + ※ 줄 범위 확인).
 - 정한 값: 업로드 최대 300줄, 연습 모드 언어 Python·JavaScript(`core.LANGUAGES`, Java 는 나중에) · 내 코드 점검은 Python 만, 점수는 ○△✕ 개수, 같은 코드 다시 만들기 5번 (`core.py` 1번 설정).

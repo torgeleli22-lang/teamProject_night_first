@@ -23,15 +23,15 @@
 
 이름은 모두 `core.py` 의 작은 함수로 만들어요: `user_pk(id)` · `studyrec_sk(코드 id)` · `code_pk(id)` · `login_pk(토큰)` · `account_pk("google:번호")` · `auth_pk(state)`, 그리고 고정 이름 `PROFILE` · `INFO` · `USER` · `STATE` · `OPS_…`.
 
-> 예전 이름(`LEARNER`, `READ#…/CODE`, `STUDY#…/R#…`, `RETRY#…`, `CHAT#…`, `LOGIN`·`ACCOUNT`·`AUTH` 고정 pk, `STATS`·`USAGE`·`AILOG`·`META`·`RL`)으로 저장된 데이터는 관리자 화면의 **"예전 데이터 옮기기"**(`POST /admin/migrate`, `admin.py:193`)로 한 번에 새 이름으로 옮겨요. 바꾸는 규칙은 `admin.py:235` `new_key`(키), `admin.py:274` `new_fields`(필드 — `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`) 에 있어요.
+> 예전 이름(`LEARNER`, `READ#…/CODE`, `STUDY#…/R#…`, `RETRY#…`, `CHAT#…`, `LOGIN`·`ACCOUNT`·`AUTH` 고정 pk, `STATS`·`USAGE`·`AILOG`·`META`·`RL`)으로 저장된 데이터는 관리자 화면의 **"예전 데이터 옮기기"**(`POST /admin/migrate`, `admin.py:193`)로 한 번에 새 이름으로 옮겨요. 바꾸는 규칙은 `admin.py:247` `new_key`(키), `admin.py:286` `new_fields`(필드 — `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`) 에 있어요.
 
 ### 서버는 요청한 사람이 누구인지 어떻게 알까요?
 
 | 역할 | 화면이 보내는 헤더 | 그 값 | 화면이 보관하는 곳 | 서버가 확인하는 코드 |
 |---|---|---|---|---|
-| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:526` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
+| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:577` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
 | **회원** (Google 로그인) | `x-session-id` | **로그인 토큰** (uuid) — 학습자 id 가 아님 | `localStorage` `codereading.login` — 브라우저를 닫아도 남음 | `get_user` 2번 단계: `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE` |
-| **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:34` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
+| **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:36` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
 
 - 비회원과 회원은 **같은 헤더**를 써요. 서버가 그 값으로 `USER#<값>` 이 있는지(비회원), `LOGIN#<값>` 이 있는지(회원) 보고 구분해요.
 - 회원의 실제 학습자 id 는 화면으로 보내지 않아요. 누가 회원 학습자 id 를 직접 헤더에 넣어도 1번 단계에서 `member` 이면 받지 않아요 (`core.py:534`).
@@ -83,12 +83,12 @@
 | 항목 (pk / sk) | C | R | U | D | 언제 | 코드 |
 |---|---|---|---|---|---|---|
 | `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:34`, `admin.py:181` |
-| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:173` → `core.py:596` `set_meta` |
+| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:173` → `core.py:647` `set_meta` |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:127` |
 | `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:147` |
 | `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:154` |
 | `OPS#LIMIT` / `admin-fail:<IP>#<시간 칸>` | ● | ● | ● | | 관리자 코드를 틀리면 +1, 15분에 10번이면 잠금 | `admin.py:36`, `:48` |
-| (예전 이름의 모든 항목) | ● | ● | | ● | "예전 데이터 옮기기" — 새 이름으로 쓰고 예전 것 삭제 | `admin.py:193` `migrate` |
+| (예전 이름의 모든 항목) | ● | ● | | ● | "예전 데이터 옮기기" — 새 이름으로 쓰고 예전 것 삭제 | `admin.py:205` `migrate` |
 
 ### 1-4. 모두에게 공통 — 서버가 알아서 쓰는 항목
 
@@ -96,7 +96,7 @@
 |---|---|---|---|
 | `OPS#LIMIT` / `all:<IP>#<분>` | 모든 요청 (관리자 경로 제외) | IP 당 1분 600번 제한 | 시간 칸 + 60초 |
 | `OPS#LIMIT` / `new:<IP>#<시간>` | 새 학습자를 만들 때 | IP 당 1시간 120명 | 〃 |
-| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:488` `ai_allowed`) | 〃 |
+| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:539` `ai_allowed`) | 〃 |
 | `OPS#STATS` / `DAY#<날짜>` | 연습·더 쉽게·주제 판정·점검·첨삭·다시 쓰기·튜터 | 오늘 칸 +1 | 90일 |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | AI 를 부를 때마다 | 호출 수·토큰·실패 누적 | 없음 |
 | `OPS#AILOG` / `<시각>` | AI 를 부를 때마다 | 한 건씩 기록 | 14일 |
@@ -299,8 +299,8 @@ update_item(OPS_LIMIT, f"{key}#{window_start}", set_values={TTL_ATTR: 구간 끝
 src/lib/api.ts                                https://tmf42….lambda-url.ap-northeast-2.on.aws
   apiPost("/review", {...})
     └ fetch(POST, 헤더, JSON 본문) ────────▶  (HTTPS)  ──── event(JSON) ────▶  lambda_function.lambda_handler
-                                                                                 ├ read_request(event)   요청 꺼내기
-                                                                                 ├ run_route → review()  처리
+                                                                                 ├ core.handle → Powertools 경로 처리기
+                                                                                 ├ _route_handler: read_request → 요청 수 제한 → review()
   ◀──────── JSON 본문 + 헤더 ─────────────────  ◀── {"statusCode", "headers", "body"} ── reply()
     └ x-session-id 헤더 저장, 오류면 ApiError
 ```
@@ -350,17 +350,18 @@ return data;
 | `x-admin-token` | 관리자 화면의 요청만 | 관리자 코드 |
 | `Origin` | 브라우저가 자동으로 | `https://torgeleli22-lang.github.io` |
 
-**응답 헤더 (Lambda → 화면)** — `core.py:241` `reply`, `:228` `cors_headers`
+**응답 헤더 (Lambda → 화면)** — `core.py:259` `reply` (JSON·세션 id), CORS 헤더는 Powertools 가 붙여요 (`core.py:269` `make_app` 의 `CORSConfig`)
 
 | 헤더 | 값 | 이유 |
 |---|---|---|
 | `content-type` | `application/json; charset=utf-8` | 본문은 항상 JSON (한글 그대로) |
 | `cache-control` | `no-store` | 사람마다 다른 응답이라 저장하지 않게 |
 | `x-session-id` | 학습자 id 또는 로그인 토큰 | 처음 온 사람에게 id 를 알려 주고, 이후에도 확인용 |
-| `access-control-allow-origin` | 허용한 화면 주소 (`ALLOWED_ORIGINS`) | **CORS**: 이 주소의 화면만 응답을 읽을 수 있음 |
-| `access-control-allow-headers` | `content-type,x-session-id,x-admin-token` | 화면이 보내도 되는 헤더 |
+| `access-control-allow-origin` | 요청의 `Origin` 이 허용한 화면 주소(`ALLOWED_ORIGINS`)면 그 주소. 아니면 CORS 헤더를 붙이지 않음 | **CORS**: 이 주소의 화면만 응답을 읽을 수 있음 |
+| `access-control-allow-headers` | `content-type,x-session-id,x-admin-token` (+ Powertools 기본 `Authorization` 등) | 화면이 보내도 되는 헤더 |
 | `access-control-expose-headers` | `x-session-id` | 이게 있어야 화면 JS 가 응답의 `x-session-id` 를 읽을 수 있음 |
-| `access-control-allow-methods` | `GET,POST,OPTIONS` | |
+| `vary` | `Origin` | 화면 주소마다 응답이 다르니 캐시가 섞지 않게 |
+| `access-control-allow-methods` | `GET,OPTIONS,POST` (사전 요청에만) | |
 
 ### 3-5. CORS 사전 요청 (OPTIONS)
 
@@ -372,9 +373,10 @@ Origin: https://torgeleli22-lang.github.io
 Access-Control-Request-Method: POST
 Access-Control-Request-Headers: content-type,x-session-id
 
-204 No Content            ← run_route 맨 처음 (core.py:253): OPTIONS 면 바로 CORS 헤더만 답함
+204 No Content            ← Powertools 가 처리 함수 없이 바로 CORS 헤더만 답함
 access-control-allow-origin: https://torgeleli22-lang.github.io
-access-control-allow-headers: content-type,x-session-id,x-admin-token
+access-control-allow-methods: GET,OPTIONS,POST
+access-control-allow-headers: …,content-type,x-admin-token,x-session-id
 access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
 ```
 그래서 함수 URL 설정에서 CORS 를 따로 켜지 않아요 (코드가 직접 처리, `docs/DEPLOY_LAMBDA.md` 2단계).
@@ -390,10 +392,10 @@ access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
   "body": "{\"codeId\":\"3c90fba9-…\",\"memos\":[…]}",
   "isBase64Encoded": false,
   "requestContext": { "domainName": "tmf42….lambda-url.ap-northeast-2.on.aws",
-                      "http": { "method": "POST", "sourceIp": "211.234.…" } }
+                      "stage": "$default", "http": { "method": "POST", "path": "/review", "sourceIp": "211.234.…" } }
 }
 ```
-`read_request` (`core.py:191`) 가 이걸 다루기 쉬운 모양으로 바꿔요:
+`core.handle` 이 Powertools 경로 처리기에 넘기고, 처리 함수 앞에서 `read_request` (`core.py:224` `read_request`) 가 이걸 다루기 쉬운 모양으로 바꿔요:
 `{"method": "POST", "path": "/review", "query": {…}, "headers": {소문자 키}, "body": {JSON 을 푼 dict}, "ip": sourceIp, "origin": …}`
 - 본문이 256KB(×1.4) 를 넘으면 413, JSON 이 아니면 400
 - IP 는 화면이 보낸 헤더가 아니라 함수 URL 이 확인한 `sourceIp` 를 써요 (속일 수 없게)
@@ -414,7 +416,7 @@ access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
 | 200 | 성공 | |
 | 204 | OPTIONS (CORS 사전 요청) | |
 | 302 | 로그인 시작·콜백 (다른 주소로 보내기) | |
-| 400 | 요청 값이 틀림 (`field()` 검사, `core.py:275`) | `{"error": "주제를 골라 주세요."}` |
+| 400 | 요청 값이 틀림 (경로마다 Pydantic 모양 `…In` 으로 검사, `core.py:202` `read_body`) | `{"error": "주제를 골라 주세요."}` |
 | 401 | 관리자 코드가 없거나 틀림 | `{"error": "관리자 권한이 필요해요."}` |
 | 404 | 없는 경로 · 없거나 내 것이 아닌 코드 | `{"error": "코드를 찾을 수 없어요. 시간이 지나 지워졌을 수 있어요."}` |
 | 413 | 본문이 너무 큼 | |

@@ -1,5 +1,5 @@
-from core import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_user, keep_seconds, now_ms, put_item, query_all, studyrec_sk, ttl_after,
-                  user_pk)
+from core import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_user, keep_seconds, logger, now_ms, put_item, query_all, studyrec_sk,
+                  ttl_after, user_pk)
 
 # ─────────────────────────────────────────────────────────────
 # 내 공부 (study.py) — jojo_api 의 기능 파일. AI 를 쓰지 않는다 (모두 규칙)
@@ -66,7 +66,7 @@ def record_review(user, code_item, result):
                   "createdAt": old.get("createdAt") or now_ms(), "reviewedAt": now_ms(),
                   "codeTtl": int(code_item.get(TTL_ATTR, 0)), TTL_ATTR: ttl_after(keep_seconds(user, "study"))})
     except Exception as e:   # 기록이 실패해도 첨삭은 그대로 돌려준다
-        print("[study]", repr(e))
+        logger.warning("내 공부 기록 실패", extra={"error": repr(e)})
 
 
 def record_retry(user, code_item, index, mark, text):
@@ -80,7 +80,7 @@ def record_retry(user, code_item, index, mark, text):
             item["best"], item["bestText"] = mark, text
             put_item(row)
     except Exception as e:
-        print("[study]", repr(e))
+        logger.warning("내 공부 기록 실패", extra={"error": repr(e)})
 
 
 # ───────────────────────── 계산 (AI 없음) ─────────────────────────

@@ -3,7 +3,7 @@
 서버(Lambda)를 **어떻게 나누고, 공통 코드를 어떻게 나눠 쓰고, 오류를 어떻게 남기고, 어떻게 배포하는지** 정하는 문서예요.
 AI 가 만드는 연습 문항의 생성·검토 기준은 **`docs/GENERATION_STANDARD.md`** 에 있고, 이 문서는 그 기준이 돌아가는 서버 구조를 다뤄요.
 
-- 상태: **v1.0** (2026-11-02 확정) — 전환 1단계(공통 코드 나누기) 끝. 지금 코드는 아직 함수 하나(`jojo_api_py`, `lambda/api/`)예요. `## 10. 전환 순서` 대로 옮겨요
+- 상태: **v1.1** (2026-11-03) — 전환 1단계(공통 코드 나누기)·2단계(라이브러리 적용) 끝. 지금 코드는 아직 함수 하나(`jojo_api_py`, `lambda/api/`)예요. `## 10. 전환 순서` 대로 옮겨요
 - 정한 것: 함수 6개 · 공통 코드를 `core`·`ai`·`code_store` 로 나누기 · 외부 라이브러리 3가지(Powertools·Pydantic·tree-sitter) · CloudShell 명령으로 배포 · 함수마다 함수 URL
 
 ## 0. 원칙
@@ -77,13 +77,15 @@ lambda/
 
 | 라이브러리 | 쓰는 곳 | 대신하는 것 | 넣는 방법 |
 |---|---|---|---|
-| **Powertools for AWS Lambda (Python) v3** | 경로 나누기(`LambdaFunctionUrlResolver`) · JSON 로그(`Logger`) · 오류 지표(`Metrics`) | `run_route`·`read_request`·`reply` 일부, `print` 로그 | 함수 zip 에 포함 (순수 Python 약 1MB — 레이어 버전·ARN 을 따로 관리하지 않게) |
-| **Pydantic v2** | 요청 본문 · AI 응답 형식 (Bedrock 도구 스키마를 모델에서 자동 생성) | `field()` · `check_schema()` · `repair_for_schema()` | 함수 zip 에 포함 |
-| **tree-sitter + tree-sitter-javascript** | JavaScript 진짜 문법 검사 · 함수/클래스/재귀 세기 | `js_scan` · `js_structure` (겉모양 검사) | 함수 zip 에 포함 (`jojo_practice`·`jojo_admin`) |
+| **Powertools for AWS Lambda (Python) v3** | 경로 나누기·CORS·사전 요청(`LambdaFunctionUrlResolver`, `core.make_app`) · JSON 로그(`Logger`, `core.logger`) | 직접 만든 경로 표 처리(`run_route`)·CORS 헤더, `print` 로그 | 함수 zip 에 포함 (순수 Python 약 1MB — 레이어 버전·ARN 을 따로 관리하지 않게) |
+| **Pydantic v2** | 요청 본문(`core.Body`·`read_body`, 경로마다 `…In`) · AI 답의 모양(`ai.AiAnswer`, 작업마다 `…Answer`) — Bedrock 도구 형식은 모양에서 만들어요(`ai.tool_schema`) | `field()` · `check_schema()` · `repair_for_schema()` · 손으로 쓴 JSON Schema | 함수 zip 에 포함 |
+| **tree-sitter + tree-sitter-javascript** | JavaScript 진짜 문법 검사 · 함수/클래스/재귀·배열 크기 세기 (`practice.js_check`) | `js_scan` · 정규식 `js_structure` (겉모양 검사) | 함수 zip 에 포함 (`jojo_practice`·`jojo_admin`) |
 
 - 버전은 `lambda/requirements.txt` 에 고정하고, 배포할 때 Lambda(arm64·Python 3.14)용 배포판을 받아요 (확인함: 모두 있음, 합계 약 4.5MB). 내 컴퓨터·CI 는 `npm run setup:python` 으로 같은 버전을 `.venv` 에
 - 이 셋 말고 새 라이브러리를 넣으려면 이 표에 이유를 적고 정해요
-- 쓰지 않기로 한 것: FastAPI+Mangum(경로는 Powertools 로 충분, 더 무거움), authlib(지금 Google 로그인이 잘 돌아감), jsonschema(Pydantic 으로 충분)
+- 쓰지 않기로 한 것: FastAPI+Mangum(경로는 Powertools 로 충분, 더 무거움), authlib(지금 Google 로그인이 잘 돌아감), jsonschema(Pydantic 으로 충분),
+  Powertools `Metrics`(CloudWatch 사용자 지표는 지표마다 요금이 붙어요. 함수별 오류 수·실행 시간은 Lambda 기본 지표로 무료로 나오고, AI 호출·실패는 이미 `OPS#USAGE`·관리자 화면에 있어요. 나머지는 JSON 로그를 Logs Insights 로 세요)
+- AI 답의 모양을 Pydantic 으로 옮길 때, 모양에서 만든 도구 형식이 예전 JSON Schema 와 **똑같은지** 확인했어요 (8개 모두 같음 — AI 가 보는 형식은 바뀌지 않음)
 - boto3 는 Lambda 런타임에 들어 있는 것을 써요 (zip 에 넣지 않음)
 
 ---
@@ -94,11 +96,11 @@ lambda/
 |---|---|
 | 로그 모양 | Powertools `Logger` JSON. 모든 로그에 `function` · `route` · `request_id` · `cold_start` |
 | 요청 로그 | 경로·상태 코드·걸린 시간·학습자 id 앞 8자리. **요청 본문·코드·메모·비밀 값은 남기지 않음** |
-| 예상한 오류 (`ApiError`, 4xx) | `info` 로 짧게 (사용자 잘못·한도) |
+| 예상한 오류 (`ApiError`, 4xx) | 요청 로그(`요청`, `status`)에 상태 코드만. 요청 값 오류는 틀린 칸 이름만 (`요청 값 오류`, `fields`) |
 | 예상하지 못한 오류 (5xx) | `logger.exception` — 파일·줄·스택 전체. 화면에는 지금처럼 한국어 메시지만 |
 | AI 호출 | 작업 이름·모델·토큰·걸린 시간·성공 여부·실패 이유 (지금 `OPS#USAGE`·`OPS#AILOG` 기록은 그대로) |
-| 지표 (CloudWatch, EMF) | 이름공간 `CodeReadingNote`, 함수·경로별 `Errors` · `AiCalls` · `AiFailures` · `SampleFallbacks` · `Regenerations` |
-| 찾는 법 | CloudWatch Logs Insights 에서 `filter level="ERROR" and route="/practice"` 처럼 검색. 자주 쓰는 검색문은 `docs/DEPLOY_LAMBDA.md` 에 |
+| 지표 | 함수별 오류 수·실행 시간·호출 수 = Lambda 기본 지표 (함수를 나누면 저절로 함수별). 예시 코드로 대신한 수·다시 만든 수는 로그 메시지(`AI 대신 …`, `코드 다시 만듦`)를 Logs Insights 로 세요. 사용자 지표(요금)는 쓰지 않아요 |
+| 찾는 법 | CloudWatch Logs Insights 에서 `filter level="ERROR" and route like "/practice"` 처럼 검색. 자주 쓰는 검색문은 `docs/DEPLOY_LAMBDA.md` 에 |
 
 - 화면의 오류 응답 모양은 그대로: `{"error": "한국어 메시지"}` + 상태 코드
 
@@ -120,7 +122,7 @@ lambda/
 | `AI_MODE` · `MODEL_ID` · `BEDROCK_REGION` · `AI_MONTHLY_BUDGET_USD` | AI 를 쓰는 함수 (practice · inspect · review · admin) + `jojo_auth`(`/health` 표시용 `AI_MODE`) |
 | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` · `AUTH_CALLBACK_BASE` | `jojo_auth` |
 | `ADMIN_TOKEN` | `jojo_admin` |
-| `POWERTOOLS_SERVICE_NAME` (함수 이름) · `POWERTOOLS_METRICS_NAMESPACE`=`CodeReadingNote` | 전부 |
+| (선택) `POWERTOOLS_LOG_LEVEL` — 기본 `INFO`, 로그를 줄이려면 `WARNING` | 전부 |
 
 - `AUTH_CALLBACK_BASE` 는 `jojo_auth` 의 함수 URL 이에요. Google Cloud Console 의 "승인된 리디렉션 URI"도 이 주소로 바꿔요
 
@@ -157,7 +159,7 @@ npm run deploy        # 함수마다 필요한 파일·라이브러리만 묶어
 
 ## 10. 전환 순서
 1. ✅ 공통 코드 나누기 (`common.py` → `core`·`ai`·`code_store`), `GET /code` 를 `review.py` 로, GitHub 로그인 제거, 개발 도구(`.venv`·`requirements.txt`·CI Python 3.14) — 동작은 그대로
-2. 라이브러리 적용 (Powertools 경로·로그 → Pydantic 형식 → tree-sitter JavaScript 검사)
+2. ✅ 라이브러리 적용 (Powertools 경로·CORS·JSON 로그 → Pydantic 요청 본문·AI 답의 모양 → tree-sitter JavaScript 검사) — 이제 라이브러리를 함께 묶어 올려야 해서 콘솔에 파일을 붙여넣는 배포는 쓸 수 없어요 (3단계의 묶기 명령으로)
 3. 함수 6개 입구 + `functions.json` + 묶기·배포 명령 + 의존 규칙 테스트
 4. 화면 주소 나누기 (`api.ts`, `API_URLS`)
 5. 콘솔에서 함수 6개 준비 → 배포 → smoke → 화면 전환
@@ -170,4 +172,5 @@ npm run deploy        # 함수마다 필요한 파일·라이브러리만 묶어
 ## 결정 기록
 | 날짜 | 내용 |
 |---|---|
+| 2026-11-03 | v1.1: 2단계 적용. Powertools `Metrics` 는 쓰지 않기로 (요금 · 기본 지표로 충분). 로그의 서비스 이름은 Lambda 가 넣어 주는 함수 이름(`AWS_LAMBDA_FUNCTION_NAME`)이라 `POWERTOOLS_SERVICE_NAME` 을 따로 넣지 않아요 |
 | 2026-11-02 | 함수 6개 · `core`·`ai`·`code_store` · Powertools·Pydantic·tree-sitter · CloudShell 배포 · 함수마다 URL 로 확정 (함수 URL 은 선호 없음 → 추천안). 그전의 "Lambda 하나 · boto3 만 · zip 없음"은 정한 원칙이 아니었고 이 문서로 바뀜 |

@@ -256,7 +256,7 @@ try {
   sid = "11111111-1111-1111-1111-111111111111";
   await call("GET", "/topic/random");
   check(sid !== "11111111-1111-1111-1111-111111111111", "모르는 세션 id 는 새 세션으로 교체");
-  const pre = await fetch(`${api.url}/practice`, { method: "OPTIONS" });
+  const pre = await fetch(`${api.url}/practice`, { method: "OPTIONS", headers: { origin: "http://localhost:3000", "access-control-request-method": "POST" } });
   check(pre.status === 204 && pre.headers.get("access-control-allow-headers")?.includes("x-session-id"), "CORS 사전 요청(OPTIONS)");
 
   console.log("\n모든 Lambda 흐름 점검 통과");

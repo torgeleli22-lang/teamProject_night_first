@@ -1,16 +1,21 @@
 """
 공통 조각 — ai: AI 를 쓰는 함수에만 들어가요 (연습·내 코드 점검·첨삭·관리자)
 
-Bedrock 호출(ask_ai) · 월 예산 확인 · 사용량 기록(OPS#USAGE·OPS#AILOG) · 응답 형식 검사와 흔한 실수 고치기.
+Bedrock 호출(ask_ai) · 월 예산 확인 · 사용량 기록(OPS#USAGE·OPS#AILOG) · AI 답의 모양(Pydantic AiAnswer)과 흔한 실수 고치기.
 AI 를 쓸 수 없으면 AiUnavailable 을 던지고, 부른 쪽이 규칙 기반 결과(예시 코드·규칙 첨삭)로 대신해요.
 """
 import json
 import re
 import time
 from datetime import datetime, timezone
+from functools import lru_cache
+from types import UnionType
+from typing import Literal, Union, get_args, get_origin
 
-from core import (AI_MODE, MOCK_DELAY_SEC, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_USAGE, PRICE, TTL_ATTR, ai_enabled, bedrock, now_ms, pad,
-                  put_item, query_all, time_id, ttl_after, update_item)
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+
+from core import (AI_MODE, MOCK_DELAY_SEC, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_USAGE, PRICE, TTL_ATTR, ai_enabled, bedrock, logger, now_ms,
+                  pad, put_item, query_all, time_id, ttl_after, update_item)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -76,7 +81,7 @@ def log_usage(task, model, inp, out, cache_read, ok, error=None, ms=0):
                     add_values={"calls": 1, "input": inp, "output": out, "cacheRead": cache_read, "failures": 0 if ok else 1})
         log_ai_event(task, model, ok, inp, out, ms, error)
     except Exception as e:  # 사용량 기록 실패가 학습을 막지 않도록
-        print("[usage]", repr(e))
+        logger.warning("AI 사용량 기록 실패", extra={"error": repr(e)})
 
 
 def log_ai_event(task, model, ok, inp=0, out=0, ms=0, error=None, stage="ai"):
@@ -87,7 +92,7 @@ def log_ai_event(task, model, ok, inp=0, out=0, ms=0, error=None, stage="ai"):
                   "input": inp, "output": out, "ms": int(ms), "error": (error or "")[:300], "createdAt": now_ms(),
                   TTL_ATTR: ttl_after(AI_LOG_DAYS * 86400)})
     except Exception as e:
-        print("[ailog]", repr(e))
+        logger.warning("AI 호출 기록 실패", extra={"error": repr(e)})
 
 
 def check_budget(input_chars, max_tokens):
@@ -112,8 +117,9 @@ def build_messages(history, prompt):
     return out
 
 
-def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=None, salvage=None, mock_delay=None):
-    """AI 에게 정해진 형식(schema, JSON Schema)의 답을 받는다. 형식이 어긋나면 흔한 실수를 고치고, 그래도 틀리면 AiUnavailable"""
+def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=None, mock_delay=None):
+    """AI 에게 정해진 모양(schema: AiAnswer 를 이은 모양)의 답을 받는다. 흔한 실수는 고치고, 그래도 틀리면 AiUnavailable.
+    mock: 목업 모드(AI_MODE=mock)에서 대신 돌려줄 답을 만드는 함수 (이것도 같은 모양인지 검사한다)"""
     if not ai_enabled():
         raise AiUnavailable("AI is off")
     started = time.time()
@@ -121,7 +127,9 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
         if not mock:
             raise AiUnavailable("no mock for this task")
         time.sleep(MOCK_DELAY_SEC if mock_delay is None else mock_delay)
-        result = mock()
+        result, issues = parse_answer(mock(), schema)
+        if issues:   # 목업이 모양과 다르면 코드 실수 — 시험에서 바로 드러나게
+            raise ValueError(f"mock for {task} does not fit {schema.__name__}: {issues[:3]}")
         log_usage(task, f"mock:{MODEL_ID}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, 0, True,
                   ms=(time.time() - started) * 1000)
         return result
@@ -142,7 +150,7 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
                     "tools": [{"toolSpec": {
                         "name": "answer",
                         "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다.",
-                        "inputSchema": {"json": schema},
+                        "inputSchema": {"json": tool_schema(schema)},
                     }}],
                     "toolChoice": {"tool": {"name": "answer"}},
                 },
@@ -158,14 +166,9 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
         tool = next((c["toolUse"] for c in response["output"]["message"]["content"] if "toolUse" in c), None)
         if not tool:
             raise AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")
-        value = repair_for_schema(tool["input"], schema)
-        issues = check_schema(value, schema)
-        if issues and salvage:
-            kept = salvage(value)
-            if not check_schema(kept, schema):
-                value, issues = kept, []
+        value, issues = parse_answer(tool["input"], schema)
         if issues:
-            print("[ai] 응답 형식 불일치:", task, issues[:3])
+            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3]})
             raise AiUnavailable("could not parse response: " + "; ".join(issues[:3]))
         ok = True
         return value
@@ -177,71 +180,79 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
                   error=error, ms=(time.time() - started) * 1000)
 
 
-def _allows(schema, kind):
-    if "anyOf" in schema:
-        return any(_allows(s, kind) for s in schema["anyOf"])
-    t = schema.get("type")
-    types = t if isinstance(t, list) else [t]
-    return kind in types or (kind == "number" and "integer" in types)
+# ─────────────────────────────────────────────────────────────
+# AI 답의 모양 (Pydantic). 작업마다 기능 파일에서 AiAnswer 를 이어 모양을 만든다.
+#   tool_schema(모양) → Bedrock 도구 형식(JSON Schema) · parse_answer(받은 답, 모양) → (고친 dict, 문제 목록)
+# ─────────────────────────────────────────────────────────────
 
 
-def repair_for_schema(value, schema):
-    """도구 입력에서 자주 어긋나는 것만 고친다: 빠진 칸 → null, 문자열로 감싼 배열·객체 → 풀기, "3" → 3"""
-    if isinstance(value, str) and (_allows(schema, "array") or _allows(schema, "object")) and not _allows(schema, "string"):
-        t = value.strip()
-        if t[:1] in ("[", "{"):
+def _kinds(annotation):
+    """칸의 타입 → 들어갈 수 있는 종류들 (str · int · list · NoneType · 모양 클래스 …)"""
+    if get_origin(annotation) in (Union, UnionType):
+        return {k for a in get_args(annotation) for k in _kinds(a)}
+    if get_origin(annotation) is Literal:
+        return {type(v) for v in get_args(annotation)}
+    return {get_origin(annotation) or annotation}
+
+
+class AiAnswer(BaseModel):
+    """AI 답의 모양. 받은 답에서 자주 어긋나는 것만 고쳐서 받는다:
+    빠진 칸 중 null 이 될 수 있는 칸 → null · 문자열로 감싼 배열·객체 → 풀기 · "3" → 3 (Pydantic 기본). 모양에 없는 칸은 그대로 둔다"""
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _repair(cls, data):
+        if isinstance(data, str) and data.strip()[:1] == "{":
             try:
-                value = json.loads(t)
-            except json.JSONDecodeError:
-                pass
-    if isinstance(value, str) and (_allows(schema, "number") or _allows(schema, "integer")) and not _allows(schema, "string"):
-        try:
-            return int(value) if re.fullmatch(r"-?\d+", value.strip()) else float(value)
-        except ValueError:
-            pass
-    branch = schema
-    for s in schema.get("anyOf", []):
-        if (isinstance(value, list) and _allows(s, "array")) or (isinstance(value, dict) and _allows(s, "object")):
-            branch = s
-    if isinstance(value, list) and "items" in branch:
-        return [repair_for_schema(v, branch["items"]) for v in value]
-    if isinstance(value, dict) and "properties" in branch:
-        out = dict(value)
-        for key, sub in branch["properties"].items():
-            if key not in out:
-                if _allows(sub, "null"):
-                    out[key] = None
-            else:
-                out[key] = repair_for_schema(out[key], sub)
+                data = json.loads(data)
+            except ValueError:
+                return data
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        for name, f in cls.model_fields.items():
+            kinds = _kinds(f.annotation)
+            if name not in out:
+                if type(None) in kinds:
+                    out[name] = None
+            elif isinstance(out[name], str) and str not in kinds and out[name].strip()[:1] in ("[", "{"):
+                try:
+                    out[name] = json.loads(out[name].strip())
+                except ValueError:
+                    pass
         return out
-    return value
 
 
-def check_schema(value, schema, path="(전체)"):
-    """간단한 JSON Schema 검사 (type·enum·properties·required·items·minimum·maximum·anyOf). 문제 목록을 돌려준다"""
-    if "anyOf" in schema:
-        return [] if any(not check_schema(value, s, path) for s in schema["anyOf"]) else [f"{path}: 형식이 맞지 않음"]
-    t = schema.get("type")
-    types = t if isinstance(t, list) else ([t] if t else [])
-    kind = ("null" if value is None else "boolean" if isinstance(value, bool) else "integer" if isinstance(value, int)
-            else "number" if isinstance(value, float) else "string" if isinstance(value, str)
-            else "array" if isinstance(value, list) else "object" if isinstance(value, dict) else "?")
-    if types and not (kind in types or (kind == "integer" and "number" in types)):
-        return [f"{path}: {'/'.join(types)} 이어야 함"]
-    if "enum" in schema and value not in schema["enum"]:
-        return [f"{path}: 허용되지 않은 값"]
-    if kind in ("integer", "number"):
-        if "minimum" in schema and value < schema["minimum"] or "maximum" in schema and value > schema["maximum"]:
-            return [f"{path}: 범위를 벗어남"]
-    issues = []
-    if kind == "object":
-        for key in schema.get("required", []):
-            if key not in value:
-                issues.append(f"{path}.{key}: 없음")
-        for key, sub in schema.get("properties", {}).items():
-            if key in value:
-                issues += check_schema(value[key], sub, f"{path}.{key}")
-    if kind == "array" and "items" in schema:
-        for i, v in enumerate(value):
-            issues += check_schema(v, schema["items"], f"{path}.{i}")
-    return issues
+@lru_cache(maxsize=None)
+def tool_schema(model):
+    """모양 → Bedrock 도구 형식 (JSON Schema). $ref 는 펼치고, AI 에게 필요 없는 title·default·클래스 설명은 뺀다. null 이 되는 칸은 type: [타입, "null"]"""
+    raw = model.model_json_schema()
+    defs = raw.pop("$defs", {})
+    for node in (raw, *defs.values()):   # 클래스 설명(docstring)은 코드를 읽는 사람용 — AI 에게는 칸 설명(Field description)만
+        node.pop("description", None)
+
+    def clean(node):
+        if "$ref" in node:
+            node = {**defs[node["$ref"].split("/")[-1]], **{k: v for k, v in node.items() if k != "$ref"}}
+        out = {}
+        for key, value in node.items():
+            if key in ("title", "default", "additionalProperties"):
+                continue
+            out[key] = ({name: clean(sub) for name, sub in value.items()} if key == "properties"
+                        else clean(value) if key == "items" else [clean(v) for v in value] if key == "anyOf" else value)
+        options = out.get("anyOf") or []
+        if len(options) == 2 and {"type": "null"} in options:
+            other = next(o for o in options if o != {"type": "null"})
+            if isinstance(other.get("type"), str):
+                out = {**{k: v for k, v in out.items() if k != "anyOf"}, **other, "type": [other["type"], "null"]}
+        return out
+    return clean(raw)
+
+
+def parse_answer(value, model):
+    """받은 답 → (모양에 맞춘 dict, 문제 목록). 문제가 없으면 목록이 비어 있다 (AI 가 쓰지 않은 칸은 dict 에 넣지 않는다)"""
+    try:
+        return model.model_validate(value).model_dump(exclude_unset=True), []
+    except ValidationError as e:
+        return value, [f"{'.'.join(map(str, x['loc'])) or '(전체)'}: {x['msg']}" for x in e.errors()]

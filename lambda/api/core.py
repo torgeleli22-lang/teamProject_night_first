@@ -3,7 +3,7 @@
 
   1. 설정 (환경 변수·숫자)               5. 요청 수 제한
   2. AWS 연결 (DynamoDB·Bedrock)          6. 학습자(세션)
-  3. 요청 읽기·응답 만들기 (CORS 포함)     7. 설정 값 (OPS#CONFIG) · AI 끄기 스위치
+  3. 요청·응답 (Powertools 경로·로그, 본문 모양)  7. 설정 값 (OPS#CONFIG) · AI 끄기 스위치
   4. DynamoDB 읽기·쓰기 도구              8. 하루 사용 수 (OPS#STATS)
   9. id 만들기 (시간순 UUID)
 
@@ -15,7 +15,6 @@ import os
 import random
 import re
 import time
-import traceback
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -23,7 +22,10 @@ from urllib.parse import unquote_plus
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from aws_lambda_powertools import Logger
+from aws_lambda_powertools.event_handler import CORSConfig, LambdaFunctionUrlResolver, Response
 from botocore.config import Config
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 # ─────────────────────────────────────────────────────────────
 # 1. 설정
@@ -178,6 +180,10 @@ def bedrock():
 
 SESSION_HEADER = "x-session-id"
 
+# 로그: 모든 줄이 JSON 이고 함수 이름·경로·요청 id 가 붙는다 (CloudWatch Logs Insights 에서 `filter level="ERROR"` 처럼 찾기)
+#       요청 본문·코드·메모·비밀 값은 남기지 않는다. 함수 이름은 Lambda 가 넣어 주는 AWS_LAMBDA_FUNCTION_NAME
+logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or "local")
+
 
 class ApiError(Exception):
     """화면에 그대로 보여 줄 오류 (status: HTTP 상태 코드)"""
@@ -188,31 +194,56 @@ class ApiError(Exception):
         self.message = message
 
 
+class Body(BaseModel):
+    """요청 본문의 모양 (경로마다 기능 파일에서 이 모양을 이어 만든다). 형식은 엄격하게: "3" 은 숫자가 아니고 true 도 숫자가 아니다"""
+    model_config = ConfigDict(strict=True, extra="ignore")
+
+
+def read_body(req, model):
+    """요청 본문 → 정한 모양(model). 틀리면 400 (어느 칸이 틀렸는지는 로그에만 남긴다)"""
+    try:
+        return model.model_validate(req["body"])
+    except ValidationError as e:
+        logger.info("요청 값 오류", extra={"fields": [".".join(map(str, x["loc"])) for x in e.errors()][:5]})
+        raise ApiError(400, "요청 값을 확인해 주세요.")
+
+
+def to_url_event(event):
+    """콘솔 '테스트' 이벤트({"path": "/health", "method": "GET", ...값})도 함수 URL 이벤트 모양으로. 경로 끝의 / 는 뗀다"""
+    if "rawPath" not in event:
+        values = {k: v for k, v in event.items() if k not in ("path", "method", "headers")}
+        event = {"rawPath": event.get("path") or "/", "rawQueryString": "", "headers": event.get("headers") or {},
+                 "body": json.dumps(values, ensure_ascii=False) if values else None, "isBase64Encoded": False,
+                 "requestContext": {"http": {"method": event.get("method") or ("POST" if values else "GET"), "sourceIp": "local"}}}
+    path = (event.get("rawPath") or "/").rstrip("/") or "/"
+    context = event.get("requestContext") or {}   # 실제 함수 URL 이벤트에는 늘 있는 값 (내 컴퓨터·콘솔 이벤트를 위해 채운다)
+    context = {"stage": "$default", **context, "http": {"path": path, **(context.get("http") or {})}}
+    return {**event, "rawPath": path, "headers": event.get("headers") or {}, "requestContext": context}
+
+
 def read_request(event):
-    """Lambda 함수 URL 이벤트 → 다루기 쉬운 dict. 콘솔 '테스트'로 JSON 만 넣어도 동작한다"""
+    """함수 URL 이벤트 → 기능 파일이 다루는 dict (경로·학습자 헤더·본문·접속 IP)"""
     http = (event.get("requestContext") or {}).get("http") or {}
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
     raw = event.get("body")
-    problem = None   # 본문을 읽을 수 없으면 run_route 가 400/413 으로 답한다
-    if raw is None and "rawPath" not in event:
-        body = {k: v for k, v in event.items() if k not in ("path", "method", "headers")}   # 콘솔 테스트: {"path": "/me", "method": "GET", ...값}
-    elif raw and len(raw) > MAX_BODY_BYTES * 1.4:
-        body, problem = {}, ApiError(413, "요청이 너무 커요.")
+    body, problem = {}, None   # 본문을 읽을 수 없으면 처리 함수 대신 400/413 으로 답한다
+    if raw and len(raw) > MAX_BODY_BYTES * 1.4:
+        problem = ApiError(413, "요청이 너무 커요.")
     else:
         try:
             if raw and event.get("isBase64Encoded"):
                 raw = base64.b64decode(raw).decode("utf-8")
             body = json.loads(raw) if raw else {}
         except (ValueError, UnicodeDecodeError):
-            body, problem = {}, ApiError(400, "잘못된 요청 형식이에요.")
+            problem = ApiError(400, "잘못된 요청 형식이에요.")
     query = {}
     for part in (event.get("rawQueryString") or "").split("&"):
         if "=" in part:
             k, v = part.split("=", 1)
             query[unquote_plus(k)] = unquote_plus(v)
     return {
-        "method": http.get("method") or event.get("method") or ("POST" if body else "GET"),
-        "path": (event.get("rawPath") or event.get("path") or "/").rstrip("/") or "/",
+        "method": http.get("method") or "GET",
+        "path": event.get("rawPath") or "/",
         "query": query,
         "headers": headers,
         "body": body if isinstance(body, dict) else {},
@@ -225,66 +256,86 @@ def read_request(event):
     }
 
 
-def cors_headers(origin):
-    """허용한 화면 주소(ALLOWED_ORIGINS)에서 온 요청만 브라우저가 응답을 읽을 수 있게 한다. 비워 두면 모두 허용(로컬)"""
-    allow = "*" if not ALLOWED_ORIGINS else (origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0])
-    return {
-        "access-control-allow-origin": allow,
-        "access-control-allow-methods": "GET,POST,OPTIONS",
-        "access-control-allow-headers": f"content-type,{SESSION_HEADER},x-admin-token",
-        "access-control-expose-headers": SESSION_HEADER,
-        "access-control-max-age": "86400",
-        "vary": "origin",
-    }
-
-
 def reply(status, data, req=None):
-    """프론트로 돌려줄 응답. 학습자를 새로 만들었거나 확인했으면 세션 id 를 헤더로 알려 준다"""
-    headers = {**cors_headers((req or {}).get("origin")), "content-type": "application/json; charset=utf-8", "cache-control": "no-store"}
+    """화면으로 보낼 JSON 응답. 학습자를 새로 만들었거나 확인했으면 세션 id 를 헤더로 알려 준다 (CORS 헤더는 Powertools 가 붙인다)"""
+    headers = {"cache-control": "no-store"}
     user = (req or {}).get("user")
     if user:
         # 로그인 안 함: 학습자 id / 로그인: 로그인 토큰 (계정의 학습자 id 는 화면으로 보내지 않는다)
         headers[SESSION_HEADER] = user.get("sid") or user["userId"]
-    return {"statusCode": status, "headers": headers, "body": "" if data is None else json.dumps(to_plain(data), ensure_ascii=False)}
+    return Response(status, "application/json; charset=utf-8", "" if data is None else json.dumps(to_plain(data), ensure_ascii=False), headers)
 
 
-def run_route(req, routes):
-    """경로 표에서 처리 함수를 찾아 실행하고 응답을 만든다 (오류도 응답으로)"""
-    if req["method"] == "OPTIONS":
-        return reply(204, None, req)
-    try:
-        if req.get("problem"):
-            raise req["problem"]
-        route = routes.get(f"{req['method']} {req['path']}")
-        if not route:
-            raise ApiError(404, "없는 API 예요.")
-        if not req["path"].startswith("/admin") and not hit_limit(f"all:{req['ip']}", LIMITS["per_ip_per_minute"], 60):
-            raise ApiError(429, "요청이 너무 많아요. 1분 뒤에 다시 시도해 주세요.")
-        result = route(req)
-        if isinstance(result, dict) and result.get("_redirect"):   # 로그인: 다른 주소로 보내기 (302)
-            return {"statusCode": 302, "headers": {"location": result["_redirect"], "cache-control": "no-store"}, "body": ""}
-        return reply(200, result, req)
-    except ApiError as e:
-        return reply(e.status, {"error": e.message}, req)
-    except Exception as e:  # 예상하지 못한 오류: 로그(CloudWatch)에 남기고 학습자에게는 짧게
-        print("[error]", req["method"], req["path"], repr(e))
-        traceback.print_exc()
-        return reply(500, {"error": "잠시 문제가 생겼어요. 조금 뒤에 다시 시도해 주세요."}, req)
+def make_app(routes, guards=None):
+    """경로 표(ROUTES: {"POST /review": 처리 함수}) → Powertools 경로 처리기 (모든 함수가 이 하나로 만든다)
+    guards: {"/admin": 확인 함수} — 그 경로로 시작하면 처리 함수 전에 확인 (관리자 코드)"""
+    # CORS: 허용한 화면 주소(ALLOWED_ORIGINS)에서 온 요청만 브라우저가 응답을 읽을 수 있다. 비워 두면 모두 허용(내 컴퓨터)
+    cors = CORSConfig(allow_origin=ALLOWED_ORIGINS[0] if ALLOWED_ORIGINS else "*", extra_origins=ALLOWED_ORIGINS[1:],
+                      allow_headers=["content-type", SESSION_HEADER, "x-admin-token"], expose_headers=[SESSION_HEADER], max_age=86400)
+    app = LambdaFunctionUrlResolver(cors=cors)
+    for key, fn in routes.items():
+        method, path = key.split(" ", 1)
+        app.route(path, method=method)(_route_handler(app, fn, path, guards or {}))
+
+    @app.not_found
+    def not_found(_):
+        return reply(404, {"error": "없는 API 예요."})
+
+    @app.exception_handler(Exception)
+    def unexpected(_):   # 처리 함수 밖에서 난 오류 (보통은 _route_handler 가 먼저 잡는다)
+        logger.exception("예상하지 못한 오류")
+        return reply(500, {"error": "잠시 문제가 생겼어요. 조금 뒤에 다시 시도해 주세요."})
+    return app
 
 
-def field(body, name, kind, default=None, required=False, max_len=None, choices=None, low=None, high=None):
-    """요청 값 하나 꺼내기 + 형식 확인 (틀리면 400)"""
-    value = body.get(name, default)
-    if value is None:
-        if required:
-            raise ApiError(400, "요청 값을 확인해 주세요.")
-        return default
-    ok = {"str": isinstance(value, str), "int": isinstance(value, int) and not isinstance(value, bool),
-          "bool": isinstance(value, bool), "list": isinstance(value, list), "dict": isinstance(value, dict)}[kind]
-    if not ok or (max_len is not None and len(value) > max_len) or (choices is not None and value not in choices) \
-            or (low is not None and value < low) or (high is not None and value > high):
-        raise ApiError(400, "요청 값을 확인해 주세요.")
-    return value
+def _route_handler(app, fn, path, guards):
+    """처리 함수 하나를 감싼다: 요청 읽기 → 관리자 확인 또는 요청 수 제한 → 처리 함수 → 응답 (오류도 응답으로) → 요청 로그"""
+    guard = next((g for prefix, g in guards.items() if path.startswith(prefix)), None)
+
+    def run():
+        started = time.time()
+        # 1. 화면에서 온 요청 꺼내기
+        req = read_request(app.current_event.raw_event)
+        try:
+            if req["problem"]:
+                raise req["problem"]
+            # 2. 관리자 경로는 관리자 코드부터 (여러 번 틀리면 잠금). 나머지는 IP 별 요청 수 제한
+            if guard:
+                guard(req)
+            elif not hit_limit(f"all:{req['ip']}", LIMITS["per_ip_per_minute"], 60):
+                raise ApiError(429, "요청이 너무 많아요. 1분 뒤에 다시 시도해 주세요.")
+            # 3. 기능 실행 → 응답 (로그인은 다른 주소로 보내기 302)
+            result = fn(req)
+            if isinstance(result, dict) and result.get("_redirect"):
+                res = Response(302, None, "", {"location": result["_redirect"], "cache-control": "no-store"})
+            else:
+                res = reply(200, result, req)
+        except ApiError as e:   # 예상한 오류 (사용자 잘못·한도): 짧게
+            res = reply(e.status, {"error": e.message}, req)
+        except Exception:      # 예상하지 못한 오류: 파일·줄·스택 전체를 로그에, 학습자에게는 짧게
+            logger.exception("예상하지 못한 오류")
+            res = reply(500, {"error": "잠시 문제가 생겼어요. 조금 뒤에 다시 시도해 주세요."}, req)
+        # 4. 요청 로그 (상태·걸린 시간·학습자 id 앞 8자리만)
+        logger.info("요청", extra={"status": res.status_code, "ms": round((time.time() - started) * 1000),
+                                   "user": ((req.get("user") or {}).get("userId") or "")[:8]})
+        return res
+    run.__name__ = fn.__name__
+    return run
+
+
+_warm = {"done": False}
+
+
+def handle(app, event, context):
+    """Lambda 입구(lambda_handler)가 부르는 한 가지 길 — 모든 함수 같음"""
+    # 1. 콘솔 테스트 이벤트도 함수 URL 이벤트 모양으로
+    event = to_url_event(event)
+    # 2. 이 요청의 로그 이름표 (경로·요청 id·처음 실행인지)
+    method = ((event.get("requestContext") or {}).get("http") or {}).get("method", "")
+    logger.append_keys(route=f"{method} {event['rawPath']}", request_id=getattr(context, "aws_request_id", None), cold_start=not _warm["done"])
+    _warm["done"] = True
+    # 3. 경로 → 처리 함수 → 응답 (CORS·사전 요청(OPTIONS)·없는 경로는 Powertools 가 처리)
+    return app.resolve(event, context)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -612,7 +663,7 @@ def count_event(name):
     try:
         update_item(OPS_STATS, f"DAY#{day_key()}", set_values={TTL_ATTR: ttl_after(90 * 86400)}, add_values={name: 1})
     except Exception as e:
-        print("[stats]", repr(e))
+        logger.warning("하루 사용 수 기록 실패", extra={"error": repr(e)})
 
 
 # ─────────────────────────────────────────────────────────────

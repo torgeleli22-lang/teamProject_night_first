@@ -41,7 +41,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | 단계 | 화면 | 서버(Lambda)에서 하는 일 | AI |
 |---|---|---|---|
 | 주제 고르기 | `/practice/` | 랜덤 주제 뽑기 · 직접 적은 주제 판정 (막연함 → 제안 3개, 너무 큼 → 좁히기, 부적절 → 거절) | 판정만 |
-| 코드 받기 | `/practice/` | 언어(Python·JavaScript) 고르기 → ① AI 가 코드 + ※ 지점 생성 → ② 규칙 검사(Python 은 `ast` 로 문법·오타·금지 기능, JavaScript 는 괄호·따옴표 짝 같은 겉모양, 줄 수·※ 줄) → ③ 다른 AI 가 머릿속으로 실행해 검토(실행 오류·난이도·※ 모범 설명, 틀린 설명은 고침) → 걸리면 한 번 더 → 그래도 안 되면 예시 코드 | ○ ○ |
+| 코드 받기 | `/practice/` | 언어(Python·JavaScript) 고르기 → ① AI 가 코드 + ※ 지점 생성 → ② 규칙 검사(Python 은 `ast` 로 문법·오타·금지 기능, JavaScript 는 tree-sitter 로 문법·금지 기능, 줄 수·※ 줄) → ③ 다른 AI 가 머릿속으로 실행해 검토(실행 오류·난이도·※ 모범 설명, 틀린 설명은 고침) → 걸리면 한 번 더 → 그래도 안 되면 예시 코드 | ○ ○ |
 | 메모하며 읽기 | `/read/` | (메모는 브라우저에만 저장, '첨삭 받기' 때 보냄) · 더 쉽게/어렵게 = 새 코드 생성 | 다시 만들 때 |
 | 첨삭 | `/result/` | ※ 와 겹치는 메모가 없으면 누락(규칙) → 메모마다 ○△✕·코멘트·모범 설명(AI) | ○ (메모가 있을 때) |
 | 다시 써 보기 | `/result/` | 다시 쓴 설명 하나만 다시 채점 | ○ |
@@ -218,7 +218,7 @@ src/
 |---|---|
 | `core.py` 1. 설정 | 환경 변수(`TABLE_NAME`, `AI_MODE`, `MODEL_ID`, `ALLOWED_ORIGINS` …), **정한 값**: `MAX_CODE_LINES`(300) `REGEN_LIMIT`(5) `MAX_MEMOS`(20) `MAX_MEMO_CHARS`(500) `MAX_TUTOR_TURNS`(10) `MAX_RETRIES`(3) 보관 기간, `LEVELS`(난이도 4단계), `CONCEPTS`(개념 꼬리표), `LIMITS`(요청 한도), `MONTHLY_BUDGET_USD`, `PRICE` |
 | `core.py` 2. AWS 연결 | DynamoDB 테이블, Bedrock 클라이언트(읽기 제한 180초) |
-| `core.py` 3. 요청·응답 | `read_request`(함수 URL 이벤트 → dict), `reply`, `cors_headers`, `run_route`(오류 처리), `field`(요청 값 확인) |
+| `core.py` 3. 요청·응답 | `make_app`(경로 표 → Powertools 경로 처리기, CORS), `handle`(입구), `read_request`, `reply`, `logger`(JSON 로그), `Body`·`read_body`(요청 본문 모양, Pydantic) |
 | `core.py` 4. DynamoDB 도구 | 키 이름표(`user_pk`·`code_pk` …), `get_item` `put_item` `query_all` `update_item` `ttl_after` … |
 | `core.py` 5. 요청 수 제한 | `hit_limit`, `ai_allowed` |
 | `core.py` 6. 학습자(세션) | `get_user`, `remember_topic` |
@@ -236,13 +236,13 @@ src/
 | 난이도 이름·설명 | `core.py` → `LEVELS` (화면 `api-types.ts` 도 같이) |
 | 난이도별 코드 길이·문법·※ 수·AI 답 길이 | `practice.py` → `LEVEL_GUIDE`(언어별), `MIN_LINES`·`MAX_LINES`, `MARK_COUNT`, `OUTPUT_TOKENS` |
 | **AI 지시문(프롬프트)** | 각 파일의 `SYSTEM_PROMPT` — 코드 만들기 `practice.py` · 주제 판정 `topics.py` · 내 코드 분석 `inspect_code.py` · 첨삭 `review.py`(`SYSTEM_PROMPT`, 다시 쓰기 `RETRY_PROMPT`) · 튜터 `tutor_chat.py` |
-| AI 답의 모양(JSON 칸) | 각 파일의 `SCHEMA` (바꾸면 그 답을 쓰는 코드와 목업도 같이) |
-| 만든 코드 검사 기준 | `docs/GENERATION_STANDARD.md` · `practice.py` → 규칙 검사 A `check_generated` (`py_ast_problems`·`py_structure`, `js_scan`·`js_structure`, `level_problems`) · 실행 추적표 `trace_and_explain` (`TRACE_PROMPT`) · 규칙 검사 B `explanation_issues` · 교차 검토 `ai_check_code` (`CHECK_PROMPT`) |
+| AI 답의 모양(JSON 칸) | 각 파일의 `…Answer` (Pydantic, `ai.AiAnswer` 를 이음 — 도구 형식은 여기서 만들어져요. 바꾸면 그 답을 쓰는 코드와 목업도 같이) · 요청 본문은 `…In` |
+| 만든 코드 검사 기준 | `docs/GENERATION_STANDARD.md` · `practice.py` → 규칙 검사 A `check_generated` (`py_ast_problems`·`py_structure`, `js_check`(tree-sitter), `level_problems`) · 실행 추적표 `trace_and_explain` (`TRACE_PROMPT`) · 규칙 검사 B `explanation_issues` · 교차 검토 `ai_check_code` (`CHECK_PROMPT`) |
 | AI 없을 때의 판정·첨삭·튜터 답 | `topics.rule_check`, `inspect_code.rule_analysis`, `review.rule_review`·`rule_retry`, `tutor_chat.rule_answer` |
 | 주제 판정 금지어·막연한 말·큰 말 | `topics.py` → `BAD_WORDS`, `VAGUE_WORDS`, `BIG_WORDS` |
 | 가리는 민감 정보 모양 | `inspect_code.py` → `SECRET_PATTERNS` (**화면 `src/lib/secrets.ts` 도 같이**) |
 | 예시 코드·랜덤 주제 | `samples.py` → `SAMPLES`, `TOPIC_POOL`, `ADVANCED_TOPIC_POOL` · JavaScript 는 `samples_js.py` (고치면 `npm run verify`) |
-| 언어 추가·언어별 출제 규칙 | `core.py` → `LANGUAGES` · `practice.py` → `CODE_RULES`, `LEVEL_GUIDE`, JavaScript 검사 `js_shape_problems` · 화면 `src/lib/highlight.ts`, `api-types.ts` → `Language` |
+| 언어 추가·언어별 출제 규칙 | `core.py` → `LANGUAGES` · `practice.py` → `CODE_RULES`, `LEVEL_GUIDE`, JavaScript 검사 `js_check`(tree-sitter) · 화면 `src/lib/highlight.ts`, `api-types.ts` → `Language` |
 | 요청 한도·월 예산 | `core.py` → `LIMITS`, `MONTHLY_BUDGET_USD` 또는 Lambda 환경 변수 |
 | 관리자 화면의 작업 이름·실패 이유 문구 | `admin.py` → `TASKS`, `ERROR_REASONS` |
 | 개념 종류·이름, 개념 추정 규칙 | `core.py` → `CONCEPTS` · `code_store.py` → `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |

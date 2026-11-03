@@ -6,6 +6,7 @@
 """
 import os
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -14,6 +15,9 @@ API_DIR = os.path.join(ROOT, "lambda", "api")
 sys.path.insert(0, API_DIR)
 
 import lambda_function  # noqa: E402  (lambda/api 의 진입 파일)
+
+# Lambda 는 한 실행 환경이 요청을 하나씩 처리한다 (Powertools 경로 처리기도 지금 요청을 기억한다). 여기서도 하나씩
+LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -37,7 +41,8 @@ class Handler(BaseHTTPRequestHandler):
             "isBase64Encoded": False,
             "requestContext": {"http": {"method": method, "sourceIp": self.client_address[0]}},
         }
-        res = lambda_function.lambda_handler(event, None)
+        with LOCK:
+            res = lambda_function.lambda_handler(event, None)
         data = (res.get("body") or "").encode("utf-8")
         self.send_response(res["statusCode"])
         for k, v in (res.get("headers") or {}).items():

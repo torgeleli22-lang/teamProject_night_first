@@ -35,7 +35,7 @@
 기능 파일은 문자열을 직접 쓰지 않고 `core.py` 의 `user_pk(id)`, `code_pk(id)`, `studyrec_sk(id)`, `login_pk(token)`, `account_pk(…)`, `auth_pk(state)` 와 이름 상수(`PROFILE`, `INFO`, `USER`, `STATE`, `OPS_…`)로만 키를 만들어요.
 
 **설정이 있는 곳**
-- 테이블 이름·TTL 속성 이름: `lambda/api/core.py:33` `TABLE_NAME`, `:36` `TTL_ATTR` (Lambda 환경 변수로 바꿀 수 있음)
+- 테이블 이름·TTL 속성 이름: `lambda/api/core.py:35` `TABLE_NAME`, `:38` `TTL_ATTR` (Lambda 환경 변수로 바꿀 수 있음)
 - 테이블 연결: `core.py:161` `table = boto3.resource("dynamodb", ...).Table(TABLE_NAME)`
   - 함수가 처음 뜰 때 한 번만 연결하고, 다음 요청부터는 그대로 다시 써요 (빠름)
 
@@ -85,7 +85,7 @@
 #### 학습자 `USER#<id> / PROFILE`
 - **만들기**: `core.py:526` `get_user(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:546`)
 - **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `USER#<id>/PROFILE` 직접, 로그인은 `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE`
-- **고치기**: `core.py:553` `use_user` (15분마다 lastSeen·기한 늘리기), `:564` `remember_topic` (최근 주제·난이도)
+- **고치기**: `core.py:604` `use_user` (15분마다 lastSeen·기한 늘리기), `:615` `remember_topic` (최근 주제·난이도)
 - **로그인 계정**: `auth.py:184` `account_user` (member 학습자 만들기), `auth.py:201` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
 
 #### 내 공부 `USER#<id> / STUDYREC#<코드 id>`
@@ -94,7 +94,7 @@
 - 학습자 정보(`PROFILE`)와 같은 서랍이라 `query_all(user_pk(나))` 한 번이면 둘 다 나와요
 
 #### 읽을 코드 `CODE#<id> / INFO`
-- **쓰기**: `code_store.py:91` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:220` `start_practice`, `practice.py:242` `adjust`)와 내 코드 점검(`inspect_code.py:72` `start`)이 함께 써요
+- **쓰기**: `code_store.py:91` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:250` `start_practice`, `practice.py:271` `adjust`)와 내 코드 점검(`inspect_code.py:74` `start`)이 함께 써요
 - **읽기**: `code_store.py:102` `load_code(code_id, user)` — **userId 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
 - **화면으로 보낼 모양**: `code_store.py:135` `public_code` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
 
@@ -105,8 +105,8 @@
   - 첨삭 하나에 딸린 다시 쓰기·대화: `code_store.py:129` `review_children(review, "RETRY"|"CHAT", rows)`
   - sk 이름 짓기: `code_store.py:124` `review_key(review, "CHAT"|"RETRY", 항목 번호)` → `REVIEW#<첨삭 시각>#CHAT#003`
 - 첨삭 쓰기: `review.py:93` (`review` 함수 4번 단계)
-- 다시 쓰기 읽기/쓰기: `review.py:138` / `review.py:160`, 목록: `review.py:284` `retries_for`
-- 튜터 읽기/쓰기: `tutor_chat.py:70` / `:96`, 목록: `tutor_chat.py:109` `chats_for`
+- 다시 쓰기 읽기/쓰기: `review.py:138` / `review.py:160`, 목록: `review.py:306` `retries_for`
+- 튜터 읽기/쓰기: `tutor_chat.py:70` / `:96`, 목록: `tutor_chat.py:114` `chats_for`
 
 #### 로그인 `LOGIN#` · `ACCOUNT#` · `AUTH#`
 - `AUTH#<state>/STATE` 쓰기 `auth.py:61` (로그인 시작) → 읽고 바로 지우기 `auth.py:85~88` (콜백, 한 번만)
@@ -114,10 +114,10 @@
 
 #### 운영 항목 `OPS#…`
 - `OPS#STATS`: `core.py:610` `count_event("practices")` — 하루 사용 수 +1 (`update_item` 의 ADD)
-- `OPS#USAGE` · `OPS#AILOG`: `ai.py:67` `log_usage`, `:82` `log_ai_event` — AI 를 부를 때마다
-- `OPS#CONFIG`: `core.py:592` `get_meta`, `:596` `set_meta` — AI 스위치(`:579` `ai_switch_on`)
-- `OPS#LIMIT`: `core.py:471` `bump_counter`, `:483` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
-- 관리자 화면이 모아 읽기: `admin.py:125` `overview`
+- `OPS#USAGE` · `OPS#AILOG`: `ai.py:72` `log_usage`, `:87` `log_ai_event` — AI 를 부를 때마다
+- `OPS#CONFIG`: `core.py:643` `get_meta`, `:647` `set_meta` — AI 스위치(`:630` `ai_switch_on`)
+- `OPS#LIMIT`: `core.py:522` `bump_counter`, `:534` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
+- 관리자 화면이 모아 읽기: `admin.py:127` `overview`
 
 ---
 
@@ -139,31 +139,35 @@
 ```
 
 1. **화면이 보냄**: `src/lib/api.ts` 의 `apiPost("/review", {...})` → 헤더 `x-session-id` 에 학습자(또는 로그인 토큰)
-2. **입구** `lambda_function.py:54` `lambda_handler(event, context)` — 단계는 3개뿐
-   1. `read_request(event)` (`core.py:191`): 함수 URL 이 준 event 에서 경로·메서드·헤더·본문(JSON)·IP 꺼내기
-   2. `/admin` 이면 `admin.require_admin` (`admin.py:34`) 으로 관리자 코드 확인
-   3. `run_route(req, ROUTES)` (`core.py:251`)
-3. **경로 표**: `lambda_function.py:49~51` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
+2. **경로 표**: `lambda_function.py:52` `ROUTES` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
    ```python
    ROUTES = {"GET /health": health}
    for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin, experiment):
        ROUTES.update(need(feature, "ROUTES"))
+   APP = make_app(ROUTES, guards={"/admin": admin.require_admin})
    ```
-4. **`run_route`** (`core.py:251`): `"POST /review"` 로 표에서 함수를 찾아 실행
-   - 없는 경로 → 404, IP 당 1분 요청 수 초과 → 429 (`hit_limit`)
-   - 함수가 `ApiError(400, "메시지")` 를 던지면 → 그 상태 코드와 한국어 메시지로 응답
-   - 예상 못 한 오류 → CloudWatch 로그에 남기고 500 "잠시 문제가 생겼어요"
-5. **응답** `reply` (`core.py:241`): JSON + CORS 헤더(`cors_headers` `:228`, 허용한 화면 주소만) + `x-session-id` (학습자 id 를 화면에 알려 줌)
+   `make_app` (`core.py:269` `make_app`) 이 이 표를 **Powertools 경로 처리기**(`LambdaFunctionUrlResolver`)에 올려요. CORS(허용한 화면 주소만)·사전 요청(OPTIONS)·없는 경로(404)는 Powertools 가 처리해요
+3. **입구** `lambda_function.py:60` `lambda_handler` → `core.handle` (`core.py:329` `handle`)
+   1. 콘솔 테스트 이벤트(`{"path": …, "method": …}`)도 함수 URL 이벤트 모양으로 (`to_url_event`)
+   2. 로그 이름표: 경로·요청 id·처음 실행인지 → 이 요청의 모든 로그 줄에 붙어요
+   3. `APP.resolve(event)` → 경로에 맞는 처리 함수
+4. **처리 함수 감싸기** (`core.py:291` `_route_handler`): 모든 경로가 같은 순서로
+   1. `read_request` — 경로·헤더·본문(JSON)·IP 꺼내기 (본문을 읽을 수 없으면 400, 너무 크면 413)
+   2. `/admin` 이면 `admin.require_admin` (`admin.py:36` `require_admin`) 으로 관리자 코드 확인, 아니면 IP 당 1분 요청 수 (`hit_limit`, 넘으면 429)
+   3. 처리 함수 실행 — `ApiError(400, "메시지")` 를 던지면 그 상태 코드와 한국어 메시지로, 예상 못 한 오류는 스택 전체를 로그에 남기고 500 "잠시 문제가 생겼어요"
+   4. 요청 로그 한 줄 (상태·걸린 시간·학습자 id 앞 8자리 — 본문·코드·메모는 남기지 않음)
+5. **응답** `reply` (`core.py:259` `reply`): JSON + `x-session-id` (학습자 id 를 화면에 알려 줌). CORS 헤더는 Powertools 가 붙여요
 
 > 오류를 다루는 방식이 핵심이에요: 기능 함수는 문제가 생기면 그냥 `raise ApiError(상태, "화면에 보일 말")` 하면 끝이에요.
-> 응답 모양 만들기는 `run_route` 가 대신해서, 기능 파일은 "일"만 해요.
+> 응답 모양 만들기는 `_route_handler` 가 대신해서, 기능 파일은 "일"만 해요.
+> 요청 본문은 경로마다 Pydantic 모양(`core.Body` 를 이은 `PracticeIn`·`ReviewIn` …)으로 받아요: `read_body(req, PracticeIn)` — 형식이 틀리면 400 ("3" 은 숫자가 아니에요)
 
 ### 2-3. AI 를 부르는 단 하나의 길 — `ask_ai` (`ai.py:115`)
 
 AI 를 쓰는 기능은 전부 이 함수 하나로 불러요. 그래서 비용·안전 장치를 한곳에서 지켜요.
 
 ```python
-r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mock=lambda: sample_as_ai(sample))
+r = ask_ai("code_generation", system, prompt, CodeAnswer, max_tokens=OUTPUT_TOKENS[level], mock=lambda: sample_as_ai(sample))
 ```
 
 | 순서 | 줄 근처 | 하는 일 |
@@ -171,15 +175,15 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 | 1 | `ai_enabled()` `:537` | 관리자가 AI 를 껐거나 `AI_MODE=off` 면 → `AiUnavailable` |
 | 2 | `AI_MODE == "mock"` | 시험용: `mock()` 이 만든 가짜 답 (비용 0) — 내 컴퓨터·smoke 테스트 |
 | 3 | `check_budget` `:606` | 이번 달 예산($10)을 넘길 것 같으면 부르지 않음 |
-| 4 | `bedrock().converse(...)` | Bedrock(Claude Haiku 4.5) 호출. **`answer` 도구 하나만 주고 그 도구로 답하게** 해서 정해진 JSON 모양으로 받음 |
-| 5 | `repair_for_schema` `:701` · `check_schema` `:733` | 흔한 형식 실수 고치기 → 그래도 틀리면 `AiUnavailable` |
+| 4 | `bedrock().converse(...)` | Bedrock(Claude Haiku 4.5) 호출. **`answer` 도구 하나만 주고 그 도구로 답하게** 해서 정해진 JSON 모양으로 받음. 도구 형식은 답의 모양(Pydantic `AiAnswer` 를 이은 `CodeAnswer` …)에서 만들어요 (`tool_schema`) |
+| 5 | `ai.py:253` `parse_answer` | 모양에 맞는지 검사 + 흔한 형식 실수 고치기(문자열로 감싼 배열 풀기 · "3" → 3 · 빠진 null 칸) → 그래도 틀리면 `AiUnavailable`. 목업 답도 같은 모양인지 검사 |
 | 6 | `finally: log_usage` `:580` | 성공·실패 모두 토큰·비용 기록 (`OPS#USAGE`, `OPS#AILOG`) |
 
 **부르는 쪽의 약속**: `ask_ai` 는 실패하면 `AiUnavailable` 을 던져요. 부르는 쪽은 꼭 받아서 **AI 없는 길**로 가요.
-- 연습 코드 → 예시 코드 (`practice.py:603` `pick_sample`)
-- 첨삭 → 규칙 첨삭 (`review.py:216` `rule_review`: 핵심 표현이 메모에 들어 있는지)
-- 튜터 → 규칙 답 (`tutor_chat.py:129` `rule_answer`)
-- 주제 판정 → 규칙 판정 (`topics.py:87` `rule_check`)
+- 연습 코드 → 예시 코드 (`practice.py:631` `pick_sample`)
+- 첨삭 → 규칙 첨삭 (`review.py:238` `rule_review`: 핵심 표현이 메모에 들어 있는지)
+- 튜터 → 규칙 답 (`tutor_chat.py:134` `rule_answer`)
+- 주제 판정 → 규칙 판정 (`topics.py:94` `rule_check`)
 
 그 앞에서 한 번 더 막는 것: `core.py:488` `ai_allowed(req)` — 학습자·IP·전체의 1시간 AI 요청 수 제한.
 
@@ -187,45 +191,45 @@ r = ask_ai("code_generation", SYSTEM_PROMPT, prompt, SCHEMA, max_tokens=3000, mo
 
 각 처리 함수 안에 `# 1.` `# 2.` 단계 주석이 있어요. **주석만 위에서 아래로 읽어도 흐름이 보여요.**
 
-#### ① 연습 코드 받기 — `POST /practice` → `practice.py:220` `start_practice`
+#### ① 연습 코드 받기 — `POST /practice` → `practice.py:250` `start_practice`
 ```
-1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      field() core.py:275
-   get_user(req)                                           core.py:526
-2. make_code()                                                practice.py:315
-   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:616
+1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      PracticeIn · read_body
+   get_user(req)                                           core.py:577
+2. make_code()                                                practice.py:331
+   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:631
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
    └ 최대 3번 (처음 + 다시 만들기 2번):
        ① 출제   ask_ai("code_generation")  코드 + ※ 위치
-       규칙 검사 A check_generated                             practice.py:528
-            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:662
-                    py_structure (함수·클래스·예외·재귀 세기)      practice.py:715
-            JavaScript: js_scan (괄호·따옴표 짝) · js_structure  practice.py:765
-            난이도별 요건 level_problems                         practice.py:577
-            줄 수 · ※ 줄 찾기 find_line                         practice.py:604
-       ② 실행 추적표 trace_and_explain → ask_ai("code_trace")   practice.py:372
-       규칙 검사 B explanation_issues (모범 설명)               practice.py:422
-       ③ 교차 검토 ai_check_code → ask_ai("code_check")         practice.py:450
-            틀린 모범 설명 고치기 fix_explanations               practice.py:473
-       두 추적표 비교 compare_traces (기록)                     practice.py:507
+       규칙 검사 A check_generated                             practice.py:544
+            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:677
+                    py_structure (함수·클래스·예외·재귀 세기)      practice.py:730
+            JavaScript: js_check (tree-sitter 문법 나무: 문법 오류·금지 기능·구조)  practice.py:788
+            난이도별 요건 level_problems                         practice.py:592
+            줄 수 · ※ 줄 찾기 find_line                         practice.py:619
+       ② 실행 추적표 trace_and_explain → ask_ai("code_trace")   practice.py:388
+       규칙 검사 B explanation_issues (모범 설명)               practice.py:438
+       ③ 교차 검토 ai_check_code → ask_ai("code_check")         practice.py:466
+            틀린 모범 설명 고치기 fix_explanations               practice.py:489
+       두 추적표 비교 compare_traces (기록)                     practice.py:523
        걸리면 이유 + 방금 코드를 붙여 ① 로, 3번 다 안 되면 예시 코드
 3. save_code (CODE#id / INFO) · remember_topic · count_event
    return public_code(item)   ← 모범 설명·실행 추적표는 빼고
 ```
-- 더 쉽게·더 어렵게 `practice.py:242` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
-- 다시 열기 `GET /code` `review.py:168` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
+- 더 쉽게·더 어렵게 `practice.py:271` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
+- 다시 열기 `GET /code` `review.py:191` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
 
-#### ② 첨삭 받기 — `POST /review` → `review.py:67` `review`
+#### ② 첨삭 받기 — `POST /review` → `review.py:90` `review`
 ```
-1. 내 코드 꺼내기 load_code · 메모 검사 read_memos           review.py:169
-2. 누락(⬚) 정하기 — AI 없이: ※ 범위와 겹치는 메모가 없으면 누락   overlaps review.py:183
-3. 메모가 있으면 ask_ai("review") → 안 되면 rule_review          review.py:198
-4. 결과 모으기 build_result (코드 위치 순서, 모범 설명은 이제 포함) review.py:223
+1. 내 코드 꺼내기 load_code · 메모 검사 read_memos           review.py:210
+2. 누락(⬚) 정하기 — AI 없이: ※ 범위와 겹치는 메모가 없으면 누락   overlaps review.py:223
+3. 메모가 있으면 ask_ai("review") → 안 되면 rule_review          review.py:238
+4. 결과 모으기 build_result (코드 위치 순서, 모범 설명은 이제 포함) review.py:263
    put_item CODE#id / REVIEW#시각
 5. '내 공부' 기록 record_review                                 study.py:49
 ```
-- 다시 써 보기 `POST /review/retry` `review.py:121` `retry`: 항목 하나만 다시 채점, 3번 제한, `REVIEW#<시각>#RETRY#<항목>` 에 기록, 나아지면 `record_retry`
+- 다시 써 보기 `POST /review/retry` `review.py:144` `retry`: 항목 하나만 다시 채점, 3번 제한, `REVIEW#<시각>#RETRY#<항목>` 에 기록, 나아지면 `record_retry`
 
-#### ③ AI 튜터 — `POST /tutor` → `tutor_chat.py:53` `ask_tutor`
+#### ③ AI 튜터 — `POST /tutor` → `tutor_chat.py:58` `ask_tutor`
 - 마지막 첨삭의 항목 하나 + 지금까지 대화(`REVIEW#<시각>#CHAT#<항목>`)를 `history` 로 넘겨 `ask_ai("tutor_chat", ..., history=turns)`
 - 시스템 지시문 `tutor_chat.py:21`: 정답 대신 볼 줄·질문으로 이끌기, 코드 대신 짜 주지 않기
 - 10번 제한, AI 못 쓰면 `rule_answer` (코멘트 → 다시 볼 줄 → 모범 설명 순서로 조금씩)
@@ -265,7 +269,7 @@ POST /auth/logout   logout    :106  LOGIN 삭제
 | 남의 코드 보기 | `load_code` 의 userId 확인 |
 | 답 미리 보기 | `public_code` 가 모범 설명을 빼고 보냄 |
 | 비밀 값 노출 | 화면 `src/lib/secrets.ts` + Lambda `mask_secrets` 두 번 가림, 키는 Lambda 환경 변수에만 |
-| AI 가 이상한 형식 | 도구(JSON Schema)로만 답받기 + `check_schema` |
+| AI 가 이상한 형식 | 도구(JSON Schema)로만 답받기 + 답의 모양(Pydantic) 검사 `parse_answer` |
 | AI 가 틀린 코드·설명 | 규칙 검사 A·B + 실행 추적표 + 교차 검토 (`practice.py`, 기준은 `docs/GENERATION_STANDARD.md`) |
 | 로그인 가로채기 | `safe_return` (허용한 화면만), state 한 번만, 고유 번호(sub)로 계정 구분 |
 
@@ -287,8 +291,8 @@ Lambda `jojo_api_py` → **테스트** 탭 → 이벤트에 붙여넣고 테스�
 {"path": "/topic/random", "method": "GET"}
 {"path": "/practice", "method": "POST", "level": 1, "topic": "카페 주문"}
 ```
-콘솔 테스트에서는 본문 값을 `path`·`method` 옆에 그대로 적어요 (`read_request` 가 그렇게 읽어 줘요, `core.py:191`).
-더 많은 예: `lambda/api/test_events.json`. 오류가 나면 **모니터링 → CloudWatch 로그**에서 `[error]` 줄을 찾아요.
+콘솔 테스트에서는 본문 값을 `path`·`method` 옆에 그대로 적어요 (`to_url_event` 가 함수 URL 이벤트로 바꿔 줘요, `core.py:211` `to_url_event`).
+더 많은 예: `lambda/api/test_events.json`. 오류가 나면 **모니터링 → CloudWatch 로그**에서 `"level":"ERROR"` 줄을 찾아요 (로그는 한 줄이 JSON 하나 — 파일·줄·스택이 함께 있어요).
 
 ### 3-3. 내 컴퓨터에서 (AWS 없이)
 ```bash

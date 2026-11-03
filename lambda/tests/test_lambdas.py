@@ -60,7 +60,7 @@ class GeneratedCode(unittest.TestCase):
             for k in ("why", "explanation", "keywords"):
                 m.pop(k)
         r.pop("_mock")
-        self.assertEqual(ai.check_schema(r, practice.SCHEMA), [])
+        self.assertEqual(ai.parse_answer(r, practice.CodeAnswer)[1], [])
         _, marks, problems = practice.check_generated(r, 1)
         self.assertEqual((problems, marks[0]["why"], marks[0]["explanation"]), ([], "", ""))
 
@@ -115,11 +115,16 @@ class GeneratedCode(unittest.TestCase):
         self.assertTrue(any("반복이 50번" in p for p in check("t = 0\nfor i in range(50):\n    if i:\n        t += i\nprint(t)", 1)))
         self.assertTrue(any("항목이 7개" in p for p in check("a = [1, 2, 3, 4, 5, 6, 7]\nfor x in a:\n    if x:\n        print(x)", 1)))
         # JavaScript: 함수·메서드·재귀 세기 (this.f(…) 는 재귀, obj.f(…) 는 아님)
-        js = lambda code: practice.js_structure(practice.js_scan(code)[1])
+        js = lambda code: practice.js_check(code)[1]
         info = js("class A {\n  constructor() {\n    this.n = 0;\n  }\n  get size() {\n    return 1;\n  }\n  push(x) {\n    other.push(x);\n  }\n}\n"
                   "function walk(n) {\n  return n ? walk(n - 1) : 0;\n}\nconst twice = (x) => walk(x) * 2;\nfor (let i = 0; i < 30; i++) {}\nconsole.log(twice(2));")
         self.assertEqual((info["funcs"], info["classes"], info["recursion"], info["calls_between"], info["big_loop"]), (5, 1, True, True, 30))
         self.assertFalse(js("class A {\n  push(x) {\n    other.push(x);\n  }\n}\nconsole.log(1);")["recursion"])
+        self.assertTrue(js("class A {\n  down(n) {\n    return n ? this.down(n - 1) : 0;\n  }\n}\nconsole.log(new A().down(2));")["recursion"])
+        # JavaScript 손으로 따라갈 크기: 배열 원소 · 객체 속성 수 (Python 의 목록·사전과 같게)
+        info = js("const a = [1, 2, 3, 4, 5, 6, 7];\nconst o = { x: 1, y, z: 3 };\nconsole.log(a, o);")
+        self.assertEqual((info["big_list"], info["data"]), (7, True))
+        self.assertTrue(any("항목이 7개" in p for p in practice.level_problems(js("const a = [1, 2, 3, 4, 5, 6, 7];\nfor (const x of a) {\n  if (x) {\n    console.log(x);\n  }\n}"), 1)))
 
     def test_focus_level_raises_when_concept_needs_higher_level(self):
         self.assertEqual(practice.focus_level(1, "exception")[0], 3)
@@ -142,6 +147,11 @@ class GeneratedCode(unittest.TestCase):
         self.assertTrue(any("console.log" in p for p in js("const a = 1;")))
         self.assertTrue(any("Python" in p for p in js("def f():\n  return 1\nconsole.log(f());")))
         self.assertEqual(js('console.log("document.title 과 Math.random 은 글자일 뿐이에요");'), [])   # 문자열 안은 보지 않음
+        self.assertTrue(any("document" in p for p in js("const t = `${document.title}`;\nconsole.log(t);")))   # 템플릿의 ${ } 안은 코드
+        # 괄호·따옴표 짝은 맞지만 문법이 틀린 코드도 찾는다 (tree-sitter)
+        for bad in ("const = 5;\nconsole.log(1);", "if x > 1 {\n  console.log(x);\n}"):
+            self.assertIn("문법 오류", js(bad)[0], bad)
+        self.assertIn("1번째 줄에서 연 '{'", js("function f() {\n  if (x) {\n    return 1;\n}\nconsole.log(f());")[0])
 
     def test_javascript_samples_are_picked_for_javascript(self):
         user = {"recentTopics": []}
@@ -327,11 +337,14 @@ class Inspect(unittest.TestCase):
         self.assertEqual([(f["name"], f["start"], f["end"]) for f in found], [("Shop.sell", 2, 3), ("Shop.stock", 5, 6), ("main", 8, 10)])
 
     def test_read_code_limits(self):
+        read = lambda body: inspect_code.read_code(core.read_body({"body": body}, inspect_code.CodeIn))
         with self.assertRaises(core.ApiError):
-            inspect_code.read_code({"code": "print(1)", "filename": "app.js"})
+            read({"code": "print(1)", "filename": "app.js"})
         with self.assertRaises(core.ApiError):
-            inspect_code.read_code({"code": "x = 1\n" * (core.MAX_CODE_LINES + 1), "filename": "a.py"})
-        self.assertEqual(inspect_code.read_code({"code": "x = 1", "filename": "a.py"}), ("x = 1", "python"))
+            read({"code": "x = 1\n" * (core.MAX_CODE_LINES + 1), "filename": "a.py"})
+        with self.assertRaises(core.ApiError):
+            read({"filename": "a.py"})   # 코드가 없으면 400
+        self.assertEqual(read({"code": "x = 1", "filename": "a.py"}), ("x = 1", "python"))
 
 
 class RuleReview(unittest.TestCase):
@@ -363,8 +376,13 @@ class RuleReview(unittest.TestCase):
         self.assertEqual(code_store.review_key(rv, "RETRY", 2), "REVIEW#0000000001#RETRY#002")
 
     def test_read_memos_drops_empty_and_sorts(self):
-        memos = review.read_memos({"memos": [{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]}, self.ITEM["code"])
+        body = lambda memos: core.read_body({"body": {"codeId": "r1", "memos": memos}}, review.ReviewIn).memos
+        memos = review.read_memos(body([{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]), self.ITEM["code"])
         self.assertEqual(memos, [{"start": 5, "end": 9, "text": "뒤"}])
+        with self.assertRaises(core.ApiError):   # 코드 밖의 줄
+            review.read_memos(body([{"start": 1, "end": 21, "text": "x"}]), self.ITEM["code"])
+        with self.assertRaises(core.ApiError):   # 메모가 너무 많음
+            body([{"start": 1, "end": 1, "text": "x"}] * (core.MAX_MEMOS + 1))
 
 
 class Tutor(unittest.TestCase):

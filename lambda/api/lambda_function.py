@@ -7,7 +7,7 @@ import review
 import study
 import topics
 import tutor_chat
-from core import (AI_MODE, LANGUAGES, MAX_CODE_LINES, REGEN_LIMIT, ApiError, ai_enabled, read_request, reply, run_route)
+from core import (AI_MODE, LANGUAGES, MAX_CODE_LINES, REGEN_LIMIT, ai_enabled, handle, make_app)
 
 # ─────────────────────────────────────────────────────────────
 # 코드 리딩 노트 API — 지금은 Lambda 함수 하나(jojo_api_py)의 입구 (기능별 6개로 나누는 중: docs/LAMBDA_STRUCTURE.md)
@@ -54,16 +54,9 @@ for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study,
     ROUTES.update(need(feature, "ROUTES"))
 
 
+APP = make_app(ROUTES, guards={"/admin": admin.require_admin})   # 관리자 경로는 관리자 코드부터 (틀리면 401, 여러 번 틀리면 429)
+
+
 def lambda_handler(event, context):
-    # 1. 화면에서 온 요청 꺼내기 (경로·학습자 헤더·본문·접속 IP)
-    req = read_request(event)
-
-    # 2. 관리자 경로는 관리자 코드부터 확인 (틀리면 401, 여러 번 틀리면 429)
-    if req["path"].startswith("/admin") and req["method"] != "OPTIONS":
-        try:
-            admin.require_admin(req)
-        except ApiError as e:
-            return reply(e.status, {"error": e.message}, req)
-
-    # 3. 경로에 맞는 기능 실행 → 응답 (요청 수 제한·오류 처리는 run_route 가 함께 한다)
-    return run_route(req, ROUTES)
+    # 1~4 는 core.handle: 콘솔 테스트 이벤트 맞추기 → 로그 이름표 → 경로 → 처리 함수 → 응답 (요청 수 제한·오류도 응답으로)
+    return handle(APP, event, context)

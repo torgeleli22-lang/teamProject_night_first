@@ -4,10 +4,12 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
+from pydantic import Field
+
 import core
 from core import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
-                  account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, field, get_item, get_meta, login_pk, query_all,
-                  read_counter, set_meta, studyrec_sk, to_plain, user_pk)
+                  account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, get_item, get_meta, login_pk, query_all,
+                  read_body, read_counter, set_meta, studyrec_sk, to_plain, user_pk, Body)
 from ai import (estimate_cost, month_cost_usd, month_key, normalize_model)
 
 # ─────────────────────────────────────────────────────────────
@@ -170,8 +172,18 @@ def overview(req):
     }
 
 
+class SwitchIn(Body):
+    """POST /admin/ai 본문"""
+    enabled: bool
+
+
+class CodeIn(Body):
+    """POST /admin/code 본문"""
+    code: str = Field(max_length=200)
+
+
 def switch_ai(req):
-    enabled = field(req["body"], "enabled", "bool", required=True)
+    enabled = read_body(req, SwitchIn).enabled
     set_meta("ai_switch", "on" if enabled else "off")
     # 이 Lambda 안의 30초 캐시도 바로 바꾼다 (다른 실행 환경은 30초 안에 따라온다)
     core._switch.update(value=enabled, checked=time.time())
@@ -179,7 +191,7 @@ def switch_ai(req):
 
 
 def change_code(req):
-    code = field(req["body"], "code", "str", required=True, max_len=200)
+    code = read_body(req, CodeIn).code
     if len(code) < ADMIN_CODE_MIN:
         raise ApiError(400, f"관리자 코드는 {ADMIN_CODE_MIN}자 이상이어야 해요.")
     if len(code) > ADMIN_CODE_MAX:

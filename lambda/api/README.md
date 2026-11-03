@@ -9,7 +9,7 @@
 | `ai.py` | 공통 조각 (AI 를 쓰는 함수): Bedrock 호출(`ask_ai`), 월 예산, 사용량 기록, 응답 형식 검사 | |
 | `code_store.py` | 공통 조각: 읽을 코드 저장·꺼내기, 화면용 모양(`public_code`), ※ 정리, 개념 추정 | |
 | `topics.py` | 주제 고르기: 랜덤(AI 없음) · 직접 적은 주제 판정(AI) | `GET /topic/random`, `POST /topic/check` |
-| `practice.py` | 연습 코드(Python·JavaScript) + ※ 지점 만들기(AI, 문법·겉모양 검사) · 더 쉽게/어렵게(5번까지) · 다시 읽기 | `POST /practice` `/practice/adjust` |
+| `practice.py` | 연습 코드(Python·JavaScript) + ※ 지점 만들기(AI, 문법 검사: Python `ast`·JavaScript tree-sitter) · 더 쉽게/어렵게(5번까지) · 다시 읽기 | `POST /practice` `/practice/adjust` |
 | `inspect_code.py` | 내 코드 점검: 민감 정보 가리기·함수 찾기(AI 없음) → 난이도·※ 지점(AI) | `POST /inspect` `/inspect/start` |
 | `review.py` | 빨간펜 첨삭: 누락(규칙) + ○△✕·코멘트·모범 설명(AI), 힌트 보고 다시 쓴 설명 다시 채점(3번까지), 코드 다시 열기 | `POST /review` `/review/retry`, `GET /code` |
 | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화: 메모별 첨삭 하나에 대해 묻고 답하기(10번까지), 대화 저장 | `POST /tutor` |

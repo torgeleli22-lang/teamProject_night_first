@@ -1,8 +1,10 @@
 import re
 
-from core import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, ApiError, ai_allowed, count_event, field, code_pk, get_user, now_ms, put_item,
-                  ttl_after)
-from ai import (AiUnavailable, ask_ai)
+from pydantic import Field
+
+from core import (MAX_TUTOR_CHARS, MAX_TUTOR_TURNS, TTL_ATTR, ApiError, Body, ai_allowed, count_event, code_pk, get_user, logger, now_ms,
+                  put_item, read_body, ttl_after)
+from ai import (AiAnswer, AiUnavailable, ask_ai)
 from code_store import (code_for_ai, latest_review, load_code, review_children, review_key, review_rows)
 
 # ─────────────────────────────────────────────────────────────
@@ -38,25 +40,28 @@ SYSTEM_PROMPT = """너는 프로그래밍 입문자가 코드의 흐름을 스�
 첨삭 판정: {mark} — {comment}
 모범 설명: {model}"""
 
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "reply": {"type": "string", "description": "학습자에게 할 답 (2~5문장)"},
-        "lookAt": {"type": "array", "items": {"type": "integer"}, "description": "다시 볼 줄 번호 0~3개"},
-    },
-    "required": ["reply", "lookAt"],
-}
+class TutorAnswer(AiAnswer):
+    """튜터 답"""
+    reply: str = Field(description="학습자에게 할 답 (2~5문장)")
+    lookAt: list[int] = Field(description="다시 볼 줄 번호 0~3개")
 
 MARK_WORDS = {"correct": "○ 정확", "partial": "△ 부분", "wrong": "✕ 오해", "missing": "⬚ 누락(메모 없음)"}
 
 
+class TutorIn(Body):
+    """POST /tutor 본문: 첨삭 항목 하나에 대한 질문"""
+    codeId: str = Field(max_length=60)
+    item: int = Field(ge=0, le=99)
+    message: str = Field(max_length=MAX_TUTOR_CHARS * 2)
+
+
 def ask_tutor(req):
     # 1. 요청 값 확인: 내 코드 · 가장 최근 첨삭 · 그 첨삭의 항목
-    body = req["body"]
+    body = read_body(req, TutorIn)
     user = get_user(req)
-    code_item = load_code(field(body, "codeId", "str", required=True, max_len=60), user)
-    index = field(body, "item", "int", required=True, low=0, high=99)
-    message = re.sub(r"\s+", " ", field(body, "message", "str", required=True, max_len=MAX_TUTOR_CHARS * 2)).strip()[:MAX_TUTOR_CHARS]
+    code_item = load_code(body.codeId, user)
+    index = body.item
+    message = re.sub(r"\s+", " ", body.message).strip()[:MAX_TUTOR_CHARS]
     if not message:
         raise ApiError(400, "물어볼 말을 적어 주세요.")
     rows = review_rows(code_item["codeId"])   # 첨삭 + 딸린 다시 쓰기·대화를 한 번에
@@ -79,11 +84,11 @@ def ask_tutor(req):
     if ai_allowed(req):
         history = [{"role": "user" if t["role"] == "user" else "assistant", "text": t["text"]} for t in turns]
         try:
-            answer = ask_ai("tutor_chat", build_system(code_item, entry), message, SCHEMA, max_tokens=800, history=history,
+            answer = ask_ai("tutor_chat", build_system(code_item, entry), message, TutorAnswer, max_tokens=800, history=history,
                             mock=lambda: rule_answer(entry, message, asked), mock_delay=0.5)
             by_ai = True
         except AiUnavailable as e:
-            print("[ai] 규칙 튜터 답 사용:", e)
+            logger.info("AI 대신 규칙 튜터 답", extra={"reason": str(e)})
     if answer is None:
         answer = rule_answer(entry, message, asked)
 

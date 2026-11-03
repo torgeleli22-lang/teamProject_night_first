@@ -7,7 +7,7 @@ import urllib.request
 import uuid
 
 from core import (ALLOWED_ORIGINS, INFO, LIMITS, LOGIN_DAYS, PROFILE, SESSION_HEADER, SESSION_ID, STATE, TTL_ATTR, USER, ApiError, account_pk, alive,
-                  auth_pk, code_pk, delete_item, get_item, get_user, hit_limit, keep_seconds, login_pk, new_id, now_ms, put_item, query_all,
+                  auth_pk, code_pk, delete_item, get_item, get_user, hit_limit, keep_seconds, logger, login_pk, new_id, now_ms, put_item, query_all,
                   ttl_after, update_item, user_pk)
 
 # ─────────────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ def http_json(url, data=None, token=None):
         with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=10) as res:
             return json.loads(res.read().decode("utf-8"))
     except (urllib.error.URLError, ValueError) as e:
-        print("[auth]", url, repr(e))
+        logger.warning("로그인 서버 요청 실패", extra={"url": url, "error": repr(e)})   # url 은 Google 주소(비밀 값 없음)
         raise ApiError(502, "로그인 서버와 연결하지 못했어요. 잠시 뒤에 다시 시도해 주세요.")
 
 
@@ -171,7 +171,7 @@ def fetch_profile(req, provider, code):
                                     "redirect_uri": callback_url(req, provider), "grant_type": "authorization_code"})
     access = tokens.get("access_token")
     if not access:
-        print("[auth] 토큰 교환 실패:", provider, tokens.get("error"))
+        logger.warning("로그인 토큰 교환 실패", extra={"provider": provider, "error": tokens.get("error")})
         raise ApiError(400, "로그인을 확인하지 못했어요. 다시 로그인해 주세요.")
     user = http_json(p["user"], token=access)
     uid = user.get("sub")

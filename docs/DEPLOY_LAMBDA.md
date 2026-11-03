@@ -165,7 +165,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 | `No module named 'xxx'` | 그 파일을 코드 탭에 새 파일로 만들었는지, 이름이 정확한지 (`inspect.py` 가 아니라 `inspect_code.py`) |
 | `xxx.py 에 ROUTES 이(가) 없어요` | 그 파일이 비었거나 일부만 붙여넣어졌어요 → 전체를 다시 붙여넣고 Deploy |
 | 화면에 "서버에 연결하지 못했어요" / CORS 오류 | `ALLOWED_ORIGINS`(경로 없이), GitHub `API_URL` 끝의 `/` 제거, 화면 다시 배포 |
-| 연습 코드가 늘 예시 코드("준비된 예시 코드를 드려요") | 관리자 화면 AI 스위치, `AI_MODE`, CloudWatch 로그의 `[ai]` 줄 (`AccessDeniedException` → 역할의 Bedrock 권한, `monthly AI budget reached` → 월 예산) |
-| "AI 가 만든 코드가 검사를 통과하지 못해…" | 로그의 `[generate] 다시 만듦:` 줄에 이유가 있어요 (문법 오류, 너무 긺, ※ 줄을 못 찾음) |
+| 연습 코드가 늘 예시 코드("준비된 예시 코드를 드려요") | 관리자 화면 AI 스위치, `AI_MODE`, CloudWatch 로그의 `AI 대신 …` 줄의 `reason` (`AccessDeniedException` → 역할의 Bedrock 권한, `monthly AI budget reached` → 월 예산) |
+| "AI 가 만든 코드가 검사를 통과하지 못해…" | 로그의 `코드 다시 만듦` 줄 `problems` 에 이유가 있어요 (문법 오류, 너무 긺, ※ 줄을 못 찾음) |
 | `Task timed out` | 제한 시간을 10분으로 (중급·고급 코드 만들기가 오래 걸려요) |
 | 오랜만에 열면 첫 요청이 느림 | 정상 (콜드 스타트 약 1초) |

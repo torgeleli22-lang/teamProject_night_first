@@ -1,10 +1,14 @@
 import threading
 import time
 
+from typing import Literal
+
+from pydantic import Field
+
 import ai
 import core
 import practice
-from core import (LANGUAGES, field)
+from core import (LANGUAGES, Body, read_body)
 
 # ─────────────────────────────────────────────────────────────
 # 문항 생성·검증 실험 (experiment.py) — jojo_api 의 기능 파일. 논문 표 1 (docs/EXPERIMENT.md)
@@ -137,14 +141,19 @@ def make_one(item):
     return r
 
 
+class RunIn(Body):
+    """POST /admin/experiment 본문"""
+    no: int = Field(0, ge=0, le=9999)
+    language: Literal[tuple(LANGUAGES)]
+    level: int = Field(ge=1, le=4)
+    topic: str = Field(max_length=50)
+    rep: int = Field(0, ge=0, le=999)
+
+
 def run(req):
     # 1. 요청 값 확인
-    body = req["body"]
-    item = {"no": field(body, "no", "int", default=0, low=0, high=9999),
-            "language": field(body, "language", "str", required=True, choices=list(LANGUAGES)),
-            "level": field(body, "level", "int", required=True, low=1, high=4),
-            "topic": field(body, "topic", "str", required=True, max_len=50).strip()}
-    item["rep"] = field(body, "rep", "int", default=0, low=0, high=999)
+    body = read_body(req, RunIn)
+    item = {"no": body.no, "language": body.language, "level": body.level, "topic": body.topic.strip(), "rep": body.rep}
 
     # 2. 연습 모드와 같은 흐름으로 만들고 단계 기록을 돌려준다 (저장하지 않음)
     return make_one(item)

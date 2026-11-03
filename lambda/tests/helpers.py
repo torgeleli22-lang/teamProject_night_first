@@ -10,6 +10,7 @@ LAMBDA_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 API_DIR = os.path.join(LAMBDA_DIR, "api")
 sys.path.insert(0, API_DIR)
 os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
+os.environ.setdefault("POWERTOOLS_LOG_LEVEL", "WARNING")   # 시험 중에는 경고 이상만 (JSON 로그)
 
 import ai  # noqa: E402
 import code_store  # noqa: E402

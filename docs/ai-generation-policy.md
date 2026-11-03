@@ -30,7 +30,7 @@
   2. 규칙 검사 A `check_generated` (비용 없음)
      - Python: `ast` 로 문법, 금지 모듈·함수(파일·네트워크·운영체제, 표준 라이브러리가 아닌 것), **실행마다 결과가 달라지는 것**(random·time·secrets·uuid·now()·today()), 정의하지 않은 이름(오타), print
      - JavaScript: 괄호·따옴표·템플릿·주석·정규식 짝, import·fetch·document·setInterval, **Math.random·Date.now()·인자 없는 new Date()**, console.log
-     - 난이도별 꼭 있어야 하는 것·쓰지 않는 것 (`py_structure`·`js_structure` 로 함수·클래스·예외·재귀·반복·조건 수를 셈, 실행하지 않음), 손으로 따라갈 크기(숫자로 정한 반복·목록 항목 수)
+     - 난이도별 꼭 있어야 하는 것·쓰지 않는 것 (`py_structure`(ast)·`js_structure`(tree-sitter) 로 함수·클래스·예외·재귀·반복·조건 수를 셈, 실행하지 않음), 손으로 따라갈 크기(숫자로 정한 반복·목록 항목 수)
      - 줄 수 (한도 30·60·100·180, 중급 최소 60·고급 최소 100), ※ 정확히 1·2·3·5곳, 한 곳 6·8·12·15줄 이하, 겹침 없음, 중심 개념 1곳 이상
   3. ② 실행 추적표 `code_trace` (`trace_and_explain`): 완성된 코드를 새로 읽고 `flow`(실행 순서·분기·반복·변수 값, 최대 40단계)·`output`·※ 마다 `enter`·`steps`·`exit`·`branch`·`count` 를 먼저 쓰고, **그 사실만으로** 모범 설명·핵심 표현을 쓴다
   4. 규칙 검사 B `explanation_issues`: 꼭 지킬 것 = 빈 설명·300자 초과·가정 표현("예를 들어"·"예컨대"·"가령")·설명 안에 있는 핵심 표현 2개 미만 / 확인할 것 = 설명 속 숫자가 추적표·출력·코드에 없음 (줄 번호 제외). 설명에 없는 핵심 표현은 서버가 뺀다
