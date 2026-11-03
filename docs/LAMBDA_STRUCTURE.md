@@ -3,7 +3,7 @@
 서버(Lambda)를 **어떻게 나누고, 공통 코드를 어떻게 나눠 쓰고, 오류를 어떻게 남기고, 어떻게 배포하는지** 정하는 문서예요.
 AI 가 만드는 연습 문항의 생성·검토 기준은 **`docs/GENERATION_STANDARD.md`** 에 있고, 이 문서는 그 기준이 돌아가는 서버 구조를 다뤄요.
 
-- 상태: **v1.2** (2026-11-03) — 전환 1~4단계(코드) 끝: 공통 코드 나누기 · 라이브러리 · 함수 6개 입구·묶기·배포 명령 · 화면 주소. 남은 것은 콘솔에서 함수를 만들고 화면을 옮기는 5·6단계예요 (`## 10`)
+- 상태: **v1.3** (2026-11-03) — 전환 1~4단계(코드) 끝: 공통 코드 나누기 · 라이브러리 · 함수 6개 입구·묶기·배포 명령 · 화면 주소. 남은 것은 콘솔에서 함수를 만들고 화면을 옮기는 5·6단계예요 (`## 10`)
 - 정한 것: 함수 6개 · 공통 코드를 `core`·`ai`·`code_store` 로 나누기 · 외부 라이브러리 3가지(Powertools·Pydantic·tree-sitter) · CloudShell 명령으로 배포 · 함수마다 함수 URL
 
 ## 0. 원칙
@@ -47,9 +47,11 @@ lambda/
 ├─ functions/             함수마다 입구 하나: jojo_auth.py · jojo_practice.py · jojo_inspect.py · jojo_review.py · jojo_study.py · jojo_admin.py
 │                         (zip 안에서는 lambda_function.py 가 돼요 → 콘솔의 핸들러 설정 lambda_function.lambda_handler 그대로)
 ├─ functions.json         함수 목록: 이름 · 입구 · 넣을 파일 · 라이브러리 · 환경 변수 이름 · 화면이 고를 경로 앞부분 · 제한 시간 · 메모리
+├─ console/               콘솔에 붙여넣을 파일을 함수 이름별 폴더로 (jojo_auth/ … + README) · 라이브러리 레이어 jojo_libs_layer.zip
+│                         npm run package 가 functions.json 대로 복사해 만들어요 (직접 고치지 않음 — 다르면 test_console.py 가 실패)
 ├─ requirements.txt       외부 라이브러리 (버전 고정)
 └─ tests/                 test_functions.py 가 functions.json·의존 규칙을 확인
-scripts/package_lambdas.py · deploy_lambdas.py      묶기 · 올리기 (표준 라이브러리 + AWS CLI 만 — CloudShell 에서 그대로)
+scripts/package_lambdas.py · console_lambdas.py · deploy_lambdas.py      묶기 · 콘솔용 폴더 · 올리기 (표준 라이브러리 + AWS CLI 만 — CloudShell 에서 그대로)
 ```
 - 처음 계획의 `shared/`·`features/` 폴더 나누기는 하지 않았어요: 파일을 옮기면 문서·도구의 경로 참조가 모두 바뀌는데 얻는 것이 없어서. 대신 공통 조각과 기능의 경계는 아래 의존 규칙 시험으로 지켜요
 
@@ -79,10 +81,11 @@ scripts/package_lambdas.py · deploy_lambdas.py      묶기 · 올리기 (표준
 
 | 라이브러리 | 쓰는 곳 | 대신하는 것 | 넣는 방법 |
 |---|---|---|---|
-| **Powertools for AWS Lambda (Python) v3** | 경로 나누기·CORS·사전 요청(`LambdaFunctionUrlResolver`, `core.make_app`) · JSON 로그(`Logger`, `core.logger`) | 직접 만든 경로 표 처리(`run_route`)·CORS 헤더, `print` 로그 | 함수 zip 에 포함 (순수 Python 약 1MB — 레이어 버전·ARN 을 따로 관리하지 않게) |
-| **Pydantic v2** | 요청 본문(`core.Body`·`read_body`, 경로마다 `…In`) · AI 답의 모양(`ai.AiAnswer`, 작업마다 `…Answer`) — Bedrock 도구 형식은 모양에서 만들어요(`ai.tool_schema`) | `field()` · `check_schema()` · `repair_for_schema()` · 손으로 쓴 JSON Schema | 함수 zip 에 포함 |
-| **tree-sitter + tree-sitter-javascript** | JavaScript 진짜 문법 검사 · 함수/클래스/재귀·배열 크기 세기 (`practice.js_check`) | `js_scan` · 정규식 `js_structure` (겉모양 검사) | 함수 zip 에 포함 (`jojo_practice`·`jojo_admin`) |
+| **Powertools for AWS Lambda (Python) v3** | 경로 나누기·CORS·사전 요청(`LambdaFunctionUrlResolver`, `core.make_app`) · JSON 로그(`Logger`, `core.logger`) | 직접 만든 경로 표 처리(`run_route`)·CORS 헤더, `print` 로그 | 아래 "넣는 방법" |
+| **Pydantic v2** | 요청 본문(`core.Body`·`read_body`, 경로마다 `…In`) · AI 답의 모양(`ai.AiAnswer`, 작업마다 `…Answer`) — Bedrock 도구 형식은 모양에서 만들어요(`ai.tool_schema`) | `field()` · `check_schema()` · `repair_for_schema()` · 손으로 쓴 JSON Schema | 아래 "넣는 방법" |
+| **tree-sitter + tree-sitter-javascript** | JavaScript 진짜 문법 검사 · 함수/클래스/재귀·배열 크기 세기 (`practice.js_check`) | `js_scan` · 정규식 `js_structure` (겉모양 검사) | 아래 "넣는 방법" (쓰는 함수는 `jojo_practice`·`jojo_admin`) |
 
+- **넣는 방법**: 콘솔에 붙여넣을 때는 세 라이브러리를 담은 **레이어 `jojo_libs` 하나**(`lambda/console/jojo_libs_layer.zip`)를 모든 함수에 붙여요. CloudShell `npm run deploy` 는 함수 zip 에 그 함수가 쓰는 라이브러리만 함께 넣어요(레이어 불필요)
 - 버전은 `lambda/requirements.txt` 에 고정하고, 배포할 때 Lambda(arm64·Python 3.14)용 배포판을 받아요 (확인함: 모두 있음, 합계 약 4.5MB). 내 컴퓨터·CI 는 `npm run setup:python` 으로 같은 버전을 `.venv` 에
 - 이 셋 말고 새 라이브러리를 넣으려면 이 표에 이유를 적고 정해요
 - 쓰지 않기로 한 것: FastAPI+Mangum(경로는 Powertools 로 충분, 더 무거움), authlib(지금 Google 로그인이 잘 돌아감), jsonschema(Pydantic 으로 충분),
@@ -140,7 +143,9 @@ scripts/package_lambdas.py · deploy_lambdas.py      묶기 · 올리기 (표준
 
 ## 9. 배포
 
-모두 CloudShell 에서 (`docs/DEPLOY_LAMBDA.md` 에 단계별로):
+**방법 A. 콘솔에 붙여넣기** — `lambda/console/README.md`: 레이어 `jojo_libs` 한 번 → 함수 이름별 폴더의 파일을 그 함수에 붙여넣기 → 폴더 README 의 설정. 코드가 바뀌면 커밋에서 그 폴더의 바뀐 파일만 다시
+
+**방법 B. CloudShell 명령** (`docs/DEPLOY_LAMBDA.md` 에 단계별로):
 ```bash
 npm run deploy -- check     # 확인만: 함수가 있는지 · 런타임·제한 시간 · 코드 올리기 권한(--dry-run) · 함수 URL
 npm run deploy -- setup     # 처음 한 번: 없는 함수 만들기(SafeRole) · 환경 변수 옮기기 · 함수 URL → 화면에 넣을 API_URLS 를 알려 줌
@@ -158,7 +163,7 @@ npm run deploy              # 매번: 함수마다 묶어(npm run package) 바�
 2. ✅ 라이브러리 적용 (Powertools 경로·CORS·JSON 로그 → Pydantic 요청 본문·AI 답의 모양 → tree-sitter JavaScript 검사) — 이제 라이브러리를 함께 묶어 올려야 해서 콘솔에 파일을 붙여넣는 배포는 쓸 수 없어요 (3단계의 묶기 명령으로)
 3. ✅ 함수 6개 입구(`lambda/functions/`) + `functions.json` + 묶기·배포 명령(`npm run package`·`deploy`) + 의존 규칙·표 시험
 4. ✅ 화면 주소 나누기 (`src/lib/api-routes.ts`, GitHub 변수 `API_URLS`)
-5. CloudShell: `jojo_api_py` 를 zip 으로 바꾸기 → `setup` → `deploy` → 화면에 `API_URLS` → 확인 (`docs/DEPLOY_LAMBDA.md` 3~5단계)
+5. 함수 6개 만들기 (콘솔에 붙여넣기 `lambda/console/` + 레이어, 또는 CloudShell `setup`·`deploy`) → 화면에 `API_URLS` → 확인 (`docs/DEPLOY_LAMBDA.md` 2~3단계)
 6. 문제없으면 `jojo_api_py` 정지 (일주일 뒤 삭제, `functions.json` 에서도). 문제가 있으면 `API_URLS` 만 지우면 돼요
 
 - 단계마다 typecheck · test · verify · build · smoke 통과 후 커밋
@@ -168,6 +173,7 @@ npm run deploy              # 매번: 함수마다 묶어(npm run package) 바�
 ## 결정 기록
 | 날짜 | 내용 |
 |---|---|
+| 2026-11-03 | v1.3: 콘솔에 붙여넣는 방법을 함께 — 함수 이름별 폴더 `lambda/console/`(자동 복사본, 시험으로 원본과 같은지 확인) + 라이브러리 레이어 `jojo_libs` 하나. CloudShell 명령도 그대로 |
 | 2026-11-03 | v1.2: 3·4단계 적용. 폴더는 `lambda/api` 그대로 두고 입구만 `lambda/functions/` 에 (경로 참조를 바꾸지 않으려고). `/health` 는 모든 함수에. 배포 명령은 표준 라이브러리 + AWS CLI 만 (CloudShell 에 설치할 것 없음), 함수 만들기·환경 변수 옮기기·URL 까지 `setup` 하나로 |
 | 2026-11-03 | v1.1: 2단계 적용. Powertools `Metrics` 는 쓰지 않기로 (요금 · 기본 지표로 충분). 로그의 서비스 이름은 Lambda 가 넣어 주는 함수 이름(`AWS_LAMBDA_FUNCTION_NAME`)이라 `POWERTOOLS_SERVICE_NAME` 을 따로 넣지 않아요 |
 | 2026-11-02 | 함수 6개 · `core`·`ai`·`code_store` · Powertools·Pydantic·tree-sitter · CloudShell 배포 · 함수마다 URL 로 확정 (함수 URL 은 선호 없음 → 추천안). 그전의 "Lambda 하나 · boto3 만 · zip 없음"은 정한 원칙이 아니었고 이 문서로 바뀜 |

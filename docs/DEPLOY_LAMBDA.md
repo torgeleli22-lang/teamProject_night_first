@@ -1,8 +1,8 @@
 # 배포하기: GitHub Pages(화면) + Lambda 함수 6개 + DynamoDB + Bedrock
 
 서버를 켜 두지 않는 구성입니다. 사람이 쓸 때만 Lambda 가 실행되고, 쓴 만큼만 요금이 나옵니다.
-Lambda 는 **기능별 함수 6개**예요 (구조 기준: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)). 함수마다 필요한 파일과 라이브러리(Powertools·Pydantic·tree-sitter)만
-**zip 으로 묶어** 올려요 — `npm run package` 가 묶고, `npm run deploy` 가 **AWS CloudShell** 에서 올려요. 무엇을 묶는지는 [`lambda/functions.json`](../lambda/functions.json) 하나에 있어요.
+Lambda 는 **기능별 함수 6개**예요 (구조 기준: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)). 함수마다 필요한 파일만 들어가고, 무엇을 넣는지는 [`lambda/functions.json`](../lambda/functions.json) 하나에 있어요.
+올리는 방법은 둘 중 하나: **A. 콘솔에 붙여넣기** — 함수 이름별 폴더 [`lambda/console/`](../lambda/console) 의 파일을 붙여넣고, 라이브러리(Powertools·Pydantic·tree-sitter)는 레이어 하나로 · **B. CloudShell 에서 `npm run deploy`** — 파일과 라이브러리를 zip 으로 묶어 한 번에.
 
 ```
 브라우저 ──→ GitHub Pages (정적 화면)
@@ -26,57 +26,37 @@ Lambda 는 **기능별 함수 6개**예요 (구조 기준: [`docs/LAMBDA_STRUCTU
 지금 쓰는 테이블 **`jojo_table`** (파티션 키 `pk` 문자열, 정렬 키 `sk` 문자열, TTL 속성 `jojo_ttl`)을 그대로 씁니다.
 새로 만든다면: DynamoDB → 테이블 생성 → 위의 이름·키 → 용량 **온디맨드** → 만든 뒤 **추가 설정 → TTL 켜기** → 속성 이름 `jojo_ttl`.
 
-## 2단계. CloudShell 준비 (처음 한 번)
+## 2단계. 함수 6개 만들기 — 방법 A 또는 B
 
+### 방법 A. 콘솔에 붙여넣기 → [`lambda/console/`](../lambda/console)
+GitHub 에서 **함수 이름별 폴더**(`lambda/console/jojo_auth/` …)를 열면 그 함수에 붙여넣을 파일만 있고, 아래에 설정 안내(README)가 보여요.
+1. **라이브러리 레이어 한 번**: `lambda/console/jojo_libs_layer.zip` 을 내려받아 Lambda → 계층 → 계층 생성 (`jojo_libs`, arm64, Python 3.14)
+2. **함수마다**: 함수 만들기(Python 3.14 · arm64 · `SafeRole-sgu-202688`) → 폴더의 파일 붙여넣기 → Deploy → 제한 시간·메모리 → 계층 `jojo_libs` 추가 → 환경 변수 → 함수 URL → `/health` 확인
+3. 순서와 표: [`lambda/console/README.md`](../lambda/console/README.md)
+
+폴더의 `.py` 는 원본(`lambda/api` · `lambda/functions`)을 `npm run package` 가 복사한 것이에요. 원본과 다르면 `npm test` 가 알려 줘요.
+
+### 방법 B. CloudShell 명령 한 번에
 AWS 콘솔 → 리전 **서울(ap-northeast-2)** → 위쪽 막대의 **CloudShell** 아이콘(`>_`).
 ```bash
 git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
 cd teamProject_night_first
 python3 -m pip --version && node --version   # 둘 다 버전이 나오면 준비 끝 (CloudShell 에 들어 있어요)
-npm run deploy -- check                      # 확인만 — 아무것도 바꾸지 않아요
-```
-`check` 가 함수마다 보여 주는 것: 있는지 · **코드 올리기 권한**(실제로 올리지 않고 권한만 확인) · 환경 변수 개수(이름만) · 바꿀 설정 · 함수 URL.
-처음에는 `jojo_api_py` 만 있고 나머지 6개는 "없음" 이 정상이에요.
-- `pip` 가 없다고 나오면: `python3 -m ensurepip --user`
-- 코드 올리기 권한이 ✗ 면: `npm run package` 가 만든 `dist/lambda/<함수 이름>.zip` 을 콘솔에서 올려도 돼요 (함수 → 코드 → **에서 업로드 → .zip 파일**). CloudShell 오른쪽 위 **작업 → 파일 다운로드** 로 zip 을 받을 수 있어요
-
-## 3단계. 지금 함수(`jojo_api_py`)를 zip 으로 바꾸기
-
-함수를 나누기 전에 지금 화면이 쓰는 `jojo_api_py` 부터 새 코드로 바꿔요 (화면은 그대로 동작해요).
-```bash
-git pull
-npm run deploy -- jojo_api_py      # 묶기 → 올리기 → 설정(Python 3.14 · arm64 · 10분 · 512MB) 맞추기 → /health 확인
-```
-`✓ jojo_api_py  코드 올림 (4.4MB) · /health ✓` 가 나오면 끝이에요.
-- 이제 라이브러리가 함께 들어 있어서 **콘솔 코드 탭에서는 고칠 수 없어요** ("배포 패키지가 너무 커서 편집기에 표시할 수 없음"). 코드는 GitHub 에서 고치고 `npm run deploy` 로 올려요
-- 환경 변수는 그대로 둬요 (`deploy` 는 환경 변수를 건드리지 않아요). 지금 함수에 들어 있어야 하는 것:
-
-  | 키 | 값 |
-  |---|---|
-  | `TABLE_NAME` | `jojo_table` |
-  | `TTL_ATTR` | `jojo_ttl` |
-  | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
-  | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
-  | `AI_MONTHLY_BUDGET_USD` | `10` |
-  | `ADMIN_TOKEN` | 직접 정한 긴 값 (CloudShell `openssl rand -hex 24`) — **관리자 복구 코드** |
-  | 선택 | `MODEL_ID`, `RATE_LIMIT_*`(요청 수 제한, `core.py` 1번 설정), `POWERTOOLS_LOG_LEVEL`(기본 `INFO`), 로그인 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET` |
-
-  예전 변수 `GENERATE_CODE_FUNCTION`, `AI_GENERATION_DAILY_LIMIT`, `GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` 는 이제 쓰지 않아요 (지워도 됨, 함수를 나눌 때 옮기지도 않아요).
-- 콘솔 시험: **테스트 탭** → 이벤트 `{"path": "/health", "method": "GET"}` → body 에 `"ok": true, "maxCodeLines": 300, "regenLimit": 5`.
-  다른 시험 이벤트: [`lambda/api/test_events.json`](../lambda/api/test_events.json)
-
-## 4단계. 함수 6개 만들기 (처음 한 번)
-
-```bash
-npm run deploy -- setup     # 없는 함수 만들기 · 환경 변수 옮기기 · 함수 URL 만들기
+npm run deploy -- check     # 확인만 — 아무것도 바꾸지 않아요 (함수가 있는지 · 코드 올리기 권한 · 환경 변수 개수(이름만) · 함수 URL)
+npm run deploy -- setup     # 없는 함수 만들기 · 환경 변수 옮기기 · 함수 URL
 npm run deploy              # 코드 올리기 (바뀐 함수만) · /health 확인
 ```
 `setup` 이 하는 일 (함수마다):
 1. **없으면 만들기** — 이름·런타임(Python 3.14)·arm64·제한 시간·메모리는 `functions.json`, 실행 역할은 `jojo_api_py` 와 같은 SafeRole
 2. **환경 변수 옮기기** — `jojo_api_py` 에서 그 함수에 필요한 이름만 (이미 있는 값은 그대로). 화면에는 이름만 나와요
-3. **함수 URL** — 인증 없음 + 공개 호출 허용 (CORS 는 코드가 `ALLOWED_ORIGINS` 로 처리해요. 함수 URL 설정에서 CORS 는 켜지 않아요)
-4. 마지막에 **화면에 넣을 주소(JSON)** 와 **Google 리디렉션 URI** 를 알려 줘요 → 5·6단계에 그대로 써요
+3. **함수 URL** — 인증 없음 + 공개 호출 허용
+4. 마지막에 **화면에 넣을 주소(JSON)** 와 **Google 리디렉션 URI** 를 알려 줘요
 
+- 방법 B 는 라이브러리가 함수 zip 에 함께 들어가서 레이어가 필요 없어요. 대신 콘솔 코드 탭에서는 고칠 수 없어요 ("배포 패키지가 너무 커서 편집기에 표시할 수 없음")
+- `pip` 가 없다고 나오면 `python3 -m ensurepip --user`. 학교 계정에서 함수 만들기가 거절되면 방법 A 로 만들고 `npm run deploy -- setup` 으로 환경 변수·URL 만 채워도 돼요
+- 지금 함수 `jojo_api_py` 도 새 코드로 바꾸려면 `npm run deploy -- jojo_api_py`
+
+### 함수 표 (두 방법 같음)
 | 함수 | 제한 시간 · 메모리 | 환경 변수 (공통 + ) |
 |---|---|---|
 | `jojo_auth` | 15초 · 256MB | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` (· `AUTH_CALLBACK_BASE`) |
@@ -86,15 +66,26 @@ npm run deploy              # 코드 올리기 (바뀐 함수만) · /health 확
 | `jojo_study` | 30초 · 256MB | — |
 | `jojo_admin` | 10분 · 512MB | `ADMIN_TOKEN` |
 
-공통 = `TABLE_NAME` · `TTL_ATTR` · `DB_REGION` · `ALLOWED_ORIGINS` · `AI_MODE` · `MODEL_ID` · `BEDROCK_REGION` · `AI_MONTHLY_BUDGET_USD` · `RATE_LIMIT_*` · `POWERTOOLS_LOG_LEVEL` (있는 것만)
+공통 환경 변수 (값은 지금 `jojo_api_py` 와 같게):
 
-- 학교 계정에서 **함수 만들기가 거절되면**: 콘솔에서 위 표대로 직접 만들고(런타임 Python 3.14 · arm64 · 기존 역할 `SafeRole-sgu-202688`) `npm run deploy -- setup` 을 다시 실행해요 (있는 함수는 환경 변수·URL 만 채워요)
+| 키 | 값 |
+|---|---|
+| `TABLE_NAME` | `jojo_table` |
+| `TTL_ATTR` | `jojo_ttl` |
+| `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
+| `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
+| `AI_MONTHLY_BUDGET_USD` | `10` |
+| 선택 | `MODEL_ID` · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*`(요청 수 제한, `core.py` 1번 설정) · `POWERTOOLS_LOG_LEVEL`(기본 `INFO`) |
+
+- `ADMIN_TOKEN`(관리자 복구 코드, CloudShell `openssl rand -hex 24` 처럼 직접 정한 긴 값)은 `jojo_admin` 에만, Google 비밀 값은 `jojo_auth` 에만
+- 예전 변수 `GENERATE_CODE_FUNCTION`, `AI_GENERATION_DAILY_LIMIT`, `GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` 는 옮기지 않아요
 - 제한 시간: 연습 코드 만들기는 AI 를 세 번(출제·실행 추적표·교차 검토) 부르고, 검사를 통과하지 못하면 다시 만들어서 중급·고급은 1~3분, 넉넉하게 10분
+- 콘솔 시험: **테스트 탭** → 이벤트 `{"path": "/health", "method": "GET"}` → body 에 `"ok": true, "maxCodeLines": 300, "regenLimit": 5`. 다른 시험 이벤트: [`lambda/api/test_events.json`](../lambda/api/test_events.json)
 
-## 5단계. 화면에 연결
+## 3단계. 화면에 연결
 
 GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables**
-- **`API_URLS`** = 4단계 `setup` 이 알려 준 JSON 그대로 (`{"auth": "https://…", "practice": "https://…", …}`)
+- **`API_URLS`** = 함수 6개의 함수 URL 을 담은 JSON (`{"auth": "https://…", "practice": "https://…", …}` — 방법 A 는 `lambda/console/README.md` 의 모양대로, 방법 B 는 `setup` 이 알려 준 그대로)
 - `API_URL` (예전 `jojo_api_py` 주소)은 당분간 그대로 두세요 — `API_URLS` 에 없는 함수는 이 주소로 가요
 
 → **Actions → Deploy web (GitHub Pages) → Run workflow** (또는 main 에 병합하면 자동). 확인:
@@ -105,21 +96,21 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 
 문제가 있으면 `API_URLS` 를 지우고 화면을 다시 배포하면 바로 `jojo_api_py` 하나로 돌아가요.
 
-## 6단계. Google 로그인 (선택)
+## 4단계. Google 로그인 (선택)
 
 로그인하면 기록이 탭을 닫아도 남아요 (학습자·'내 공부' 1년, 연습 코드 30일). 설정하지 않으면 로그인 버튼이 화면에 나오지 않아요.
 
 1. [Google Cloud Console](https://console.cloud.google.com/) → 프로젝트 만들기(또는 고르기)
 2. **API 및 서비스 → OAuth 동의 화면**: 사용자 유형 **외부**, 앱 이름·지원 이메일 입력, 범위는 `openid`·`profile` 만 (추가하지 않아도 됨). 테스트 중이면 **테스트 사용자**에 쓸 계정을 넣거나 **앱 게시**
-3. **사용자 인증 정보 → OAuth 클라이언트 ID** (유형 **웹 애플리케이션**) → **승인된 리디렉션 URI** 에 `setup` 이 알려 준 주소 추가:
+3. **사용자 인증 정보 → OAuth 클라이언트 ID** (유형 **웹 애플리케이션**) → **승인된 리디렉션 URI** 에 추가:
    `https://<jojo_auth 함수 URL 도메인>/auth/callback/google` (함수를 나누기 전 `jojo_api_py` 주소도 남겨 두면 되돌릴 때 편해요)
-4. **클라이언트 ID** → `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET` — `jojo_auth` 의 구성 → 환경 변수에 (이미 `jojo_api_py` 에 있었다면 `setup` 이 옮겨 놓았어요)
+4. **클라이언트 ID** → `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET` — `jojo_auth` 의 구성 → 환경 변수에 (이미 `jojo_api_py` 에 있었다면 같은 값을 옮겨요)
 5. 확인: `<jojo_auth 함수 URL>/me` → `"providers": {"google": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
 
 - 받는 정보는 계정 번호와 이름뿐이에요 (이메일은 요청하지 않음). 로그인하면 지금 탭에서 한 공부('내 공부', 연습 코드)가 계정으로 옮겨져요
 - 콜백은 로그인을 시작한 함수 주소로 와요. 다른 주소로 받아야 할 때만 `AUTH_CALLBACK_BASE` 에 그 앞부분을 넣어요 (보통은 비워 둠)
 
-## 7단계. 정리
+## 5단계. 정리
 
 1. **예전 데이터 옮기기** (아직 안 했다면): 관리자 화면 → **예전 데이터 옮기기** 를 한 번 (`POST /admin/migrate`). 예전 키 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름(`USER#`·`CODE#`·`OPS#`)으로, 예전 필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId` 등)을 고쳐요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요
 2. 6개 함수로 며칠 문제없으면 `jojo_api_py` 정지 → 일주일 뒤 삭제, GitHub 변수 `API_URL` 도 지우기
@@ -136,10 +127,10 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 | 바뀐 것 | 할 일 |
 |---|---|
 | 화면 | main 에 병합 → Pages 자동 배포 |
-| Lambda 코드 | main 에 병합 → CloudShell 에서 `cd teamProject_night_first && git pull && npm run deploy` (바뀐 함수만 올라가요. 같은 내용이면 zip 도 똑같아서 "코드 그대로") |
-| 함수 하나만 | `npm run deploy -- jojo_review` |
-| 예시 코드·랜덤 주제 | `samples.py`·`samples_js.py` 를 바꾸고 `npm run verify` 통과 → 병합 → `npm run deploy` |
-| 제한 시간·메모리 | `lambda/functions.json` 을 고치고 `npm run deploy` (설정을 맞춰요) |
+| Lambda 코드 (방법 A) | main 에 병합 → 커밋에서 **`lambda/console/<함수 이름>/` 안의 바뀐 파일**만 그 함수에 다시 붙여넣고 Deploy (공통 조각이 바뀌면 그 파일이 있는 함수 모두). `jojo_libs_layer.zip` 이 바뀌면 레이어 새 버전 |
+| Lambda 코드 (방법 B) | main 에 병합 → CloudShell 에서 `cd teamProject_night_first && git pull && npm run deploy` (바뀐 함수만 올라가요. 같은 내용이면 zip 도 똑같아서 "코드 그대로"). 함수 하나만: `npm run deploy -- jojo_review` |
+| 예시 코드·랜덤 주제 | `samples.py`·`samples_js.py` 를 바꾸고 `npm run verify` · `npm run package` 통과 → 병합 → 위처럼 (`jojo_practice`·`jojo_admin`) |
+| 제한 시간·메모리 | `lambda/functions.json` 을 고치고 `npm run package` → 방법 A 는 콘솔 일반 구성, 방법 B 는 `npm run deploy` 가 맞춰요 |
 | 설정 (예산 등) | 함수마다 **구성 → 환경 변수** (다음 요청부터 반영). 모든 함수에 같은 값을 넣어야 하는 것(`AI_MODE`, `AI_MONTHLY_BUDGET_USD` 등)은 함수 6개 모두에 |
 | 급하게 AI 를 멈추기 | 관리자 화면 **AI 끄기** (모든 함수가 30초 안에 따라와요 — DynamoDB 의 스위치를 함께 읽어요) |
 
@@ -188,11 +179,13 @@ filter message = "요청" and ms > 10000 | fields @timestamp, route, ms         
 
 | 증상 | 원인 / 해결 |
 |---|---|
-| `{"Message":"Forbidden"}` | 함수 URL 공개 허용이 빠짐 → `npm run deploy -- setup` 다시 (이미 있는 것은 건너뛰어요) |
-| `Runtime.ImportModuleError` · `No module named 'pydantic_core._pydantic_core'` | 함수가 arm64·Python 3.14 가 아니에요 → `npm run deploy` 가 설정을 맞춰요 (콘솔에서 바꿨다면 **런타임 설정** 확인) |
-| `npm run deploy` 가 `AccessDeniedException` | `npm run deploy -- check` 로 어느 권한인지 확인 → 코드 올리기가 막히면 zip 을 콘솔에서 업로드 (2단계) |
+| `{"Message":"Forbidden"}` | 함수 URL 공개 허용이 빠짐 → 함수 폴더 README 4번의 `add-permission` 두 줄 (방법 B 는 `npm run deploy -- setup` 다시) |
+| `No module named 'aws_lambda_powertools'`·`'pydantic'` | 계층 `jojo_libs` 를 붙이지 않았어요 (방법 A) |
+| `No module named 'core'` 처럼 파일 이름 | 폴더의 파일을 다 붙여넣지 않았거나 이름이 달라요 (`inspect.py` 가 아니라 `inspect_code.py`) |
+| `Runtime.ImportModuleError` · `No module named 'pydantic_core._pydantic_core'` | 함수가 arm64·Python 3.14 가 아니에요 (**런타임 설정**·아키텍처 확인, 레이어도 arm64·3.14 로 만들었는지) |
+| `npm run deploy` 가 `AccessDeniedException` | `npm run deploy -- check` 로 어느 권한인지 확인 → 막히면 방법 A (콘솔) |
 | 화면에 "서버에 연결하지 못했어요" / CORS 오류 | 그 함수의 `ALLOWED_ORIGINS`(경로 없이), GitHub `API_URLS` 의 주소, 화면 다시 배포 |
 | 연습 코드가 늘 예시 코드("준비된 예시 코드를 드려요") | 관리자 화면 AI 스위치, `jojo_practice` 의 `AI_MODE`, 로그의 `AI 대신 …` 줄 `reason` (`AccessDeniedException` → 역할의 Bedrock 권한, `monthly AI budget reached` → 월 예산) |
 | "AI 가 만든 코드가 검사를 통과하지 못해…" | `jojo_practice` 로그의 `코드 다시 만듦` 줄 `problems` 에 이유가 있어요 (문법 오류, 너무 긺, ※ 줄을 못 찾음) |
-| `Task timed out` | `npm run deploy` 로 `functions.json` 의 제한 시간을 맞춰요 (연습 코드 10분) |
+| `Task timed out` | 그 함수의 제한 시간을 함수 표대로 (연습 코드 10분) |
 | 오랜만에 열면 첫 요청이 느림 | 정상 (콜드 스타트 약 1~2초, 함수마다 따로) |

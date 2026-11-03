@@ -2,7 +2,8 @@
 Lambda 함수마다 zip 묶기 (npm run package). 표는 lambda/functions.json 하나예요.
 
   npm run package                      → dist/lambda/<함수 이름>.zip (functions.json 의 함수 모두)
-  npm run package -- jojo_auth         → 그 함수만
+                                         + lambda/console/ (콘솔에 붙여넣을 파일을 함수 이름별 폴더로 · 라이브러리 레이어 zip)
+  npm run package -- jojo_auth         → 그 함수의 zip 만
 
 함수 zip 안:
   lambda_function.py   그 함수의 입구 (lambda/functions/<이름>.py — 예전 함수는 lambda/api/lambda_function.py)
@@ -105,6 +106,9 @@ def main(names):
     for f in selected(names):
         path, _ = build(f)
         print(f"✓ {f['name']:<14} {os.path.getsize(path) / 1e6:.1f}MB  {os.path.relpath(path, ROOT)}  (파일 {len(f['files']) + 1}개 + {', '.join(f['libs'])})")
+    if not names:   # 함수 이름별 콘솔용 폴더도 함께 (lambda/console — scripts/console_lambdas.py)
+        import console_lambdas
+        console_lambdas.write_all()
 
 
 if __name__ == "__main__":
