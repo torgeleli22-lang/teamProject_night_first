@@ -3,7 +3,7 @@
 작업 전에 **`docs/PROJECT_BRIEF.md`** 를 먼저 읽으세요. 프로젝트 개요, 화면 흐름, AI 사용 원칙, 아키텍처, DynamoDB 항목, 디렉터리, 다음 할 일이 모두 정리되어 있습니다.
 프로젝트의 두 기준 문서를 따르세요 (바꿀 때는 문서부터 고칩니다):
 - **`docs/GENERATION_STANDARD.md`** — AI 연습 문항 생성·검토 기준 (학습 목표 → 코드 요건 → ※ 지점 → 모범 설명·실행 추적표 → 합격 기준 → 실패 처리)
-- **`docs/LAMBDA_STRUCTURE.md`** — Lambda 구조 기준 (함수 6개, 공통 조각 `core`·`ai`·`code_store`, 외부 라이브러리, 로그·오류, 배포). 함수마다 넣을 파일·라이브러리·환경 변수 이름은 **`lambda/functions.json`** 하나에 있고(입구는 `lambda/functions/`), `lambda/tests/test_functions.py` 가 코드와 맞는지 확인해요. 콘솔에서 함수를 만들고 화면을 옮기는 일(§10 5·6단계)이 남았어요 — 그때까지 예전 함수 `jojo_api_py` 도 함께 배포해요
+- **`docs/LAMBDA_STRUCTURE.md`** — Lambda 구조 기준 (함수 6개, 공통 조각 `core`·`ai`·`code_store`, 외부 라이브러리, 로그·오류, 배포). 함수마다 넣을 파일·라이브러리·환경 변수 이름은 **`lambda/functions.json`** 하나에 있고(입구는 `lambda/functions/`), `lambda/tests/test_functions.py` 가 코드와 맞는지 확인해요. 콘솔에 붙여넣을 파일은 함수 이름별 폴더 `lambda/console/<함수>/` 에 있어요 — **자동으로 만든 복사본이라 직접 고치지 않고**, 원본(`lambda/api`·`lambda/functions`)을 고친 뒤 `npm run package` 로 다시 만들어요 (다르면 `npm test` 가 실패). 콘솔에서 함수를 만들고 화면을 옮기는 일(§10 5·6단계)이 남았어요 — 그때까지 예전 함수 `jojo_api_py` 도 둬요
 
 AI 사용 기준(프롬프트·검사·대체 동작)은 `docs/ai-generation-policy.md`, Lambda 배포 순서는 `docs/DEPLOY_LAMBDA.md` 에 있습니다.
 
@@ -30,7 +30,7 @@ npm test               # 단위 테스트 (TS + Python)
 npm run verify         # 예시 코드 실제 실행 + ※ 지점 검증
 npm run build          # 정적 화면 빌드 (out/)
 npm run smoke          # Lambda 전체 흐름 점검 (Lambda 를 바꿨다면)
-npm run package        # 함수마다 zip 묶기 (dist/lambda/)
+npm run package        # 함수마다 zip 묶기 (dist/lambda/) + 콘솔용 함수 이름별 폴더 lambda/console/ (Lambda 를 바꿨다면)
 npm run deploy         # CloudShell 에서 AWS 에 올리기 (-- check 확인만 · -- setup 처음 한 번, docs/DEPLOY_LAMBDA.md)
 ```
-작업을 마치기 전에 위 네 가지(typecheck, test, verify, build)를 모두 통과시키세요. Lambda 를 바꿨다면 smoke 도.
+작업을 마치기 전에 위 네 가지(typecheck, test, verify, build)를 모두 통과시키세요. Lambda 를 바꿨다면 package(콘솔용 폴더 다시 만들기)와 smoke 도.
