@@ -25,6 +25,7 @@ import getpass
 import json
 import os
 import random
+import re
 import statistics
 import subprocess
 import sys
@@ -139,9 +140,11 @@ def output_accuracy(rows, out_dir):
             continue
         real = output_lines(run_code(r["code"], r["language"], folder, f"q{r['no']:02d}"))
         guess = output_lines("\n".join(r["trace"]["output"]))
-        r["outputMatch"] = real == guess
+        # 줄바꿈·띄어쓰기만 다른 것은 같은 출력으로 (console.log("이름:", 객체) 를 AI 가 두 줄로 적는 등)
+        match = real == guess or re.sub(r"\s+", "", "".join(real)) == re.sub(r"\s+", "", "".join(guess))
+        r["outputMatch"] = match
         compared += 1
-        same += real == guess
+        same += match
         line_total += max(len(real), len(guess))
         line_hits += sum(a == b for a, b in zip(real, guess))
     return same, compared, (line_hits / line_total if line_total else 0)

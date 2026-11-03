@@ -239,8 +239,7 @@ class CodeCheckPipeline(unittest.TestCase):
                 "marks": [{"id": "m1", "enter": "total=0", "steps": ["8번 줄 total=3000", "8번 줄 total=6500", "8번 줄 total=10000"],
                            "exit": "total=10000", "branch": "", "count": 3, "explanation": explanation or m["explanation"], "keywords": m["keywords"]}]}
 
-    ok = {"trace": {"output": ["결제할 금액: 9000"], "points": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3}]},
-          "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
+    ok = {"output": ["결제할 금액: 9000"], "marks": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3, "ok": True}], "codeProblems": []}
 
     def run_with(self, checks, traces=None, bad_first=False, level=1, wide_first=False, reselects=None, grade="standard", fix_works=True):
         """checks: 교차 검토가 차례로 돌려줄 답 / traces: 실행 추적표가 차례로 돌려줄 답 (예외면 그 예외를 던짐)
@@ -373,7 +372,15 @@ class CodeCheckPipeline(unittest.TestCase):
     def test_gives_sample_when_problems_remain(self):
         problem = {**self.ok, "codeProblems": ["무한 반복"]}
         made = self.run_with([problem] * practice.GEN_ATTEMPTS * 2)   # 시도마다: 검토 → 부분 수정 → 다시 검토
-        self.assertEqual((made["origin"], made["verification"], self.calls.count("code_generation")), ("sample", "sample_verified", 3))
+        # 호출 한도(MAX_GEN_CALLS): 1번째 시도 6번(출제·추적·검토·수정·추적·검토) + 2번째 3번 → 남은 1번으로는 새로 만들지 않음
+        self.assertEqual((made["origin"], made["verification"], self.calls.count("code_generation")), ("sample", "sample_verified", 2))
+        self.assertLessEqual(len(self.calls), practice.MAX_GEN_CALLS)
+
+    def test_marks_written_as_several_lines_are_found(self):
+        lines = ["a = 1", "for i in range(3):", "    a = a + i", "print(a)"]
+        self.assertEqual(practice.edge_line("for i in range(3):\n    a = a + i"), "for i in range(3):")
+        self.assertEqual(practice.edge_line("for i in range(3):\n    a = a + i\n", last=True), "    a = a + i")
+        self.assertEqual(practice.find_line(lines, practice.edge_line("    a = a + i\nprint(a)", last=True), 0), 4)
 
     def test_check_unavailable_trusts_rule_checks(self):
         made = self.run_with([ai.AiUnavailable("budget")])
