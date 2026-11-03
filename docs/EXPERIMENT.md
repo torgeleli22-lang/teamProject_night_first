@@ -30,6 +30,10 @@
 | AI 문항 최종 제공 · 예시 코드 대체 | 최종 결과가 AI 문항(`origin: ai`) / 예시 코드(`origin: sample`)인 문항 / 40 (둘을 더하면 100%) |
 | 모범 설명 실행 확인 | `verify.md` 의 10문항 중 ※ 설명이 모두 실제 실행과 맞는 문항 수 (연구진 판정). Math.random·지금 시각을 쓴 코드는 실행마다 출력이 달라질 수 있어서, 값이 아니라 흐름이 맞는지로 판정 |
 | 문항당 평균 생성 시간 | 요청부터 최종 결과까지 (출제·검사·검토·재생성 포함), 평균과 중앙값 |
+| 문항당 비용 | 입력·출력 토큰 × Claude Haiku 4.5 단가 (입력 1달러·출력 5달러 / 100만 토큰), 평균 |
+| 부분 수정 | 부분 수정(`code_fix`)을 쓴 문항 수, 그중 고쳐서 넘어간 수 |
+| 출력 자동 비교 | AI 문항 코드를 실제로 실행(`run_code/`)해 추적표의 출력과 줄마다 같은지 (Math.random·시각을 쓰면 다를 수 있음) |
+| 학습자 등급별 (`--grade-pairs`) | 기초·전문가 각각의 AI 제공률·교차 검토 통과·출력 일치·비용·평균 호출 수 |
 
 ## 실행하기
 
@@ -67,6 +71,12 @@ CloudShell 세션이 끝나 멈추면, 같은 폴더로 이어서 (이미 만든
 python3.11 scripts/experiment_generation.py --url https://<함수 URL> --resume experiment_out/<시각>
 ```
 
+### 4-1. 등급별 비교 (10문항)
+같은 주제·난이도를 기초·전문가로 한 쌍씩 만들어 비교해요 (v1.3):
+```bash
+python3.11 scripts/experiment_generation.py --url https://<함수 URL> --grade-pairs 5
+```
+
 ### 5. 결과 내려받기
 ```bash
 cd experiment_out && zip -r ../experiment_result.zip . && cd ..
@@ -91,6 +101,7 @@ python3.11 scripts/experiment_generation.py --local
 | `--url` | — | Lambda 함수 URL — 이 Lambda 에서 만든다 (권장) |
 | `--local` | — | 이 컴퓨터에서 Lambda 코드를 직접 실행 (AWS 권한 필요) |
 | `--reps` | 5 | 언어·난이도마다 문항 수 (5 → 40문항) |
+| `--grade-pairs` | — | 등급별 비교: 같은 주제·언어·난이도를 기초·전문가로 N쌍 (5 → 10문항). `--reps` 대신 |
 | `--workers` | 4 | 동시에 만들 문항 수 (늘리면 빨라지지만 Bedrock 요청 한도에 걸릴 수 있음) |
 | `--seed` | 2026 | 주제 순서·확인 문항 고르기 |
 | `--verify` | 10 | 실행 확인할 AI 문항 수 |

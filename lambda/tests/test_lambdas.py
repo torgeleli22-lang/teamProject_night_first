@@ -242,7 +242,7 @@ class CodeCheckPipeline(unittest.TestCase):
     ok = {"trace": {"output": ["결제할 금액: 9000"], "marks": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3}]},
           "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
 
-    def run_with(self, checks, traces=None, bad_first=False, level=1, wide_first=False, reselects=None):
+    def run_with(self, checks, traces=None, bad_first=False, level=1, wide_first=False, reselects=None, grade="standard", fix_works=True):
         """checks: 교차 검토가 차례로 돌려줄 답 / traces: 실행 추적표가 차례로 돌려줄 답 (예외면 그 예외를 던짐)
         wide_first: 첫 출제의 ※ 를 코드 전체로 (※ 위치만 문제) / reselects: ※ 다시 고르기가 차례로 돌려줄 ※ (없으면 예시 코드의 ※)"""
         checks, traces, reselects = list(checks), list(traces or []), list(reselects or [])
@@ -261,12 +261,18 @@ class CodeCheckPipeline(unittest.TestCase):
                 return {k: v for k, v in r.items() if k != "_mock"}
             if task == "mark_reselect":
                 return {"marks": reselects.pop(0) if reselects else good_marks}
+            if task == "code_fix":   # 오타 줄만 고쳐 돌려준다 (fix_works=False 면 고치지 못함)
+                body = prompt.split("<code>")[1].split("</code>")[0].strip("\n").split("\n")
+                bad = [(int(line.split("| ", 1)[0]), line.split("| ", 1)[1]) for line in body if "totl" in line]
+                if not fix_works or not bad:
+                    return {"edits": []}
+                return {"edits": [{"startNo": bad[0][0], "endNo": bad[0][0], "code": bad[0][1].replace("totl", "total")}]}
             answer = (traces.pop(0) if traces else self.trace()) if task == "code_trace" else checks.pop(0)
             if isinstance(answer, Exception):
                 raise answer
             return answer
         practice.ask_ai = fake
-        return practice.make_code({}, level, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
+        return practice.make_code({}, level, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python", grade=grade)
 
     def test_passes_with_trace_and_records_checks(self):
         made = self.run_with([self.ok])
@@ -281,13 +287,48 @@ class CodeCheckPipeline(unittest.TestCase):
         made = self.run_with([fixed])
         self.assertEqual((made["origin"], made["marks"][0]["explanation"], made["marks"][0]["keywords"]), ("ai", "고친 설명이에요.", ["고친", "설명"]))
 
-    def test_code_problem_makes_it_again(self):
+    def test_check_code_problem_is_fixed_in_place_then_traced_again(self):
+        # v1.3: 교차 검토가 찾은 코드 문제는 부분 수정 → ②·③ 다시 (① 부터 다시 만들지 않음)
         made = self.run_with([{**self.ok, "codeProblems": ["7번째 줄: 없는 메뉴를 찾아 오류"]}, self.ok])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_trace", "code_check"] * 2))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_trace", "code_check", "code_fix", "code_trace", "code_check"]))
+        self.assertIn("없는 메뉴", self.prompts["code_fix"][0])
 
-    def test_rule_problem_skips_trace_and_check_and_retries(self):
+    def test_rule_problem_is_fixed_by_editing_lines(self):
         made = self.run_with([self.ok], bad_first=True)
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_generation", "code_trace", "code_check"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_fix", "code_trace", "code_check"]))
+        self.assertIn("total = total + price", made["code"])
+        self.assertNotIn("totl", made["code"])
+
+    def test_fix_that_does_not_fix_makes_code_again(self):
+        made = self.run_with([self.ok], bad_first=True, fix_works=False)
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_fix", "code_generation", "code_trace", "code_check"]))
+
+    def test_apply_edits(self):
+        code = "a = 1\nb = 2\nc = 3\nprint(a + b + c)"
+        self.assertEqual(practice.apply_edits(code, [{"startNo": 2, "endNo": 2, "code": "b = 20\nd = 4"}, {"startNo": 4, "endNo": 4, "code": "print(a + b + c + d)"}]),
+                         "a = 1\nb = 20\nd = 4\nc = 3\nprint(a + b + c + d)")
+        self.assertEqual(practice.apply_edits(code, [{"startNo": 3, "endNo": 3, "code": ""}]), "a = 1\nb = 2\nprint(a + b + c)")
+        self.assertIsNone(practice.apply_edits(code, [{"startNo": 1, "endNo": 2, "code": "x"}, {"startNo": 2, "endNo": 3, "code": "y"}]))   # 겹침
+        self.assertIsNone(practice.apply_edits(code, [{"startNo": 4, "endNo": 9, "code": "x"}]))   # 범위 밖
+
+    def test_size_problem_is_not_patched(self):
+        called = []
+        saved = practice.fix_code
+        practice.fix_code = lambda *a, **k: called.append(1)
+        try:
+            _, _, _, problems, used = practice.repair({}, "x", [], ["코드가 200줄이라 너무 길어요 (180줄 이하)"], 4, "python", ("algorithm",), "standard", used_fix=False)
+        finally:
+            practice.fix_code = saved
+        self.assertEqual((called, used, len(problems)), ([], False, 1))
+
+    def test_grade_changes_mark_and_explanation_guidance_but_not_review(self):
+        self.run_with([self.ok], grade="basic")
+        self.assertIn("학습자 등급: 기초", self.prompts["code_generation"][0])
+        self.assertIn("학습자 등급 '기초'", self.prompts["code_trace"][0])
+        self.assertNotIn("등급", self.prompts["code_check"][0])   # 교차 검토는 정확성만 (등급을 주지 않음)
+        self.calls.clear(); self.prompts.clear()
+        self.run_with([self.ok])
+        self.assertNotIn("학습자 등급", self.prompts["code_generation"][0])   # 보통(기본)은 지금 그대로
 
     def test_explanation_only_issue_redoes_trace_and_check_not_code(self):
         # v1.2: 모범 설명만 문제면 코드는 그대로 ②·③ 만 한 번 더
@@ -313,10 +354,9 @@ class CodeCheckPipeline(unittest.TestCase):
         made = self.run_with([self.ok], wide_first=True, reselects=[wide])
         self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "mark_reselect", "code_generation", "code_trace", "code_check"]))
 
-    def test_code_problem_with_mark_problem_does_not_reselect(self):
+    def test_code_and_mark_problems_fix_code_then_reselect(self):
         made = self.run_with([self.ok], bad_first=True, wide_first=True)
-        self.assertNotIn("mark_reselect", self.calls)
-        self.assertEqual(made["origin"], "ai")
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_fix", "mark_reselect", "code_trace", "code_check"]))
 
     def test_unsupported_number_goes_to_check(self):
         m = self.sample["marks"][0]
@@ -327,7 +367,7 @@ class CodeCheckPipeline(unittest.TestCase):
 
     def test_gives_sample_when_problems_remain(self):
         problem = {**self.ok, "codeProblems": ["무한 반복"]}
-        made = self.run_with([problem] * practice.GEN_ATTEMPTS)
+        made = self.run_with([problem] * practice.GEN_ATTEMPTS * 2)   # 시도마다: 검토 → 부분 수정 → 다시 검토
         self.assertEqual((made["origin"], made["verification"], self.calls.count("code_generation")), ("sample", "sample_verified", 3))
 
     def test_check_unavailable_trusts_rule_checks(self):
