@@ -200,7 +200,12 @@ class ExplanationRules(unittest.TestCase):
         _, issues = self.issues("가격을 하나씩 더해요." * 40, ["하나씩", "더해"])
         self.assertTrue(any("너무 길어요" in h for h in issues["m1"]["hard"]))
         _, issues = self.issues("가격을 하나씩 더해요.", ["하나씩"])
-        self.assertTrue(any("핵심 표현" in h for h in issues["m1"]["hard"]))
+        self.assertTrue(any("핵심 표현" in h for h in issues["m1"]["hard"]))   # 채울 코드 이름·값도 없으면 꼭 지킬 것
+        # v1.2: 핵심 표현이 설명과 글자가 달라도, 설명 속의 코드 이름·값으로 채워 다시 만들지 않는다
+        fixed, issues = self.issues("가격을 차례로 total 에 더해서 반복이 끝나면 6500이 돼요.", ["누적 합계", "반복 더하기"])
+        self.assertEqual((issues, fixed[0]["keywords"]), ({}, ["total", "6500"]))
+        fixed, issues = self.issues("가격을 하나씩 total 에 더해요.", ["하나씩", "for"])   # 이미 있는 말 + 코드 이름 (문법 낱말은 빼고)
+        self.assertEqual((issues, fixed[0]["keywords"]), ({}, ["하나씩", "total"]))
         # 근거 없는 숫자는 확인할 것(soft): 교차 검토가 확인한다. 줄 번호·천 단위 쉼표는 숫자로 보지 않음
         _, issues = self.issues("2~3번 줄에서 하나씩 더해 6,500이 되고 2번 돌아요. 그다음 9999가 돼요.", ["하나씩", "더해"])
         self.assertEqual((issues["m1"]["hard"], issues["m1"]["soft"]), ([], ["※ 2~3번 줄의 모범 설명 속 값 9999 이(가) 실행 추적표·출력·코드에 없어요"]))
@@ -237,9 +242,11 @@ class CodeCheckPipeline(unittest.TestCase):
     ok = {"trace": {"output": ["결제할 금액: 9000"], "marks": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3}]},
           "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
 
-    def run_with(self, checks, traces=None, bad_first=False, level=1):
-        """checks: 교차 검토가 차례로 돌려줄 답 / traces: 실행 추적표가 차례로 돌려줄 답 (예외면 그 예외를 던짐)"""
-        checks, traces = list(checks), list(traces or [])
+    def run_with(self, checks, traces=None, bad_first=False, level=1, wide_first=False, reselects=None):
+        """checks: 교차 검토가 차례로 돌려줄 답 / traces: 실행 추적표가 차례로 돌려줄 답 (예외면 그 예외를 던짐)
+        wide_first: 첫 출제의 ※ 를 코드 전체로 (※ 위치만 문제) / reselects: ※ 다시 고르기가 차례로 돌려줄 ※ (없으면 예시 코드의 ※)"""
+        checks, traces, reselects = list(checks), list(traces or []), list(reselects or [])
+        good_marks = practice.sample_as_ai(self.sample)["marks"]
 
         def fake(task, system, prompt, schema, **kw):
             self.calls.append(task)
@@ -248,7 +255,12 @@ class CodeCheckPipeline(unittest.TestCase):
                 r = practice.sample_as_ai(self.sample)
                 if bad_first and self.calls.count("code_generation") == 1:
                     r = {**r, "code": r["code"].replace("total = total + price", "total = totl + price")}   # 오타 → 규칙 검사 A 에서 걸림
+                if wide_first and self.calls.count("code_generation") == 1:
+                    lines = r["code"].split("\n")
+                    r = {**r, "marks": [{**r["marks"][0], "startLine": lines[0], "endLine": lines[-1], "startNo": 1, "endNo": len(lines)}]}
                 return {k: v for k, v in r.items() if k != "_mock"}
+            if task == "mark_reselect":
+                return {"marks": reselects.pop(0) if reselects else good_marks}
             answer = (traces.pop(0) if traces else self.trace()) if task == "code_trace" else checks.pop(0)
             if isinstance(answer, Exception):
                 raise answer
@@ -277,9 +289,34 @@ class CodeCheckPipeline(unittest.TestCase):
         made = self.run_with([self.ok], bad_first=True)
         self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_generation", "code_trace", "code_check"]))
 
-    def test_hard_explanation_issue_left_after_check_makes_it_again(self):
+    def test_explanation_only_issue_redoes_trace_and_check_not_code(self):
+        # v1.2: 모범 설명만 문제면 코드는 그대로 ②·③ 만 한 번 더
         made = self.run_with([self.ok, self.ok], traces=[self.trace("예를 들어 가격을 하나씩 더해 10000원이 돼요.")])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_trace", "code_check"] * 2))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_trace", "code_check", "code_trace", "code_check"]))
+
+    def test_explanation_issue_twice_makes_code_again(self):
+        bad = self.trace("예를 들어 가격을 하나씩 더해 10000원이 돼요.")
+        made = self.run_with([self.ok] * 3, traces=[bad, bad])
+        self.assertEqual((made["origin"], self.calls),
+                         ("ai", ["code_generation", "code_trace", "code_check", "code_trace", "code_check", "code_generation", "code_trace", "code_check"]))
+
+    def test_mark_only_problem_reselects_marks_and_keeps_code(self):
+        # v1.2: ※ 범위만 문제면 코드는 그대로 두고 ※ 만 다시 고른다 (① 부터 다시 만들지 않음)
+        made = self.run_with([self.ok], wide_first=True)
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "mark_reselect", "code_trace", "code_check"]))
+        self.assertIn("너무 넓어요", self.prompts["mark_reselect"][0])
+        self.assertIn(" 1| ", self.prompts["mark_reselect"][0])   # 줄 번호를 붙인 코드
+
+    def test_reselect_that_still_fails_makes_code_again(self):
+        lines = self.sample["code"].split("\n")
+        wide = [{"startLine": lines[0], "endLine": lines[-1], "startNo": 1, "endNo": len(lines)}]
+        made = self.run_with([self.ok], wide_first=True, reselects=[wide])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "mark_reselect", "code_generation", "code_trace", "code_check"]))
+
+    def test_code_problem_with_mark_problem_does_not_reselect(self):
+        made = self.run_with([self.ok], bad_first=True, wide_first=True)
+        self.assertNotIn("mark_reselect", self.calls)
+        self.assertEqual(made["origin"], "ai")
 
     def test_unsupported_number_goes_to_check(self):
         m = self.sample["marks"][0]

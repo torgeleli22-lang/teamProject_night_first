@@ -118,12 +118,19 @@ def agree_text(rows, key):
     return pct(sum(values), len(values)) if values else "-"
 
 
+def rule_final(a):
+    """규칙 검사 A 에서 다시 만들게 된 문제 (※ 다시 고르기로 고친 것은 빼고 — v1.2). 예전 기록은 rule_problems 그대로"""
+    return a.get("rule_problems_final", a.get("rule_problems"))
+
+
 def summarize(rows):
     n = len(rows)
     first = [r["attempts"][0] for r in rows if r["attempts"]]
-    rule_first = sum(1 for a in first if a["rule_problems"])
-    check_first = sum(1 for a in first if not a["rule_problems"] and a["check_problems"])
-    explain_first = sum(1 for a in first if not a["rule_problems"] and not a["check_problems"] and a.get("final_hard"))
+    rule_first = sum(1 for a in first if rule_final(a))
+    reselect_fixed = sum(1 for a in first if a["rule_problems"] and a.get("reselected") and not rule_final(a))
+    check_first = sum(1 for a in first if not rule_final(a) and a["check_problems"])
+    explain_first = sum(1 for a in first if not rule_final(a) and not a["check_problems"] and a.get("final_hard"))
+    explain_retry = sum(1 for a in first if a.get("explain_retry"))
     rule_any = sum(1 for r in rows if any(a["rule_problems"] for a in r["attempts"]))
     check_any = sum(1 for r in rows if any(a["check_problems"] for a in r["attempts"]))
     ai = [r for r in rows if r["origin"] == "ai"]
@@ -147,7 +154,9 @@ def summarize(rows):
         ("문항당 평균 생성 시간", f"{statistics.mean(secs):.1f}초 (중앙값 {statistics.median(secs):.1f}초)" if secs else "-"),
     ]
     extra = [
-        ("규칙 검사에 걸린 문항 (두 번째 시도 포함)", pct(rule_any, n)),
+        ("규칙 검사 A 에 걸렸지만 ※ 다시 고르기로 고친 문항 (첫 생성)", pct(reselect_fixed, n)),
+        ("모범 설명만 다시 쓴 문항 (첫 생성, ②·③ 한 번 더)", pct(explain_retry, n)),
+        ("규칙 검사에 걸린 문항 (두 번째 시도 포함, 다시 고르기 전)", pct(rule_any, n)),
         ("교차 검토에 걸린 문항 (두 번째 시도 포함)", pct(check_any, n)),
         ("교차 검토를 하지 못하고 통과한 AI 문항 (검토 호출 실패)", f"{no_check}개"),
         ("실험 오류", f"{len(errors)}개"),
@@ -168,8 +177,8 @@ def breakdown(rows):
             if not g:
                 continue
             first = [r["attempts"][0] for r in g if r["attempts"]]
-            out.append(f"| {language} | {LEVEL_NAMES[level]} | {len(g)} | {sum(1 for a in first if a['rule_problems'])} | "
-                       f"{sum(1 for a in first if not a['rule_problems'] and a['check_problems'])} | "
+            out.append(f"| {language} | {LEVEL_NAMES[level]} | {len(g)} | {sum(1 for a in first if rule_final(a))} | "
+                       f"{sum(1 for a in first if not rule_final(a) and a['check_problems'])} | "
                        f"{sum(r['attempts'][-1]['fixed'] for r in g if r['origin'] == 'ai' and r['attempts'])} | "
                        f"{sum(1 for r in g if r['origin'] == 'ai')} | {sum(1 for r in g if r['origin'] == 'sample')} | "
                        f"{statistics.mean(r['seconds'] for r in g):.1f}초 |")
@@ -275,7 +284,7 @@ def main():
             done[r["no"]] = r
             first = r["attempts"][0] if r["attempts"] else {}
             print(f"[{len(done):2}/{total}] #{r['no']:02d} {r['language']:10} {LEVEL_NAMES[r['level']]} {r['origin']:6} {r['seconds']:6.1f}초 "
-                  f"규칙 {'✗' if first.get('rule_problems') else '✓'} 검토 {'✗' if first.get('check_problems') else '✓'} 교정 {r['attempts'][-1]['fixed'] if r['attempts'] else 0} · {r['topic']}",
+                  f"규칙 {'✗' if rule_final(first) else ('↻' if first.get('reselected') else '✓')} 검토 {'✗' if first.get('check_problems') else '✓'} 교정 {r['attempts'][-1]['fixed'] if r['attempts'] else 0} · {r['topic']}",
                   flush=True)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
@@ -304,7 +313,7 @@ def main():
           "## 언어 · 난이도별", "", breakdown(rows), "",
           "## 검출 사례 (일부)", "", problem_examples(rows), "",
           "## 정의", "",
-          "- 규칙 검사 재생성: 첫 생성 결과가 규칙 검사(ast 문법·정의 안 된 이름·금지 모듈/함수, JS 괄호·따옴표·금지 기능, 줄 수, ※ 줄 위치)에서 문제 ≥1 → 재생성",
+          "- 규칙 검사 재생성: 첫 생성 결과가 규칙 검사(ast 문법·정의 안 된 이름·금지 모듈/함수, JS 괄호·따옴표·금지 기능, 줄 수, ※ 줄 위치)에서 문제 ≥1 → 재생성 (v1.2: ※ 위치만의 문제는 ※ 다시 고르기로 먼저 고치고, 그래도 남은 것만 셈. 진행 줄의 ↻ = 다시 고르기로 통과)",
           "- 교차 검토 재생성: 첫 생성이 규칙 검사는 통과했지만 교차 검토(같은 모델이 머릿속으로 실행)가 실행 오류·난이도 불일치를 찾아 재생성",
           "- 모범 설명 교정: 최종 제공된 AI 문항에서 교차 검토가 틀렸다고 판단해 교체한 ※ 모범 설명 수 / 그 문항들의 ※ 지점 총수 (재생성으로 버려진 시도의 교정은 세지 않음)",
           "- AI 최종 제공 / 예시 코드 대체: 최종 결과의 origin (ai / sample)",
