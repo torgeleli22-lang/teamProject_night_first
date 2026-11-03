@@ -51,6 +51,36 @@ class AiSchema(unittest.TestCase):
         self.assertTrue(ai.parse_answer({"items": [], "n": 1, "maybe": 3, "kind": "a"}, Sample)[1])
 
 
+class AiRetry(unittest.TestCase):
+    """형식이 어긋난 답: 다른 칸 안에 든 칸은 꺼내고, 그래도 틀리면 빠진 칸을 알려 주고 1번 더 묻는다"""
+
+    class Check(ai.AiAnswer):
+        trace: Kind
+        codeProblems: list[str]
+
+    def test_lifts_field_put_inside_another(self):
+        fixed, issues = ai.parse_answer({"trace": {"name": "t", "codeProblems": ["x"]}}, self.Check)
+        self.assertEqual((issues, fixed["codeProblems"]), ([], ["x"]))
+        self.assertTrue(ai.parse_answer({"trace": {"codeProblems": []}}, Sample)[1])   # 꺼낼 게 없으면 그대로 오류
+
+    def test_asks_again_once_when_shape_is_wrong(self):
+        answers = [{"trace": {"name": "t"}}, {"trace": {"name": "t"}, "codeProblems": []}]
+        prompts = []
+
+        class Client:
+            def converse(self, **kw):
+                prompts.append(kw["messages"][-1]["content"][0]["text"])
+                return {"stopReason": "tool_use", "usage": {"inputTokens": 1, "outputTokens": 1},
+                        "output": {"message": {"content": [{"toolUse": {"input": answers.pop(0)}}]}}}
+        with unittest.mock.patch.object(ai, "AI_MODE", "live"), unittest.mock.patch.object(ai, "ai_enabled", lambda: True), \
+                unittest.mock.patch.object(ai, "check_budget", lambda *a: None), unittest.mock.patch.object(ai, "log_usage", lambda *a, **k: None), \
+                unittest.mock.patch.object(ai, "bedrock", lambda: Client()):
+            got = ai.ask_ai("code_check", "s", "질문", self.Check)
+        self.assertEqual(got["codeProblems"], [])
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("codeProblems", prompts[1])   # 빠진 칸을 알려 준다
+
+
 class RequestBody(unittest.TestCase):
     class In(core.Body):
         level: int = Field(ge=1, le=4)

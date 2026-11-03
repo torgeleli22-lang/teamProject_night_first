@@ -149,6 +149,7 @@ def summarize(rows):
         ("모범 설명 규칙 재생성 판정 (첫 생성 기준, 검토 뒤에도 빈 설명·가정 표현 등이 남음)", pct(explain_first, n)),
         ("교차 검토의 모범 설명 교정 (최종 AI 문항의 ※ 지점 기준)", f"{fixed}개 / {marks_total}곳 ({100 * fixed / marks_total:.1f}%) · 문항 {fixed_items}개" if marks_total else "0"),
         ("AI 문항 최종 제공", pct(len(ai), n)),
+        ("  └ 그중 교차 검토까지 거친 문항 (ai_reviewed)", pct(sum(1 for r in ai if r.get("verification") == "ai_reviewed"), n)),
         ("예시 코드 대체", pct(len(sample), n)),
         ("모범 설명 실행 확인 (10문항)", "verify.md 에 표시 후 직접 집계"),
         ("문항당 평균 생성 시간", f"{statistics.mean(secs):.1f}초 (중앙값 {statistics.median(secs):.1f}초)" if secs else "-"),
