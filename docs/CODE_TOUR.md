@@ -92,7 +92,7 @@
 - 학습자 정보(`PROFILE`)와 같은 서랍이라 `query_all(user_pk(나))` 한 번이면 둘 다 나와요
 
 #### 읽을 코드 `CODE#<id> / INFO`
-- **쓰기**: `code_store.py:91` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:250` `start_practice`, `practice.py:271` `adjust`)와 내 코드 점검(`inspect_code.py:74` `start`)이 함께 써요
+- **쓰기**: `code_store.py:91` `save_code` — 코드 id 는 `new_id()` (시간순 UUID: 앞 12글자가 만든 시각) — 연습 모드(`practice.py:269` `start_practice`, `practice.py:290` `adjust`)와 내 코드 점검(`inspect_code.py:74` `start`)이 함께 써요
 - **읽기**: `code_store.py:102` `load_code(code_id, user)` — **userId 가 나(또는 로그인 전의 나)일 때만** 꺼내 줘요 (남의 코드 id 를 알아도 못 봄)
 - **화면으로 보낼 모양**: `code_store.py:135` `public_code` — ※ 지점은 `start·end` 만, **모범 설명은 빼고** 보내요
 
@@ -115,7 +115,7 @@
 - `OPS#USAGE` · `OPS#AILOG`: `ai.py:72` `log_usage`, `:87` `log_ai_event` — AI 를 부를 때마다
 - `OPS#CONFIG`: `core.py:638` `get_meta`, `:642` `set_meta` — AI 스위치(`:625` `ai_switch_on`)
 - `OPS#LIMIT`: `core.py:517` `bump_counter`, `:529` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
-- 관리자 화면이 모아 읽기: `admin.py:125` `overview`
+- 관리자 화면이 모아 읽기: `admin.py:126` `overview`
 
 ---
 
@@ -177,7 +177,7 @@ r = ask_ai("code_generation", system, prompt, CodeAnswer, max_tokens=OUTPUT_TOKE
 | 6 | `finally: log_usage` `:580` | 성공·실패 모두 토큰·비용 기록 (`OPS#USAGE`, `OPS#AILOG`) |
 
 **부르는 쪽의 약속**: `ask_ai` 는 실패하면 `AiUnavailable` 을 던져요. 부르는 쪽은 꼭 받아서 **AI 없는 길**로 가요.
-- 연습 코드 → 예시 코드 (`practice.py:631` `pick_sample`)
+- 연습 코드 → 예시 코드 (`practice.py:686` `pick_sample`)
 - 첨삭 → 규칙 첨삭 (`review.py:238` `rule_review`: 핵심 표현이 메모에 들어 있는지)
 - 튜터 → 규칙 답 (`tutor_chat.py:134` `rule_answer`)
 - 주제 판정 → 규칙 판정 (`topics.py:94` `rule_check`)
@@ -188,31 +188,32 @@ r = ask_ai("code_generation", system, prompt, CodeAnswer, max_tokens=OUTPUT_TOKE
 
 각 처리 함수 안에 `# 1.` `# 2.` 단계 주석이 있어요. **주석만 위에서 아래로 읽어도 흐름이 보여요.**
 
-#### ① 연습 코드 받기 — `POST /practice` → `practice.py:250` `start_practice`
+#### ① 연습 코드 받기 — `POST /practice` → `practice.py:269` `start_practice`
 ```
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      PracticeIn · read_body
    get_user(req)                                           core.py:572
-2. make_code()                                                practice.py:331
-   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:631
+2. make_code()                                                practice.py:350
+   ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:686
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
    └ 최대 3번 (처음 + 다시 만들기 2번):
        ① 출제   ask_ai("code_generation")  코드 + ※ 위치
-       규칙 검사 A check_generated                             practice.py:544
-            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:677
-                    py_structure (함수·클래스·예외·재귀 세기)      practice.py:730
-            JavaScript: js_check (tree-sitter 문법 나무: 문법 오류·금지 기능·구조)  practice.py:788
-            난이도별 요건 level_problems                         practice.py:592
-            줄 수 · ※ 줄 찾기 find_line                         practice.py:619
-       ② 실행 추적표 trace_and_explain → ask_ai("code_trace")   practice.py:388
-       규칙 검사 B explanation_issues (모범 설명)               practice.py:438
-       ③ 교차 검토 ai_check_code → ask_ai("code_check")         practice.py:466
-            틀린 모범 설명 고치기 fix_explanations               practice.py:489
-       두 추적표 비교 compare_traces (기록)                     practice.py:523
+       규칙 검사 A check_generated                             practice.py:599
+            Python: py_ast_problems (문법·금지 기능·오타·print)  practice.py:732
+                    py_structure (함수·클래스·예외·재귀 세기)      practice.py:785
+            JavaScript: js_check (tree-sitter 문법 나무: 문법 오류·금지 기능·구조)  practice.py:843
+            난이도별 요건 level_problems                         practice.py:647
+            줄 수 · ※ 줄 찾기 find_line                         practice.py:674
+       ※ 위치만 문제면 ※ 다시 고르기 reselect_marks → ask_ai("mark_reselect")   practice.py:417
+       ② 실행 추적표 trace_and_explain → ask_ai("code_trace")   practice.py:434
+       규칙 검사 B explanation_issues (모범 설명, 핵심 표현 보정)               practice.py:484
+       ③ 교차 검토 ai_check_code → ask_ai("code_check")         practice.py:521
+            틀린 모범 설명 고치기 fix_explanations               practice.py:544
+       두 추적표 비교 compare_traces (기록)                     practice.py:578
        걸리면 이유 + 방금 코드를 붙여 ① 로, 3번 다 안 되면 예시 코드
 3. save_code (CODE#id / INFO) · remember_topic · count_event
    return public_code(item)   ← 모범 설명·실행 추적표는 빼고
 ```
-- 더 쉽게·더 어렵게 `practice.py:271` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
+- 더 쉽게·더 어렵게 `practice.py:290` `adjust`: 지금 코드와 이유를 프롬프트에 붙여 `make_code` 다시, `regenCount` 5번 제한
 - 다시 열기 `GET /code` `review.py:191` `get_code`: 코드 + 마지막 첨삭 + 튜터 대화 + 다시 쓰기 기록
 
 #### ② 첨삭 받기 — `POST /review` → `review.py:90` `review`

@@ -45,10 +45,15 @@ _orig = {
 
 
 def check_generated(r, level, language="python", focus=None):
-    """규칙 검사 A: 시도마다 문제 목록을 적는다"""
+    """규칙 검사 A: 시도마다 문제 목록을 적는다. ※ 다시 고르기(_reselected)는 같은 시도에 덧붙인다"""
     code, marks, problems = _orig["check_generated"](r, level, language, focus)
+    if rec() is not None and r.get("_reselected") and rec()["attempts"]:
+        attempt = rec()["attempts"][-1]
+        attempt.update(reselected=True, rule_problems_final=list(problems), marks=len(marks), kept=[[m["start"], m["end"]] for m in marks])
+        return code, marks, problems
     if rec() is not None:
-        rec()["attempts"].append({"lines": len(code.split("\n")), "marks": len(marks), "rule_problems": problems,
+        rec()["attempts"].append({"lines": len(code.split("\n")), "marks": len(marks), "rule_problems": list(problems),
+                                  "rule_problems_final": list(problems), "reselected": False, "explain_retry": False,
                                   "explain_issues": None, "final_hard": [], "check_problems": None, "check_ran": False, "fixed": 0, "fixed_ids": [],
                                   # AI 가 적은 ※ 지점 그대로 (줄 찾기·겹침 분석용)
                                   "raw_marks": [{k: m.get(k) for k in ("startLine", "endLine", "startNo", "endNo")} for m in r.get("marks", [])],
@@ -62,9 +67,10 @@ def ai_check_code(code, marks, level, language, issues=None):
     problems, fixed_marks, review = _orig["ai_check_code"](code, marks, level, language, issues)
     if rec() is not None:
         attempt = rec()["attempts"][-1]
+        attempt["explain_retry"] = attempt["check_problems"] is not None   # ②·③ 을 한 번 더 한 시도 (모범 설명만 문제)
         attempt["explain_issues"] = issues or {}
         attempt["check_ran"] = review is not None
-        attempt["check_problems"] = problems
+        attempt["check_problems"] = list(problems)
         attempt["fixed_ids"] = [m["id"] for m in fixed_marks if before.get(m["id"]) != m["explanation"]]
         attempt["fixed"] = len(attempt["fixed_ids"])
     return problems, fixed_marks, review
