@@ -1,5 +1,5 @@
-from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_user, keep_seconds, now_ms, put_item,
-                    query_all, studyrec_sk, ttl_after, user_pk)
+from core import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_user, keep_seconds, logger, now_ms, put_item, query_all, studyrec_sk,
+                  ttl_after, user_pk)
 
 # ─────────────────────────────────────────────────────────────
 # 내 공부 (study.py) — jojo_api 의 기능 파일. AI 를 쓰지 않는다 (모두 규칙)
@@ -8,7 +8,7 @@ from common import (CONCEPTS, LEVELS, TTL_ATTR, alive, day_key, get_item, get_us
 #
 #   기록: 첨삭을 받을 때(review.py) 읽은 코드 하나마다 USER#<학습자> / STUDYREC#<읽은 코드 id> 한 줄을 쓰고,
 #         힌트 보고 다시 써서 나아지면 그 항목을 고친다. 코드 원본은 넣지 않아 작다.
-#         보관: 로그인 안 한 학습자는 하루(탭을 닫으면 다시 찾을 수 없음), 로그인 학습자는 1년 — common.keep_seconds
+#         보관: 로그인 안 한 학습자는 하루(탭을 닫으면 다시 찾을 수 없음), 로그인 학습자는 1년 — core.keep_seconds
 #         (연습 코드는 잘라 낸 몇 줄을 함께 저장해 원본이 지워져도 노트에서 볼 수 있다. 올린 코드는 개인정보라 저장하지 않음)
 #
 #   난이도 추천: 같은 난이도에서 최근 첨삭 5개의 ○ 비율 — 80% 이상(3개 이상)이면 올려 보기, 40% 미만이면 내려 보기
@@ -66,7 +66,7 @@ def record_review(user, code_item, result):
                   "createdAt": old.get("createdAt") or now_ms(), "reviewedAt": now_ms(),
                   "codeTtl": int(code_item.get(TTL_ATTR, 0)), TTL_ATTR: ttl_after(keep_seconds(user, "study"))})
     except Exception as e:   # 기록이 실패해도 첨삭은 그대로 돌려준다
-        print("[study]", repr(e))
+        logger.warning("내 공부 기록 실패", extra={"error": repr(e)})
 
 
 def record_retry(user, code_item, index, mark, text):
@@ -80,7 +80,7 @@ def record_retry(user, code_item, index, mark, text):
             item["best"], item["bestText"] = mark, text
             put_item(row)
     except Exception as e:
-        print("[study]", repr(e))
+        logger.warning("내 공부 기록 실패", extra={"error": repr(e)})
 
 
 # ───────────────────────── 계산 (AI 없음) ─────────────────────────

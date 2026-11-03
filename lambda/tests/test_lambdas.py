@@ -3,7 +3,7 @@
 import os
 import unittest
 
-from helpers import common, load_lambda
+from helpers import ai, code_store, core, load_lambda
 
 samples = load_lambda("samples")
 topics = load_lambda("topics")
@@ -17,14 +17,14 @@ admin = load_lambda("admin")
 
 class Samples(unittest.TestCase):
     def test_every_level_has_samples_with_valid_marks(self):
-        for language in common.LANGUAGES:
+        for language in core.LANGUAGES:
             self.assertEqual({s["level"] for s in samples.SAMPLES if s.get("language", "python") == language}, {1, 2, 3, 4}, language)
         for s in samples.SAMPLES:
             if s.get("language", "python") == "python":
                 compile(s["code"], s["id"], "exec")
             else:
                 self.assertEqual(practice.js_shape_problems(s["code"]), [], s["id"])
-            marks = common.clean_marks(s["code"], s["marks"], limit=5)
+            marks = code_store.clean_marks(s["code"], s["marks"], limit=5)
             self.assertEqual(len(marks), len(s["marks"]), s["id"])   # 겹치거나 범위를 벗어난 ※ 지점이 없다
             for m in s["marks"]:
                 self.assertTrue(m["explanation"] and m["keywords"], s["id"])
@@ -37,40 +37,10 @@ class Samples(unittest.TestCase):
             self.assertEqual([(m["start"], m["end"]) for m in marks], [(m["start"], m["end"]) for m in s["marks"]], s["id"])
 
 
-class AskAiThinking(unittest.TestCase):
-    def test_thinking_request_shape(self):
-        # 생각을 켜면: thinking 예산 + 출력 한도에 더하기 + 도구 auto, 생각 블록(reasoningContent)은 건너뛰고 answer 도구를 읽는다
-        sent = {}
-
-        class FakeBedrock:
-            def converse(self, **kw):
-                sent.update(kw)
-                return {"stopReason": "tool_use", "usage": {"inputTokens": 1, "outputTokens": 1},
-                        "output": {"message": {"content": [{"reasoningContent": {"reasoningText": {"text": "..."}}},
-                                                           {"toolUse": {"name": "answer", "input": {"x": "ok"}}}]}}}
-        saved = common.AI_MODE, common.ai_switch_on, common.check_budget, common.log_usage, common._clients.get("bedrock")
-        try:
-            common.AI_MODE, common.ai_switch_on, common.check_budget = "live", lambda: True, lambda *a: None
-            common.log_usage = lambda *a, **k: None
-            common._clients["bedrock"] = FakeBedrock()
-            schema = {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
-            self.assertEqual(common.ask_ai("code_check", "s", "p", schema, max_tokens=3000, thinking=4000), {"x": "ok"})
-            self.assertEqual(sent["inferenceConfig"]["maxTokens"], 7000)
-            self.assertEqual(sent["additionalModelRequestFields"]["thinking"], {"type": "enabled", "budget_tokens": 4000})
-            self.assertEqual(sent["toolConfig"]["toolChoice"], {"auto": {}})
-            sent.clear()
-            common.ask_ai("code_check", "s", "p", schema, max_tokens=3000)
-            self.assertNotIn("additionalModelRequestFields", sent)
-            self.assertEqual(sent["toolConfig"]["toolChoice"], {"tool": {"name": "answer"}})
-        finally:
-            common.AI_MODE, common.ai_switch_on, common.check_budget, common.log_usage, bedrock = saved
-            common._clients.pop("bedrock", None)
-            if bedrock:
-                common._clients["bedrock"] = bedrock
-
-
 class GeneratedCode(unittest.TestCase):
-    def test_advanced_level_needs_length(self):
+    """규칙 검사 A (코드·※ 위치) — docs/GENERATION_STANDARD.md 2·3"""
+
+    def test_length_limits(self):
         short = next(s for s in samples.SAMPLES if s["level"] == 2)
         _, _, problems = practice.check_generated(practice.sample_as_ai(short), 4)
         self.assertTrue(any("고급으로는 너무 짧아요" in p for p in problems))
@@ -78,25 +48,21 @@ class GeneratedCode(unittest.TestCase):
         self.assertTrue(any("중급으로는 너무 짧아요" in p for p in problems))
         long_js = {"title": "t", "code": "\n".join(["let a = 1;"] * 160 + ["console.log(a);"]), "marks": []}
         _, _, problems = practice.check_generated(long_js, 3, "javascript")
-        self.assertTrue(any("161줄이라 너무 길어요" in p and "36줄 이상 줄여 125줄 안쪽" in p for p in problems), problems)
-
-    def test_mark_without_why_is_kept(self):
-        # why 가 빠진 ※ 지점도 AI 답 전체를 버리지 않는다 (스키마 검사 통과, 빈 why)
-        r = practice.sample_as_ai(next(s for s in samples.SAMPLES if s["level"] == 1))
-        r["marks"][0].pop("why")
-        r.pop("_mock")
-        self.assertEqual(common.check_schema(r, practice.SCHEMA), [])
-        _, marks, problems = practice.check_generated(r, 1)
-        self.assertEqual((problems, marks[0]["why"]), ([], ""))
-
-    def test_empty_explanation_is_a_problem(self):
-        r = practice.sample_as_ai(next(s for s in samples.SAMPLES if s["level"] == 1))
-        r["marks"][0]["explanation"] = " "
-        _, _, problems = practice.check_generated(r, 1)
-        self.assertTrue(any("모범 설명(explanation)이나 핵심 표현(keywords)이 비어 있어요" in p for p in problems), problems)
-        long = next(s for s in samples.SAMPLES if s["level"] == 4)
-        _, marks, problems = practice.check_generated(practice.sample_as_ai(long), 4)
+        self.assertTrue(any("161줄이라 너무 길어요" in p and "71줄 이상 줄여 90줄 안쪽" in p for p in problems), problems)
+        advanced = next(s for s in samples.SAMPLES if s["level"] == 4)
+        _, marks, problems = practice.check_generated(practice.sample_as_ai(advanced), 4)
         self.assertEqual((problems, len(marks)), ([], 5))
+
+    def test_mark_without_why_or_explanation_is_kept(self):
+        # ① 출제 답에는 모범 설명이 없다 (② 에서 쓴다). why 가 빠져도 답 전체를 버리지 않는다
+        r = practice.sample_as_ai(next(s for s in samples.SAMPLES if s["level"] == 1))
+        for m in r["marks"]:
+            for k in ("why", "explanation", "keywords"):
+                m.pop(k)
+        r.pop("_mock")
+        self.assertEqual(ai.parse_answer(r, practice.CodeAnswer)[1], [])
+        _, marks, problems = practice.check_generated(r, 1)
+        self.assertEqual((problems, marks[0]["why"], marks[0]["explanation"]), ([], "", ""))
 
     def test_syntax_error_and_missing_marks(self):
         r = {"title": "t", "code": "if x\n    print(1)", "marks": [{"startLine": "없는 줄", "endLine": "없는 줄"}]}
@@ -106,7 +72,7 @@ class GeneratedCode(unittest.TestCase):
 
     def test_mark_problems_say_why(self):
         code = "total = 0\nfor x in [1, 2, 3]:\n    if x > 1:\n        total += x\nprint(total)"
-        mk = lambda s, e, sn, en: {"startLine": s, "endLine": e, "startNo": sn, "endNo": en, "why": "w", "explanation": "e", "keywords": ["k"]}
+        mk = lambda s, e, sn, en: {"startLine": s, "endLine": e, "startNo": sn, "endNo": en, "why": "w"}
         # 겹침: for 범위(2~4) 안에 if 범위(3~4) → 하나만 남아 실패(초급은 2곳), 이유는 '겹쳐요'
         _, marks, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("for x in [1, 2, 3]:", "total += x", 2, 4),
                                                                                              mk("if x > 1:", "total += x", 3, 4)]}, 2)
@@ -120,9 +86,51 @@ class GeneratedCode(unittest.TestCase):
         # 수가 부족: 한 곳만 줌
         _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 2)
         self.assertTrue(any("1곳뿐" in p for p in problems), problems)
-        # 입문은 1곳이면 통과
-        _, marks, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 1)
-        self.assertEqual((len(marks), problems), (1, []))
+        # 입문은 1곳이면 통과 (중심 개념: 반복)
+        _, marks, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("for x in [1, 2, 3]:", "total += x", 2, 4)]}, 1)
+        self.assertEqual((len(marks), marks[0]["concept"], problems), (1, "loop_update", []))
+        # 중심 개념이 없음: 출력 줄만 고름
+        _, _, problems = practice.check_generated({"title": "t", "code": code, "marks": [mk("print(total)", "print(total)", 5, 5)]}, 1)
+        self.assertTrue(any("중심 개념" in p for p in problems), problems)
+        # 범위가 너무 넓음 (입문 6줄)
+        wide = "total = 0\n" + "\n".join(f"total += {i}" for i in range(7)) + "\nfor x in [1]:\n    if x:\n        print(total)"
+        _, _, problems = practice.check_generated({"title": "t", "code": wide, "marks": [mk("total = 0", "total += 6", 1, 8)]}, 1)
+        self.assertTrue(any("너무 넓어요" in p and "6줄 이하" in p for p in problems), problems)
+
+    def test_level_requirements(self):
+        import ast
+        check = lambda code, level: practice.level_problems(practice.py_structure(ast.parse(code)), level)
+        # 입문: 클래스·예외·재귀는 쓰지 않음, 반복·조건은 꼭
+        self.assertTrue(any("쓰지 않는 것" in p and "클래스" in p for p in check("class A:\n    pass\nfor i in range(2):\n    if i:\n        print(i)", 1)))
+        self.assertTrue(any("반복문" in p for p in check("x = 1\nif x:\n    print(x)", 1)))
+        # 초급: 다른 함수를 부르는 함수가 꼭
+        self.assertTrue(any("다른 함수를 부르는 함수" in p for p in check("def a():\n    return [1]\ndef b():\n    return 2\nprint(a(), b())", 2)))
+        self.assertEqual(check("def a():\n    return [1]\ndef b():\n    return a()\nprint(b())", 2), [])
+        # 중급: 클래스·예외·재귀 중 2가지 (super().__init__ 은 재귀가 아님)
+        cls = "class E(Exception):\n    def __init__(self):\n        super().__init__('x')\n" + "".join(f"def f{i}():\n    return {i}\n" for i in range(4))
+        self.assertTrue(any("2가지 이상" in p for p in check(cls.replace("(Exception)", ""), 3)))
+        self.assertFalse(practice.py_structure(ast.parse(cls))["recursion"])
+        self.assertEqual(check(cls + "def g(n):\n    return g(n - 1) if n else 0\n", 3), [])
+        # 손으로 따라갈 크기: 입문 반복 10번 · 목록 6개
+        self.assertTrue(any("반복이 50번" in p for p in check("t = 0\nfor i in range(50):\n    if i:\n        t += i\nprint(t)", 1)))
+        self.assertTrue(any("항목이 7개" in p for p in check("a = [1, 2, 3, 4, 5, 6, 7]\nfor x in a:\n    if x:\n        print(x)", 1)))
+        # JavaScript: 함수·메서드·재귀 세기 (this.f(…) 는 재귀, obj.f(…) 는 아님)
+        js = lambda code: practice.js_check(code)[1]
+        info = js("class A {\n  constructor() {\n    this.n = 0;\n  }\n  get size() {\n    return 1;\n  }\n  push(x) {\n    other.push(x);\n  }\n}\n"
+                  "function walk(n) {\n  return n ? walk(n - 1) : 0;\n}\nconst twice = (x) => walk(x) * 2;\nfor (let i = 0; i < 30; i++) {}\nconsole.log(twice(2));")
+        self.assertEqual((info["funcs"], info["classes"], info["recursion"], info["calls_between"], info["big_loop"]), (5, 1, True, True, 30))
+        self.assertFalse(js("class A {\n  push(x) {\n    other.push(x);\n  }\n}\nconsole.log(1);")["recursion"])
+        self.assertTrue(js("class A {\n  down(n) {\n    return n ? this.down(n - 1) : 0;\n  }\n}\nconsole.log(new A().down(2));")["recursion"])
+        # JavaScript 손으로 따라갈 크기: 배열 원소 · 객체 속성 수 (Python 의 목록·사전과 같게)
+        info = js("const a = [1, 2, 3, 4, 5, 6, 7];\nconst o = { x: 1, y, z: 3 };\nconsole.log(a, o);")
+        self.assertEqual((info["big_list"], info["data"]), (7, True))
+        self.assertTrue(any("항목이 7개" in p for p in practice.level_problems(js("const a = [1, 2, 3, 4, 5, 6, 7];\nfor (const x of a) {\n  if (x) {\n    console.log(x);\n  }\n}"), 1)))
+
+    def test_focus_level_raises_when_concept_needs_higher_level(self):
+        self.assertEqual(practice.focus_level(1, "exception")[0], 3)
+        self.assertIn("중급", practice.focus_level(1, "exception")[1])
+        self.assertEqual(practice.focus_level(2, "loop_update"), (2, None))
+        self.assertEqual(practice.focus_level(2, None), (2, None))
 
     def test_javascript_shape(self):
         js = practice.js_shape_problems
@@ -132,11 +140,18 @@ class GeneratedCode(unittest.TestCase):
         self.assertIn("여는 괄호가 없어요", js("const a = 1;\n}\nconsole.log(a);")[0])
         self.assertIn("따옴표", js('const a = "abc;\nconsole.log(a);')[0])
         self.assertIn("템플릿", js("const a = `abc ${b}\nconsole.log(a);")[0])
-        self.assertEqual(js("console.log(Math.random(), new Date(2026, 2, 2), Date.now());"), [])   # 결과가 달라지는 기능은 됨 (AI 검토가 설명을 확인)
+        for bad in ("console.log(Math.random());", "console.log(Date.now());", "console.log(new Date());"):   # 실행마다 결과가 달라짐
+            self.assertTrue(any("Math.random" in p for p in js(bad)), bad)
+        self.assertEqual(js("console.log(new Date(2026, 2, 2));"), [])   # 정해진 날짜는 됨
         self.assertTrue(any("fetch" in p for p in js('fetch("https://example.com");\nconsole.log(1);')))
         self.assertTrue(any("console.log" in p for p in js("const a = 1;")))
         self.assertTrue(any("Python" in p for p in js("def f():\n  return 1\nconsole.log(f());")))
-        self.assertEqual(js('console.log("document.title 과 fetch( 는 글자일 뿐이에요");'), [])   # 문자열 안은 보지 않음
+        self.assertEqual(js('console.log("document.title 과 Math.random 은 글자일 뿐이에요");'), [])   # 문자열 안은 보지 않음
+        self.assertTrue(any("document" in p for p in js("const t = `${document.title}`;\nconsole.log(t);")))   # 템플릿의 ${ } 안은 코드
+        # 괄호·따옴표 짝은 맞지만 문법이 틀린 코드도 찾는다 (tree-sitter)
+        for bad in ("const = 5;\nconsole.log(1);", "if x > 1 {\n  console.log(x);\n}"):
+            self.assertIn("문법 오류", js(bad)[0], bad)
+        self.assertIn("1번째 줄에서 연 '{'", js("function f() {\n  if (x) {\n    return 1;\n}\nconsole.log(f());")[0])
 
     def test_javascript_samples_are_picked_for_javascript(self):
         user = {"recentTopics": []}
@@ -146,9 +161,10 @@ class GeneratedCode(unittest.TestCase):
 
     def test_python_ast_checks(self):
         import ast
-        ok = "import heapq\nfrom collections import deque\ndef f(a, *args, **kw):\n    try:\n        return [y for y in a if (z := y)]\n    except ValueError as e:\n        print(e, args, kw, z)\nprint(f([1]), heapq, deque)"
+        ok = "import heapq\nfrom collections import deque\nfrom datetime import datetime\ndef f(a, *args, **kw):\n    try:\n        return [y for y in a if (z := y)]\n    except ValueError as e:\n        print(e, args, kw, z)\nprint(f([1]), heapq, deque, datetime(2026, 3, 2))"
         self.assertEqual(practice.py_ast_problems(ast.parse(ok)), [])
-        self.assertEqual(practice.py_ast_problems(ast.parse("import random\nimport time\nfrom datetime import datetime\nrandom.seed(1)\nprint(random.randint(1, 6), time, datetime)")), [])
+        problems = practice.py_ast_problems(ast.parse("import random\nimport time\nfrom datetime import datetime\nprint(random.randint(1, 6), time, datetime.now())"))
+        self.assertTrue(any("random 모듈" in p for p in problems) and any("time 모듈" in p for p in problems) and any("now()" in p for p in problems), problems)
         bad = "import os\nimport numpy\nname = input()\ntotal = 0\nfor i in range(3):\n    totl += i\nprint(total, prise)"
         problems = practice.py_ast_problems(ast.parse(bad))
         self.assertTrue(any("os 모듈" in p for p in problems) and any("numpy 모듈" in p for p in problems))   # 운영체제 · 표준 라이브러리가 아닌 모듈
@@ -165,78 +181,125 @@ class GeneratedCode(unittest.TestCase):
         self.assertIsNone(practice.find_line(lines, "없음", 0))
 
 
+class ExplanationRules(unittest.TestCase):
+    """규칙 검사 B (모범 설명) · 추적표 비교 — docs/GENERATION_STANDARD.md 4·5"""
+    code = "total = 0\nfor p in [3000, 3500]:\n    total += p\nprint(total)"
+    trace = {"flow": [], "output": ["6500"], "marks": {"m1": {"enter": "total=0", "steps": ["3번 줄 total=3000"], "exit": "total=6500", "branch": "", "count": 2}}}
+
+    def issues(self, explanation, keywords):
+        mark = {"id": "m1", "start": 2, "end": 3, "explanation": explanation, "keywords": keywords}
+        return practice.explanation_issues(self.code, [mark], self.trace)
+
+    def test_hard_and_soft_issues(self):
+        fixed, issues = self.issues("가격을 하나씩 total 에 더해서 반복이 끝나면 6500이 돼요.", ["하나씩", "더해", "없는 말"])
+        self.assertEqual((issues, fixed[0]["keywords"]), ({}, ["하나씩", "더해"]))   # 설명에 없는 핵심 표현은 뺀다
+        _, issues = self.issues("", ["하나씩"])
+        self.assertTrue(any("비어 있어요" in h for h in issues["m1"]["hard"]))
+        _, issues = self.issues("예를 들어 가격을 하나씩 더해요.", ["하나씩", "더해"])
+        self.assertTrue(any("가정 표현" in h for h in issues["m1"]["hard"]))
+        _, issues = self.issues("가격을 하나씩 더해요." * 40, ["하나씩", "더해"])
+        self.assertTrue(any("너무 길어요" in h for h in issues["m1"]["hard"]))
+        _, issues = self.issues("가격을 하나씩 더해요.", ["하나씩"])
+        self.assertTrue(any("핵심 표현" in h for h in issues["m1"]["hard"]))
+        # 근거 없는 숫자는 확인할 것(soft): 교차 검토가 확인한다. 줄 번호·천 단위 쉼표는 숫자로 보지 않음
+        _, issues = self.issues("2~3번 줄에서 하나씩 더해 6,500이 되고 2번 돌아요. 그다음 9999가 돼요.", ["하나씩", "더해"])
+        self.assertEqual((issues["m1"]["hard"], issues["m1"]["soft"]), ([], ["※ 2~3번 줄의 모범 설명 속 값 9999 이(가) 실행 추적표·출력·코드에 없어요"]))
+
+    def test_compare_traces(self):
+        marks = [{"id": "m1"}]
+        same = {"output": ["6500"], "marks": [{"id": "m1", "exit": "total = 6500", "count": 2}]}
+        self.assertEqual(practice.compare_traces(self.trace, same, marks), {"reviewed": True, "traceAgree": {"m1": True}, "outputAgree": True})
+        other = {"output": ["6000"], "marks": [{"id": "m1", "exit": "total=6000", "count": 2}]}
+        self.assertEqual(practice.compare_traces(self.trace, other, marks)["traceAgree"], {"m1": False})
+        self.assertFalse(practice.compare_traces(self.trace, None, marks)["reviewed"])
+        self.assertEqual(practice.parse_state("a=1, items=['x', 'y'], b = {k: 1, j: 2}"), {"a": "1", "items": "[x,y]", "b": "{k:1,j:2}"})
+
+
 class CodeCheckPipeline(unittest.TestCase):
-    """① 출제 → ② 규칙 검사 → ③ AI 검토 → 걸리면 한 번 더 → 예시 코드 (AI 는 가짜로 바꿔 끼운다)"""
+    """① 출제 → 규칙 검사 A → ② 실행 추적표 → 규칙 검사 B → ③ 교차 검토 → 걸리면 다시 (최대 2번) → 예시 코드 (AI 는 가짜로 바꿔 끼운다)"""
 
     def setUp(self):
         self.saved = practice.ask_ai, practice.ai_allowed, practice.log_ai_event
         practice.ai_allowed = lambda req: True
         practice.log_ai_event = lambda *a, **k: None
         self.sample = next(s for s in samples.SAMPLES if s["id"] == "sample-cafe")
-        self.calls = []
+        self.calls, self.prompts = [], {}
 
     def tearDown(self):
         practice.ask_ai, practice.ai_allowed, practice.log_ai_event = self.saved
 
-    def run_with(self, checks, bad_first=False):
-        """checks: AI 검토가 차례로 돌려줄 답 (예외면 그 예외를 던짐)"""
-        answers = list(checks)
+    def trace(self, explanation=None):
+        m = self.sample["marks"][0]
+        return {"flow": [{"line": 8, "event": "loop", "detail": "3번 반복", "state": "total=10000"}], "output": ["결제할 금액: 9000"],
+                "marks": [{"id": "m1", "enter": "total=0", "steps": ["8번 줄 total=3000", "8번 줄 total=6500", "8번 줄 total=10000"],
+                           "exit": "total=10000", "branch": "", "count": 3, "explanation": explanation or m["explanation"], "keywords": m["keywords"]}]}
+
+    ok = {"trace": {"output": ["결제할 금액: 9000"], "marks": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3}]},
+          "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
+
+    def run_with(self, checks, traces=None, bad_first=False, level=1):
+        """checks: 교차 검토가 차례로 돌려줄 답 / traces: 실행 추적표가 차례로 돌려줄 답 (예외면 그 예외를 던짐)"""
+        checks, traces = list(checks), list(traces or [])
 
         def fake(task, system, prompt, schema, **kw):
             self.calls.append(task)
+            self.prompts.setdefault(task, []).append(prompt)
             if task == "code_generation":
                 r = practice.sample_as_ai(self.sample)
                 if bad_first and self.calls.count("code_generation") == 1:
-                    r = {**r, "code": r["code"].replace("total = total + price", "total = totl + price")}   # 오타 → 규칙 검사에서 걸림
+                    r = {**r, "code": r["code"].replace("total = total + price", "total = totl + price")}   # 오타 → 규칙 검사 A 에서 걸림
                 return {k: v for k, v in r.items() if k != "_mock"}
-            answer = answers.pop(0)
+            answer = (traces.pop(0) if traces else self.trace()) if task == "code_trace" else checks.pop(0)
             if isinstance(answer, Exception):
                 raise answer
             return answer
         practice.ask_ai = fake
-        return practice.make_code({}, 1, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
+        return practice.make_code({}, level, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
 
-    ok = {"output": "", "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
-
-    def test_passes_and_fixes_wrong_explanation(self):
-        fixed = {**self.ok, "marks": [{"id": "m1", "ok": False, "problem": "합계가 틀림", "explanation": "고친 설명이에요.", "keywords": ["고친"]}]}
-        made = self.run_with([fixed])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_check"]))
-        self.assertEqual((made["marks"][0]["explanation"], made["marks"][0]["keywords"]), ("고친 설명이에요.", ["고친"]))
+    def test_passes_with_trace_and_records_checks(self):
         made = self.run_with([self.ok])
-        self.assertEqual(made["marks"][0]["explanation"], self.sample["marks"][0]["explanation"])   # 맞은 설명은 그대로
+        self.assertEqual((made["origin"], made["verification"], self.calls), ("ai", "ai_reviewed", ["code_generation", "code_trace", "code_check"]))
+        self.assertEqual(made["marks"][0]["explanation"], self.sample["marks"][0]["explanation"])   # 모범 설명은 ② 에서 온다
+        self.assertEqual(made["trace"]["marks"]["m1"]["exit"], "total=10000")
+        self.assertEqual((made["checks"]["traceAgree"], made["checks"]["outputAgree"]), ({"m1": True}, True))
+        self.assertNotIn("10000", self.prompts["code_check"][0].split("<code")[0].split("모범 설명")[0])   # 검토에는 생성 쪽 추적표를 주지 않는다
+
+    def test_fixes_wrong_explanation(self):
+        fixed = {**self.ok, "marks": [{"id": "m1", "ok": False, "problem": "합계가 틀림", "explanation": "고친 설명이에요.", "keywords": ["고친", "설명"]}]}
+        made = self.run_with([fixed])
+        self.assertEqual((made["origin"], made["marks"][0]["explanation"], made["marks"][0]["keywords"]), ("ai", "고친 설명이에요.", ["고친", "설명"]))
 
     def test_code_problem_makes_it_again(self):
         made = self.run_with([{**self.ok, "codeProblems": ["7번째 줄: 없는 메뉴를 찾아 오류"]}, self.ok])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_check", "code_generation", "code_check"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_trace", "code_check"] * 2))
 
-    def test_rule_problem_skips_ai_check_and_retries(self):
+    def test_rule_problem_skips_trace_and_check_and_retries(self):
         made = self.run_with([self.ok], bad_first=True)
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_generation", "code_check"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_generation", "code_trace", "code_check"]))
+
+    def test_hard_explanation_issue_left_after_check_makes_it_again(self):
+        made = self.run_with([self.ok, self.ok], traces=[self.trace("예를 들어 가격을 하나씩 더해 10000원이 돼요.")])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_trace", "code_check"] * 2))
+
+    def test_unsupported_number_goes_to_check(self):
+        m = self.sample["marks"][0]
+        made = self.run_with([self.ok], traces=[self.trace(m["explanation"] + " 마지막에는 77777원이에요.")])
+        self.assertEqual(made["origin"], "ai")   # soft: 검토가 맞다고 하면 통과, 기록은 남김
+        self.assertIn("규칙 검사:", self.prompts["code_check"][0])
+        self.assertIn("77777", made["checks"]["unsupported"]["m1"][0])
 
     def test_gives_sample_when_problems_remain(self):
         problem = {**self.ok, "codeProblems": ["무한 반복"]}
-        made = self.run_with([problem, problem])
-        self.assertEqual(made["origin"], "sample")
-
-    def test_check_uses_thinking_and_falls_back_without_it(self):
-        seen = []
-
-        def fake(task, system, prompt, schema, **kw):
-            seen.append((task, kw.get("thinking", 0)))
-            if task == "code_generation":
-                return {k: v for k, v in practice.sample_as_ai(self.sample).items() if k != "_mock"}
-            if kw.get("thinking"):
-                raise common.AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")   # 생각을 켜면 형식이 어긋날 수 있음
-            return self.ok
-        practice.ask_ai = fake
-        made = practice.make_code({}, 1, "카페 주문", {"recentTopics": []}, prompt_extra="", language="python")
-        self.assertEqual(made["origin"], "ai")
-        self.assertEqual(seen, [("code_generation", 0), ("code_check", practice.CHECK_THINKING), ("code_check", 0)])
+        made = self.run_with([problem] * practice.GEN_ATTEMPTS)
+        self.assertEqual((made["origin"], made["verification"], self.calls.count("code_generation")), ("sample", "sample_verified", 3))
 
     def test_check_unavailable_trusts_rule_checks(self):
-        made = self.run_with([common.AiUnavailable("budget")])
-        self.assertEqual(made["origin"], "ai")
+        made = self.run_with([ai.AiUnavailable("budget")])
+        self.assertEqual((made["origin"], made["verification"]), ("ai", "rule_checked"))
+
+    def test_trace_unavailable_gives_sample(self):
+        made = self.run_with([], traces=[ai.AiUnavailable("budget")])
+        self.assertEqual((made["origin"], self.calls), ("sample", ["code_generation", "code_trace"]))
 
 
 class TopicRules(unittest.TestCase):
@@ -274,11 +337,14 @@ class Inspect(unittest.TestCase):
         self.assertEqual([(f["name"], f["start"], f["end"]) for f in found], [("Shop.sell", 2, 3), ("Shop.stock", 5, 6), ("main", 8, 10)])
 
     def test_read_code_limits(self):
-        with self.assertRaises(common.ApiError):
-            inspect_code.read_code({"code": "print(1)", "filename": "app.js"})
-        with self.assertRaises(common.ApiError):
-            inspect_code.read_code({"code": "x = 1\n" * (common.MAX_CODE_LINES + 1), "filename": "a.py"})
-        self.assertEqual(inspect_code.read_code({"code": "x = 1", "filename": "a.py"}), ("x = 1", "python"))
+        read = lambda body: inspect_code.read_code(core.read_body({"body": body}, inspect_code.CodeIn))
+        with self.assertRaises(core.ApiError):
+            read({"code": "print(1)", "filename": "app.js"})
+        with self.assertRaises(core.ApiError):
+            read({"code": "x = 1\n" * (core.MAX_CODE_LINES + 1), "filename": "a.py"})
+        with self.assertRaises(core.ApiError):
+            read({"filename": "a.py"})   # 코드가 없으면 400
+        self.assertEqual(read({"code": "x = 1", "filename": "a.py"}), ("x = 1", "python"))
 
 
 class RuleReview(unittest.TestCase):
@@ -307,11 +373,16 @@ class RuleReview(unittest.TestCase):
 
     def test_review_keys(self):
         rv = {"sk": "REVIEW#0000000001"}
-        self.assertEqual(common.review_key(rv, "RETRY", 2), "REVIEW#0000000001#RETRY#002")
+        self.assertEqual(code_store.review_key(rv, "RETRY", 2), "REVIEW#0000000001#RETRY#002")
 
     def test_read_memos_drops_empty_and_sorts(self):
-        memos = review.read_memos({"memos": [{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]}, self.ITEM["code"])
+        body = lambda memos: core.read_body({"body": {"codeId": "r1", "memos": memos}}, review.ReviewIn).memos
+        memos = review.read_memos(body([{"start": 9, "end": 5, "text": " 뒤 "}, {"start": 1, "end": 1, "text": "  "}]), self.ITEM["code"])
         self.assertEqual(memos, [{"start": 5, "end": 9, "text": "뒤"}])
+        with self.assertRaises(core.ApiError):   # 코드 밖의 줄
+            review.read_memos(body([{"start": 1, "end": 21, "text": "x"}]), self.ITEM["code"])
+        with self.assertRaises(core.ApiError):   # 메모가 너무 많음
+            body([{"start": 1, "end": 1, "text": "x"}] * (core.MAX_MEMOS + 1))
 
 
 class Tutor(unittest.TestCase):
@@ -353,11 +424,11 @@ class Concepts(unittest.TestCase):
     ])
 
     def test_guess_concept_rules(self):
-        self.assertEqual(common.guess_concept(self.CODE, 3, 4), "loop_update")
-        self.assertEqual(common.guess_concept(self.CODE, 9, 9), "recursion")
-        self.assertEqual(common.guess_concept(self.CODE, 7, 8), "branch")
-        self.assertEqual(common.guess_concept(self.CODE, 10, 10), "call_flow")   # 맨 바깥에서 부르면 재귀가 아님
-        self.assertEqual(common.guess_concept(self.CODE, 11, 14), "exception")
+        self.assertEqual(code_store.guess_concept(self.CODE, 3, 4), "loop_update")
+        self.assertEqual(code_store.guess_concept(self.CODE, 9, 9), "recursion")
+        self.assertEqual(code_store.guess_concept(self.CODE, 7, 8), "branch")
+        self.assertEqual(code_store.guess_concept(self.CODE, 10, 10), "call_flow")   # 맨 바깥에서 부르면 재귀가 아님
+        self.assertEqual(code_store.guess_concept(self.CODE, 11, 14), "exception")
 
     JS = "\n".join([
         "function count(group) {",             # 1
@@ -380,20 +451,20 @@ class Concepts(unittest.TestCase):
     ])
 
     def test_guess_concept_javascript(self):
-        self.assertEqual(common.guess_concept(self.JS, 1, 7), "recursion")     # 범위가 함수 첫 줄부터: 자기 자신을 부름
-        self.assertEqual(common.guess_concept(self.JS, 4, 4), "recursion")
-        self.assertEqual(common.guess_concept(self.JS, 10, 10), "class_state")
-        self.assertEqual(common.guess_concept(self.JS, 13, 15), "exception")
-        self.assertEqual(common.guess_concept(self.JS, 16, 16), "branch")
-        self.assertEqual(common.guess_concept(self.JS, 17, 17), "call_flow")
+        self.assertEqual(code_store.guess_concept(self.JS, 1, 7), "recursion")     # 범위가 함수 첫 줄부터: 자기 자신을 부름
+        self.assertEqual(code_store.guess_concept(self.JS, 4, 4), "recursion")
+        self.assertEqual(code_store.guess_concept(self.JS, 10, 10), "class_state")
+        self.assertEqual(code_store.guess_concept(self.JS, 13, 15), "exception")
+        self.assertEqual(code_store.guess_concept(self.JS, 16, 16), "branch")
+        self.assertEqual(code_store.guess_concept(self.JS, 17, 17), "call_flow")
 
     def test_every_sample_mark_has_valid_concept(self):
         for s in samples.SAMPLES:
             for m in s["marks"]:
-                self.assertIn(m["concept"], common.CONCEPTS, s["id"])
+                self.assertIn(m["concept"], core.CONCEPTS, s["id"])
 
     def test_clean_marks_keeps_or_guesses_concept(self):
-        marks = common.clean_marks(self.CODE, [{"start": 3, "end": 4, "concept": "algorithm"}, {"start": 7, "end": 8, "concept": "모름"}])
+        marks = code_store.clean_marks(self.CODE, [{"start": 3, "end": 4, "concept": "algorithm"}, {"start": 7, "end": 8, "concept": "모름"}])
         self.assertEqual([m["concept"] for m in marks], ["algorithm", "branch"])
 
 
@@ -407,23 +478,23 @@ class TimeOrderedId(unittest.TestCase):
     def test_new_id_is_uuid7_sorted_by_time(self):
         import re
         import uuid
-        early, late = common.new_id(ms=1_700_000_000_000), common.new_id(ms=1_800_000_000_000)
+        early, late = core.new_id(ms=1_700_000_000_000), core.new_id(ms=1_800_000_000_000)
         for i in (early, late):
             self.assertEqual(uuid.UUID(i).version, 7)
-            self.assertTrue(common.SESSION_ID.match(i))                # 학습자 id 헤더 검사를 그대로 통과
+            self.assertTrue(core.SESSION_ID.match(i))                # 학습자 id 헤더 검사를 그대로 통과
             self.assertTrue(re.fullmatch(r"[0-9a-f-]{36}", i))         # load_code 의 코드 id 검사도
         self.assertLess(early, late)                                   # 문자열 정렬 = 만든 순서
         self.assertEqual(int(late.replace("-", "")[:12], 16), 1_800_000_000_000)   # 앞 12글자 = 밀리초 시각
-        self.assertNotEqual(common.new_id(ms=1), common.new_id(ms=1))  # 같은 밀리초여도 무작위 부분이 다름
+        self.assertNotEqual(core.new_id(ms=1), core.new_id(ms=1))  # 같은 밀리초여도 무작위 부분이 다름
 
 
 class KeepTime(unittest.TestCase):
     def test_anonymous_is_short_member_is_long(self):
         anon, member = {"member": False}, {"member": True}
-        self.assertEqual(common.keep_seconds(anon, "user"), common.ANON_HOURS * 3600)
-        self.assertEqual(common.keep_seconds(anon, "study"), common.ANON_CODE_HOURS * 3600)
-        self.assertEqual(common.keep_seconds(member, "study"), common.MEMBER_DAYS * 86400)
-        self.assertEqual(common.keep_seconds(member, "upload"), common.UPLOAD_KEEP_DAYS * 86400)   # 올린 코드는 로그인해도 짧게
+        self.assertEqual(core.keep_seconds(anon, "user"), core.ANON_HOURS * 3600)
+        self.assertEqual(core.keep_seconds(anon, "study"), core.ANON_CODE_HOURS * 3600)
+        self.assertEqual(core.keep_seconds(member, "study"), core.MEMBER_DAYS * 86400)
+        self.assertEqual(core.keep_seconds(member, "upload"), core.UPLOAD_KEEP_DAYS * 86400)   # 올린 코드는 로그인해도 짧게
 
 
 class Study(unittest.TestCase):
@@ -479,9 +550,9 @@ class Login(unittest.TestCase):
         auth.ALLOWED_ORIGINS[:] = ["https://example.github.io"]
         try:
             self.assertEqual(auth.safe_return("https://example.github.io/app/study/#x"), "https://example.github.io/app/study/")
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(core.ApiError):
                 auth.safe_return("https://evil.example.com/")
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(core.ApiError):
                 auth.safe_return("javascript:alert(1)")
         finally:
             auth.ALLOWED_ORIGINS[:] = allowed
@@ -490,7 +561,7 @@ class Login(unittest.TestCase):
         auth = load_lambda("auth")
         req = {"host": "abc.lambda-url.ap-northeast-2.on.aws", "domain": "abc.lambda-url.ap-northeast-2.on.aws"}
         if not auth.LOCAL_DEV and not os.environ.get("AUTH_CALLBACK_BASE"):
-            self.assertEqual(auth.callback_url(req, "github"), "https://abc.lambda-url.ap-northeast-2.on.aws/auth/callback/github")
+            self.assertEqual(auth.callback_url(req, "google"), "https://abc.lambda-url.ap-northeast-2.on.aws/auth/callback/google")
 
     def test_same_name_is_still_a_different_account(self):
         auth = load_lambda("auth")
@@ -503,44 +574,42 @@ class Login(unittest.TestCase):
             kim1 = auth.account_user("google", {"id": "1001", "name": "김철수"})
             kim2 = auth.account_user("google", {"id": "2002", "name": "김철수"})   # 동명이인
             again = auth.account_user("google", {"id": "1001", "name": "김철수(새 이름)"})   # 이름만 바뀜
-            other = auth.account_user("github", {"id": "1001", "name": "김철수"})   # 다른 제공자의 같은 번호
             self.assertNotEqual(kim1, kim2)
             self.assertEqual(kim1, again)
-            self.assertNotIn(other, (kim1, kim2))
-            self.assertEqual(db[(common.user_pk(kim1), common.PROFILE)]["name"], "김철수(새 이름)")
+            self.assertEqual(db[(core.user_pk(kim1), core.PROFILE)]["name"], "김철수(새 이름)")
         finally:
             auth.get_item, auth.put_item, auth.update_item = saved
 
     def test_old_format_account_stops_instead_of_making_a_new_user(self):
         auth = load_lambda("auth")
-        db = {(common.account_pk("google:9"), common.USER): {"learnerId": "u1"}}   # '예전 데이터 옮기기' 전
+        db = {(core.account_pk("google:9"), core.USER): {"learnerId": "u1"}}   # '예전 데이터 옮기기' 전
         saved = auth.get_item, auth.put_item
         auth.get_item = lambda pk, sk: db.get((pk, sk))
         auth.put_item = lambda item: db.__setitem__((item["pk"], item["sk"]), dict(item))
         try:
-            with self.assertRaises(common.ApiError):
+            with self.assertRaises(core.ApiError):
                 auth.account_user("google", {"id": "9", "name": "김철수"})
             self.assertEqual(len(db), 1)                     # 새 학습자를 만들지 않음
         finally:
             auth.get_item, auth.put_item = saved
 
     def test_unknown_provider_is_refused(self):
-        with self.assertRaises(common.ApiError):
+        with self.assertRaises(core.ApiError):
             load_lambda("auth").provider_of("kakao")
 
 
 class KeyNames(unittest.TestCase):
-    """키 이름표 (common.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화 · 예전 이름 옮기기 (admin.migrate)"""
+    """키 이름표 (core.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화 · 예전 이름 옮기기 (admin.migrate)"""
 
     def test_review_children_live_under_their_review(self):
         rv1 = {"sk": "REVIEW#0000000000000100", "result": {}}
         rv2 = {"sk": "REVIEW#0000000000000200", "result": {}}
-        rows = [rv1, {"sk": common.review_key(rv1, "CHAT", 0)}, {"sk": common.review_key(rv1, "RETRY", 2), "attempts": [1]},
-                rv2, {"sk": common.review_key(rv2, "CHAT", 3), "turns": []}]
-        self.assertEqual(common.review_key(rv2, "CHAT", 3), "REVIEW#0000000000000200#CHAT#003")
-        self.assertIs(common.latest_review("x", rows), rv2)                      # 대화·다시 쓰기는 첨삭으로 치지 않음
-        self.assertEqual(list(common.review_children(rv2, "CHAT", rows)), [3])  # 최신 첨삭에 딸린 것만
-        self.assertEqual(list(common.review_children(rv1, "RETRY", rows)), [2])
+        rows = [rv1, {"sk": code_store.review_key(rv1, "CHAT", 0)}, {"sk": code_store.review_key(rv1, "RETRY", 2), "attempts": [1]},
+                rv2, {"sk": code_store.review_key(rv2, "CHAT", 3), "turns": []}]
+        self.assertEqual(code_store.review_key(rv2, "CHAT", 3), "REVIEW#0000000000000200#CHAT#003")
+        self.assertIs(code_store.latest_review("x", rows), rv2)                      # 대화·다시 쓰기는 첨삭으로 치지 않음
+        self.assertEqual(list(code_store.review_children(rv2, "CHAT", rows)), [3])  # 최신 첨삭에 딸린 것만
+        self.assertEqual(list(code_store.review_children(rv1, "RETRY", rows)), [2])
 
     def test_old_names_map_to_new_names(self):
         k = admin.new_key
@@ -604,7 +673,7 @@ class Entry(unittest.TestCase):
         self.assertEqual(set(entry.ROUTES), {
             "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /code",
             "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate", "POST /admin/experiment",
-            "GET /me", "GET /auth/start", "GET /auth/callback/google", "GET /auth/callback/github", "POST /auth/logout"})
+            "GET /me", "GET /auth/start", "GET /auth/callback/google", "POST /auth/logout"})
 
 
 if __name__ == "__main__":

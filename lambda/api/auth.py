@@ -6,27 +6,27 @@ import urllib.parse
 import urllib.request
 import uuid
 
-from common import (ALLOWED_ORIGINS, INFO, LIMITS, LOGIN_DAYS, PROFILE, SESSION_HEADER, SESSION_ID, STATE, TTL_ATTR, USER, ApiError,
-                    account_pk, alive, auth_pk, code_pk, delete_item, get_item, get_user, hit_limit, keep_seconds, login_pk, new_id,
-                    now_ms, put_item, query_all, ttl_after, update_item, user_pk)
+from core import (ALLOWED_ORIGINS, INFO, LIMITS, LOGIN_DAYS, PROFILE, SESSION_HEADER, SESSION_ID, STATE, TTL_ATTR, USER, ApiError, account_pk, alive,
+                  auth_pk, code_pk, delete_item, get_item, get_user, hit_limit, keep_seconds, logger, login_pk, new_id, now_ms, put_item, query_all,
+                  ttl_after, update_item, user_pk)
 
 # ─────────────────────────────────────────────────────────────
-# 로그인 (auth.py) — jojo_api 의 기능 파일. Google · GitHub OAuth (외부 라이브러리 없이 urllib)
+# 로그인 (auth.py) — 기능 파일. Google OAuth (urllib)
 #
-#   GET  /me                         지금 학습자: {"member", "name", "provider", "providers": {"google": 쓸 수 있는지, "github": …}}
+#   GET  /me                         지금 학습자: {"member", "name", "provider", "providers": {"google": 쓸 수 있는지}}
 #   GET  /auth/start?provider=google&return=<돌아갈 화면 주소>&sid=<지금 탭의 학습자 id>
-#        → Google·GitHub 로그인 화면으로 보낸다 (302)
-#   GET  /auth/callback/google · /auth/callback/github   (Google·GitHub 가 돌려보내는 곳)
+#        → Google 로그인 화면으로 보낸다 (302)
+#   GET  /auth/callback/google   (Google 이 돌려보내는 곳)
 #        → 코드를 토큰으로 바꿔 사용자 id·이름을 확인 → 계정의 학습자를 찾거나 만들고 → 로그인 토큰을 붙여 화면으로 (302)
 #          화면 주소#login=<로그인 토큰>  (실패하면 #login_error=<이유>)
 #   POST /auth/logout                로그인 토큰을 지운다
 #
 #   DynamoDB: AUTH#<state> / STATE (10분) · ACCOUNT#<provider>:<사용자 번호> / USER → userId
 #             LOGIN#<토큰> / USER → userId (30일, 쓰면 늘어남) · USER#<userId> / PROFILE 에 member: true, name, provider
-#   사용자 구분은 이름이 아니라 바뀌지 않는 고유 번호로 한다: Google 의 sub, GitHub 의 id (이름은 화면에 보여 줄 때만, 동명이인도 다른 계정)
-#   로그인하면 그 탭에서 하던 기록(내 공부·연습 코드)을 계정으로 옮기고, 보관 기간이 길어진다 (common.keep_seconds)
+#   사용자 구분은 이름이 아니라 바뀌지 않는 고유 번호로 한다: Google 의 sub (이름은 화면에 보여 줄 때만, 동명이인도 다른 계정)
+#   로그인하면 그 탭에서 하던 기록(내 공부·연습 코드)을 계정으로 옮기고, 보관 기간이 길어진다 (core.keep_seconds)
 #
-#   환경 변수 (비밀 값은 Lambda 환경 변수에만): GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET · GITHUB_CLIENT_ID · GITHUB_CLIENT_SECRET
+#   환경 변수 (비밀 값은 Lambda 환경 변수에만): GOOGLE_CLIENT_ID · GOOGLE_CLIENT_SECRET
 #   선택: AUTH_CALLBACK_BASE (콜백 주소의 앞부분, 비우면 함수 URL 도메인으로 만든다)
 #   내 컴퓨터(LOCAL_DEV=1)에서 클라이언트 id 가 없으면 '로컬 테스트' 가짜 로그인으로 흐름을 시험할 수 있다
 # ─────────────────────────────────────────────────────────────
@@ -36,11 +36,6 @@ PROVIDERS = {
         "name": "Google", "id_env": "GOOGLE_CLIENT_ID", "secret_env": "GOOGLE_CLIENT_SECRET",
         "authorize": "https://accounts.google.com/o/oauth2/v2/auth", "token": "https://oauth2.googleapis.com/token",
         "user": "https://openidconnect.googleapis.com/v1/userinfo", "scope": "openid profile",
-    },
-    "github": {
-        "name": "GitHub", "id_env": "GITHUB_CLIENT_ID", "secret_env": "GITHUB_CLIENT_SECRET",
-        "authorize": "https://github.com/login/oauth/authorize", "token": "https://github.com/login/oauth/access_token",
-        "user": "https://api.github.com/user", "scope": "",
     },
 }
 STATE_SECONDS = 10 * 60
@@ -66,7 +61,7 @@ def start(req):
     put_item({"pk": auth_pk(state), "sk": STATE, "provider": provider, "returnTo": return_to, "anonSid": sid if SESSION_ID.match(sid) else "",
               TTL_ATTR: ttl_after(STATE_SECONDS)})
 
-    # 3. Google·GitHub 로그인 화면으로 (로컬에서 설정이 없으면 바로 가짜 콜백으로)
+    # 3. Google 로그인 화면으로 (로컬에서 설정이 없으면 바로 가짜 콜백으로)
     redirect_uri = callback_url(req, provider)
     if not configured(provider):
         return {"_redirect": f"{redirect_uri}?{urllib.parse.urlencode({'code': 'local-test', 'state': state})}"}
@@ -90,7 +85,7 @@ def callback(req, provider):
     try:
         if req["query"].get("error"):
             raise ApiError(400, "로그인을 취소했어요.")
-        # 2. 코드 → 액세스 토큰 → 사용자 id·이름 (Google·GitHub)
+        # 2. 코드 → 액세스 토큰 → 사용자 id·이름 (Google)
         profile = fetch_profile(req, provider, req["query"].get("code", ""))
         # 3. 계정의 학습자 찾기·만들기 → 이 탭의 기록 옮기기 → 로그인 토큰
         user_id = account_user(provider, profile)
@@ -115,7 +110,6 @@ ROUTES = {
     "GET /me": me,
     "GET /auth/start": start,
     "GET /auth/callback/google": lambda req: callback(req, "google"),
-    "GET /auth/callback/github": lambda req: callback(req, "github"),
     "POST /auth/logout": logout,
 }
 
@@ -129,7 +123,7 @@ def configured(provider):
 
 def provider_of(name):
     if name not in PROVIDERS:
-        raise ApiError(400, "Google 또는 GitHub 로그인만 할 수 있어요.")
+        raise ApiError(400, "Google 로그인만 할 수 있어요.")
     if not configured(name) and not LOCAL_DEV:
         raise ApiError(400, f"{PROVIDERS[name]['name']} 로그인은 아직 설정되지 않았어요.")
     return name
@@ -146,7 +140,7 @@ def safe_return(url):
 
 
 def callback_url(req, provider):
-    """Google·GitHub 에 등록하는 콜백 주소와 같아야 한다: <함수 URL>/auth/callback/<provider>"""
+    """Google 에 등록하는 콜백 주소와 같아야 한다: <함수 URL>/auth/callback/<provider>"""
     base = os.environ.get("AUTH_CALLBACK_BASE", "").rstrip("/")
     if not base:
         base = f"http://{req['host']}" if LOCAL_DEV else f"https://{req['domain'] or req['host']}"
@@ -162,12 +156,12 @@ def http_json(url, data=None, token=None):
         with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers), timeout=10) as res:
             return json.loads(res.read().decode("utf-8"))
     except (urllib.error.URLError, ValueError) as e:
-        print("[auth]", url, repr(e))
+        logger.warning("로그인 서버 요청 실패", extra={"url": url, "error": repr(e)})   # url 은 Google 주소(비밀 값 없음)
         raise ApiError(502, "로그인 서버와 연결하지 못했어요. 잠시 뒤에 다시 시도해 주세요.")
 
 
 def fetch_profile(req, provider, code):
-    """{"id": 고유 번호(Google sub · GitHub id, 계정 구분에 씀), "name": 보여 줄 이름(구분에 쓰지 않음)}. 이메일 등 다른 정보는 받지도 저장하지도 않는다"""
+    """{"id": 고유 번호(Google sub, 계정 구분에 씀), "name": 보여 줄 이름(구분에 쓰지 않음)}. 이메일 등 다른 정보는 받지도 저장하지도 않는다"""
     if not code:
         raise ApiError(400, "로그인 코드가 없어요. 다시 로그인해 주세요.")
     if not configured(provider):   # 로컬 가짜 로그인
@@ -177,13 +171,13 @@ def fetch_profile(req, provider, code):
                                     "redirect_uri": callback_url(req, provider), "grant_type": "authorization_code"})
     access = tokens.get("access_token")
     if not access:
-        print("[auth] 토큰 교환 실패:", provider, tokens.get("error"))
+        logger.warning("로그인 토큰 교환 실패", extra={"provider": provider, "error": tokens.get("error")})
         raise ApiError(400, "로그인을 확인하지 못했어요. 다시 로그인해 주세요.")
     user = http_json(p["user"], token=access)
-    uid = user.get("sub") if provider == "google" else user.get("id")
+    uid = user.get("sub")
     if not uid:
         raise ApiError(400, "사용자 정보를 받지 못했어요.")
-    name = user.get("name") or user.get("given_name") or user.get("login") or PROVIDERS[provider]["name"] + " 사용자"
+    name = user.get("name") or user.get("given_name") or PROVIDERS[provider]["name"] + " 사용자"
     return {"id": str(uid), "name": str(name)[:40]}
 
 

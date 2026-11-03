@@ -8,15 +8,15 @@ export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3:
 export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
   1: "짧은 코드. 변수, 조건문, 반복문이 위에서 아래로 흘러가요.",
   2: "함수 여러 개가 서로를 불러요. 리스트·딕셔너리(배열·객체)가 나와요.",
-  3: "100~150줄. 클래스, 재귀, 예외 처리처럼 흐름이 오가는 작은 프로그램이에요.",
-  4: "150~300줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
+  3: "60~100줄. 클래스, 재귀, 예외 처리처럼 흐름이 오가는 작은 프로그램이에요.",
+  4: "100~180줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
 };
 
-/** 연습 모드 언어 (common.LANGUAGES 와 같게). 내 코드 점검은 아직 Python 만 */
+/** 연습 모드 언어 (core.LANGUAGES 와 같게). 내 코드 점검은 아직 Python 만 */
 export type Language = "python" | "javascript";
 export const LANGUAGE_NAMES: Record<Language, string> = { python: "Python", javascript: "JavaScript" };
 
-/** 개념 꼬리표 (common.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
+/** 개념 꼬리표 (core.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
 export type Concept = "branch" | "loop_update" | "call_flow" | "data_update" | "class_state" | "exception" | "recursion" | "algorithm";
 export const CONCEPT_NAMES: Record<Concept, string> = {
   branch: "조건 분기",
@@ -36,9 +36,9 @@ export interface Me {
   /** 로그인한 학습자인지 */
   member: boolean;
   name: string | null;
-  provider: "google" | "github" | null;
+  provider: "google" | null;
   /** 쓸 수 있는 로그인 (서버에 클라이언트 id 가 설정된 것) */
-  providers: { google: boolean; github: boolean };
+  providers: { google: boolean };
 }
 
 // ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────
@@ -354,18 +354,44 @@ export interface AdminOverview {
 }
 
 /** POST /admin/experiment (experiment.py) — 논문 실험: 문항 하나의 단계 기록. 화면은 쓰지 않고 scripts/experiment_generation.py 가 쓴다 */
+/** 문항의 검증 상태: AI 교차 검토까지 / 규칙 검사만 (검토 AI 를 못 씀) / 예시 코드 (npm run verify 가 실제로 실행해 확인) */
+export type Verification = "ai_reviewed" | "rule_checked" | "sample_verified";
+
+/** 실행 추적표 — 저장만 하고 화면에는 보내지 않는다 (CODE#<id> INFO 의 trace) */
+export interface CodeTrace {
+  flow: { line: number | null; event: string; detail: string; state: string }[];
+  output: string[];
+  marks: Record<string, { enter: string; exit: string; steps: string[]; branch: string; count: number | null }>;
+}
+
+/** 규칙 검사·교차 검토 기록 (CODE#<id> INFO 의 checks) */
+export interface CodeChecks {
+  reviewed: boolean;
+  traceAgree: Record<string, boolean | null>;
+  outputAgree: boolean | null;
+  unsupported?: Record<string, string[]>;
+}
+
 export interface ExperimentRecord {
   no: number;
   language: Language;
   level: Level;
   topic: string;
-  /** 시도마다: 규칙 검사 문제 · 교차 검토 문제(검토를 안 했으면 null) · 교체된 모범 설명 수 */
-  attempts: { lines: number; marks: number; rule_problems: string[]; check_problems: string[] | null; check_ran: boolean; fixed: number; fixed_ids: string[] }[];
+  /** 시도마다: 규칙 검사 A 문제 · 규칙 검사 B 결과(※ id → 꼭 지킬 것·확인할 것) · 교차 검토 문제(검토를 안 했으면 null) · 교체된 모범 설명 수 */
+  attempts: {
+    lines: number; marks: number; rule_problems: string[]; explain_issues: Record<string, { hard: string[]; soft: string[] }> | null; final_hard: string[];
+    check_problems: string[] | null; check_ran: boolean; fixed: number; fixed_ids: string[];
+  }[];
   origin: "ai" | "sample" | "error";
   note: string | null;
   title: string;
   code: string;
   marks: { id: string; start: number; end: number; concept: string | null; explanation: string; keywords: string[] }[];
+  /** 실행 추적표 (AI 가 한 줄씩 따라간 기록, 실제 실행 아님) — AI 문항만 */
+  trace?: CodeTrace | null;
+  /** 생성 쪽·검토 쪽 추적표 비교, 근거를 찾지 못한 숫자 */
+  checks?: CodeChecks | null;
+  verification?: Verification | null;
   seconds: number;
   tokens_in: number;
   tokens_out: number;

@@ -45,7 +45,7 @@ export function NoteHeader() {
   );
 }
 
-/** 로그인 표시: 로그인 안 함 → [로그인] (Google · GitHub 고르기) / 로그인 → 이름 · 로그아웃 */
+/** 로그인 표시: 로그인 안 함 → [로그인] (Google) / 로그인 → 이름 · 로그아웃 */
 function LoginBox() {
   const [failed, setFailed] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -72,15 +72,14 @@ function LoginBox() {
   if (me.member) {
     return (
       <span className="flex items-center gap-2 text-xs text-ink-700">
-        <span className="hand text-base text-pen-blue">{me.name}</span>님 ({me.provider === "github" ? "GitHub" : "Google"})
+        <span className="hand text-base text-pen-blue">{me.name}</span>님 (Google)
         <button type="button" className="underline hover:text-pen-red" onClick={() => logout()}>
           로그아웃
         </button>
       </span>
     );
   }
-  const any = me.providers.google || me.providers.github;
-  if (!any) return <span className="h-5" />;
+  if (!me.providers.google) return <span className="h-5" />;
   return (
     <span className="relative flex items-center gap-2 text-xs">
       {failed && <span className="text-pen-red">{failed}</span>}
@@ -90,16 +89,9 @@ function LoginBox() {
       {open && (
         <span className="sticky-note absolute right-0 top-8 z-50 flex w-56 flex-col gap-2 bg-sticky-yellow p-3">
           <span className="hand text-pen-red">로그인하면 공부 기록이 남아요</span>
-          {me.providers.google && (
-            <a href={loginUrl("google")} className="btn-line justify-start py-1.5 text-xs">
-              Google로 로그인
-            </a>
-          )}
-          {me.providers.github && (
-            <a href={loginUrl("github")} className="btn-line justify-start py-1.5 text-xs">
-              GitHub로 로그인
-            </a>
-          )}
+          <a href={loginUrl("google")} className="btn-line justify-start py-1.5 text-xs">
+            Google로 로그인
+          </a>
           <span className="text-[11px] text-ink-500">이름만 받아요. 지금 탭에서 한 공부도 계정으로 옮겨요.</span>
         </span>
       )}

@@ -1,0 +1,74 @@
+{
+  "about": "Lambda 함수 목록 — npm run package 가 이 표대로 함수마다 zip 을 묶고, npm run deploy 가 올려요. 파일·라이브러리·환경 변수가 코드와 맞는지는 lambda/tests/test_functions.py 가 확인해요 (docs/LAMBDA_STRUCTURE.md)",
+  "runtime": "python3.14",
+  "architecture": "arm64",
+  "region": "ap-northeast-2",
+  "handler": "lambda_function.lambda_handler",
+  "sharedEnv": ["TABLE_NAME", "TTL_ATTR", "DB_REGION", "ALLOWED_ORIGINS", "AI_MODE", "MODEL_ID", "BEDROCK_REGION", "AI_MONTHLY_BUDGET_USD", "RATE_LIMIT_*", "POWERTOOLS_LOG_LEVEL"],
+  "functions": [
+    {
+      "name": "jojo_auth", "key": "auth", "about": "로그인·현재 학습자",
+      "entry": "functions/jojo_auth.py",
+      "files": ["core.py", "auth.py"],
+      "libs": ["aws-lambda-powertools", "pydantic"],
+      "env": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AUTH_CALLBACK_BASE"],
+      "paths": ["/me", "/auth", "/health"],
+      "timeout": 15, "memory": 256
+    },
+    {
+      "name": "jojo_practice", "key": "practice", "about": "연습 코드 만들기·주제",
+      "entry": "functions/jojo_practice.py",
+      "files": ["core.py", "ai.py", "code_store.py", "practice.py", "topics.py", "samples.py", "samples_js.py"],
+      "libs": ["aws-lambda-powertools", "pydantic", "tree-sitter", "tree-sitter-javascript"],
+      "env": [],
+      "paths": ["/practice", "/topic"],
+      "timeout": 600, "memory": 512
+    },
+    {
+      "name": "jojo_inspect", "key": "inspect", "about": "내 코드 점검",
+      "entry": "functions/jojo_inspect.py",
+      "files": ["core.py", "ai.py", "code_store.py", "inspect_code.py"],
+      "libs": ["aws-lambda-powertools", "pydantic"],
+      "env": [],
+      "paths": ["/inspect"],
+      "timeout": 120, "memory": 512
+    },
+    {
+      "name": "jojo_review", "key": "review", "about": "첨삭·다시 쓰기·AI 튜터·코드 다시 열기",
+      "entry": "functions/jojo_review.py",
+      "files": ["core.py", "ai.py", "code_store.py", "review.py", "tutor_chat.py", "study.py"],
+      "libs": ["aws-lambda-powertools", "pydantic"],
+      "env": [],
+      "paths": ["/review", "/tutor", "/code"],
+      "timeout": 180, "memory": 512
+    },
+    {
+      "name": "jojo_study", "key": "study", "about": "내 공부 (AI 없음)",
+      "entry": "functions/jojo_study.py",
+      "files": ["core.py", "study.py"],
+      "libs": ["aws-lambda-powertools", "pydantic"],
+      "env": [],
+      "paths": ["/study"],
+      "timeout": 30, "memory": 256
+    },
+    {
+      "name": "jojo_admin", "key": "admin", "about": "관리자 화면·논문 실험",
+      "entry": "functions/jojo_admin.py",
+      "files": ["core.py", "ai.py", "code_store.py", "admin.py", "experiment.py", "practice.py", "samples.py", "samples_js.py"],
+      "libs": ["aws-lambda-powertools", "pydantic", "tree-sitter", "tree-sitter-javascript"],
+      "env": ["ADMIN_TOKEN"],
+      "paths": ["/admin"],
+      "timeout": 600, "memory": 512
+    },
+    {
+      "name": "jojo_api_py", "key": "all", "about": "예전 함수 하나 (모든 기능) — 화면이 6개 함수로 옮겨 가기 전까지만. 옮긴 뒤 정지하고 지워요",
+      "legacy": true,
+      "entry": "api/lambda_function.py",
+      "files": ["core.py", "ai.py", "code_store.py", "auth.py", "topics.py", "practice.py", "samples.py", "samples_js.py", "inspect_code.py", "review.py", "tutor_chat.py", "study.py", "admin.py", "experiment.py"],
+      "libs": ["aws-lambda-powertools", "pydantic", "tree-sitter", "tree-sitter-javascript"],
+      "env": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AUTH_CALLBACK_BASE", "ADMIN_TOKEN"],
+      "paths": ["/"],
+      "timeout": 600, "memory": 512
+    }
+  ]
+}

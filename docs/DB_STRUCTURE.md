@@ -32,7 +32,7 @@
 | 2. **sk = 종류 (+ 시각·번호)** | 서랍 안에서 무슨 칸인지. 시각을 넣으면 sk 정렬 = 시간 순서 | `PROFILE`, `STUDYREC#3c90…`, `REVIEW#1792592284764123` |
 | 3. **운영 데이터는 `OPS#`** | 학습 데이터와 섞이지 않게 | `OPS#STATS`, `OPS#CONFIG` |
 
-이름은 `lambda/api/common.py` 4번 구역의 함수로만 만들어요. 다른 파일에서 `"USER#"` 같은 글자를 직접 쓰지 않아요.
+이름은 `lambda/api/core.py` 4번 구역의 함수로만 만들어요. 다른 파일에서 `"USER#"` 같은 글자를 직접 쓰지 않아요.
 
 | 함수·상수 | 만드는 값 |
 |---|---|
@@ -54,14 +54,14 @@
 
 | sk | 이름 | 주요 필드 | 만드는 곳 | 자동 삭제 |
 |---|---|---|---|---|
-| `PROFILE` | 학습자 | `level`, `recentTopics`(최근 10개), `createdAt`, `lastSeen`, 로그인 학습자만 `member`·`name`·`provider`·`formerUserIds` | `common.get_user`(비회원), `auth.account_user`(회원) | 비회원: 마지막 사용 12시간 뒤 · 회원: 1년 |
+| `PROFILE` | 학습자 | `level`, `recentTopics`(최근 10개), `createdAt`, `lastSeen`, 로그인 학습자만 `member`·`name`·`provider`·`formerUserIds` | `core.get_user`(비회원), `auth.account_user`(회원) | 비회원: 마지막 사용 12시간 뒤 · 회원: 1년 |
 | `STUDYREC#<코드 id>` | 내 공부 기록 (코드 1개당 1줄) | `codeId`, `source`, `language`, `level`, `title`, `counts`, `items[{concept, first, best, memo, bestText …}]`, `reviews`, `reviewedAt` | `study.record_review`(첨삭 때), `study.record_retry`(다시 써서 나아질 때) | 비회원: 1일 · 회원: 1년 |
 
 ### 2-2. CODE 서랍 — `pk = CODE#<코드 id>`
 
 | sk | 이름 | 주요 필드 | 만드는 곳 | 자동 삭제 |
 |---|---|---|---|---|
-| `INFO` | 읽을 코드 | `codeId`, `userId`, `source`(practice·inspect), `language`, `level`, `topic`, `title`, `code`, `marks[{id, start, end, why, explanation, keywords}]`, `rootCodeId`, `regenCount`, `origin` | `common.save_code` | 비회원: 1일 · 회원: 30일 · 올린 코드: 늘 1일 |
+| `INFO` | 읽을 코드 | `codeId`, `userId`, `source`(practice·inspect), `language`, `level`, `topic`, `title`, `code`, `marks[{id, start, end, why, explanation, keywords}]`, `rootCodeId`, `regenCount`, `origin` | `code_store.save_code` | 비회원: 1일 · 회원: 30일 · 올린 코드: 늘 1일 |
 | `REVIEW#<시각>` | 첨삭 (할 때마다 새 줄) | `memos[{start, end, text}]`, `result`(○△✕ 개수·항목별 코멘트) | `review.review` | 코드와 같은 날 |
 | `REVIEW#<첨삭 시각>#RETRY#<항목>` | 힌트 보고 다시 써 보기 | `attempts[{text, mark, comment, lookAt, byAi, at}]` | `review.retry` | 코드와 같은 날 |
 | `REVIEW#<첨삭 시각>#CHAT#<항목>` | AI 튜터 대화 | `turns[{role, text, lookAt, at}]` | `tutor_chat.ask_tutor` | 코드와 같은 날 |
@@ -226,7 +226,7 @@ API 도 같은 이름을 써요: 요청 본문 `readingId` → `codeId`, `GET /r
 
 ## 6. 항목 모양을 바꿀 때
 
-1. 이름은 `common.py` 4번 구역의 함수·상수만 고쳐요.
+1. 이름은 `core.py` 4번 구역의 함수·상수만 고쳐요.
 2. 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고쳐요.
 3. 이미 저장된 데이터가 있으면 `admin.py` `new_key`(키)·`new_fields`(필드) 에 옮기는 규칙을 더해요.
 4. `npm test`, `npm run smoke` 로 확인하고, 이 문서와 그림(`docs/images/jojo_table_erd.png`)도 함께 고쳐요.

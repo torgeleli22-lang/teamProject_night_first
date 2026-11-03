@@ -1,12 +1,16 @@
 import hashlib
 import hmac
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
-import common
-from common import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
-                    account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, estimate_cost, field, get_item, get_meta,
-                    login_pk, month_cost_usd, month_key, normalize_model, query_all, read_counter, set_meta, studyrec_sk, to_plain, user_pk)
+from pydantic import Field
+
+import core
+from core import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
+                  account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, get_item, get_meta, login_pk, query_all,
+                  read_body, read_counter, set_meta, studyrec_sk, to_plain, user_pk, Body)
+from ai import (estimate_cost, month_cost_usd, month_key, normalize_model)
 
 # ─────────────────────────────────────────────────────────────
 # 관리자 (admin.py) — jojo_api 의 기능 파일
@@ -71,8 +75,9 @@ def code_matches(code, stored):
 
 # 지금 쓰는 AI 작업 (USAGE 의 작업 이름 → 화면 이름 · 설명). 여기 없는 이름은 예전 서비스의 기록이다
 TASKS = {
-    "code_generation": ("연습 코드 만들기", "연습 모드 '코드 받기'와 더 쉽게·더 어렵게. 규칙 검사나 AI 검토에 걸리면 한 번 더 불러요"),
-    "code_check": ("연습 코드 검토", "만든 연습 코드를 다른 AI 가 머릿속으로 실행해 보고 실행 오류·난이도·※ 모범 설명을 확인해요. 틀린 모범 설명은 고쳐요"),
+    "code_generation": ("연습 코드 만들기", "연습 모드 '코드 받기'와 더 쉽게·더 어렵게. 코드와 ※ 위치를 만들어요. 검사에 걸리면 2번까지 다시 불러요"),
+    "code_trace": ("실행 추적표·모범 설명", "만든 코드를 한 줄씩 따라가 실행 추적표를 쓰고, 그 기록만으로 ※ 모범 설명을 써요"),
+    "code_check": ("연습 코드 검토", "다른 AI 가 원본 코드를 따로 추적해 실행 오류·난이도·※ 모범 설명을 확인해요. 틀린 모범 설명은 고쳐요"),
     "topic_check": ("주제 판정", "'직접 적기'로 낸 주제가 괜찮은지 봐요"),
     "code_inspection": ("내 코드 분석", "내 코드 점검 '메모하러 가기'. 난이도와 ※ 지점을 정해요"),
     "review": ("빨간펜 첨삭", "'첨삭 받기'. 메모가 하나도 없으면 AI 없이 규칙으로 해요"),
@@ -84,7 +89,7 @@ OLD_TASKS = {"content_generation": "문제 생성", "learner_analysis": "학습�
 EVENT_NAMES = ["practices", "adjusts", "topicChecks", "inspections", "reviews", "retries", "tutorChats"]
 RECENT_LOGS = 50
 
-# 실패 이유 (common.ask_ai 가 남기는 영어 오류 → 관리자가 읽을 말)
+# 실패 이유 (ai.ask_ai 가 남기는 영어 오류 → 관리자가 읽을 말)
 ERROR_REASONS = [
     ("AccessDenied", "Bedrock 권한이 없어요 (실행 역할 또는 모델 사용 신청 확인)"),
     ("Throttling", "요청이 몰려 AWS 가 잠시 거절했어요"),
@@ -167,16 +172,26 @@ def overview(req):
     }
 
 
+class SwitchIn(Body):
+    """POST /admin/ai 본문"""
+    enabled: bool
+
+
+class CodeIn(Body):
+    """POST /admin/code 본문"""
+    code: str = Field(max_length=200)
+
+
 def switch_ai(req):
-    enabled = field(req["body"], "enabled", "bool", required=True)
+    enabled = read_body(req, SwitchIn).enabled
     set_meta("ai_switch", "on" if enabled else "off")
     # 이 Lambda 안의 30초 캐시도 바로 바꾼다 (다른 실행 환경은 30초 안에 따라온다)
-    common._switch.update(value=enabled, checked=common.time.time())
+    core._switch.update(value=enabled, checked=time.time())
     return {"aiSwitch": enabled}
 
 
 def change_code(req):
-    code = field(req["body"], "code", "str", required=True, max_len=200)
+    code = read_body(req, CodeIn).code
     if len(code) < ADMIN_CODE_MIN:
         raise ApiError(400, f"관리자 코드는 {ADMIN_CODE_MIN}자 이상이어야 해요.")
     if len(code) > ADMIN_CODE_MAX:
@@ -292,7 +307,7 @@ def scan_table():
     """테이블 전체 (관리자가 옮기기를 누를 때만 — 평소 기능은 쓰지 않는다)"""
     args = {}
     while True:
-        page = common.table.scan(**args)
+        page = core.table.scan(**args)
         yield from to_plain(page.get("Items", []))
         if "LastEvaluatedKey" not in page:
             return

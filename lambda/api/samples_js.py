@@ -168,7 +168,7 @@ console.log("남은 자리:", countFree());""",
             {"start": 8, "end": 14, "concept": "branch", "why": "자리가 비었는지 판단하는 곳",
              "explanation": "줄이 없거나 번호가 범위를 벗어나면 바로 false 를 돌려줘요. 아니면 그 자리의 값(true 는 이미 예매됨)을 뒤집어 돌려줘서, 빈 자리일 때만 true 가 돼요. C 줄은 없어서 false 예요.",
              "keywords": ["범위", "false", "뒤집어", "빈 자리"]},
-            {"start": 16, "end": 24, "concept": "call_flow", "why": "isFree 를 불러 예매를 막거나 기록하는 곳",
+            {"start": 17, "end": 23, "concept": "call_flow", "why": "isFree 를 불러 예매를 막거나 기록하는 곳",
              "explanation": "book 은 먼저 isFree 를 불러요. 비어 있지 않으면 예매할 수 없다고 출력하고 false 로 끝나요. 비어 있으면 그 자리를 true 로 바꾸고 bookings 에 이름과 자리를 넣어요. 서준(B2)과 하은(C1)은 막히고 지민(A1)만 들어가요.",
              "keywords": ["isFree", "false", "true", "bookings", "지민"]},
         ],
@@ -198,7 +198,6 @@ class PointCard {
     this.owner = owner;
     this.points = 0;
     this.spent = 0;
-    this.history = [];
   }
 
   get grade() {
@@ -212,19 +211,14 @@ class PointCard {
     const gained = Math.floor(price * this.grade.rate);
     this.spent += price;
     this.points += gained;
-    this.history.push(`+${gained}`);
     return gained;
   }
 
   use(amount) {
-    if (amount <= 0) {
-      throw new PointError("0보다 큰 포인트만 쓸 수 있어요", "BAD_AMOUNT");
-    }
     if (amount > this.points) {
       throw new PointError(`포인트가 ${this.points}점뿐이에요`, "NOT_ENOUGH");
     }
     this.points -= amount;
-    this.history.push(`-${amount}`);
   }
 }
 
@@ -246,14 +240,14 @@ class Cafe {
     if (event.type === "pay") {
       const before = card.grade.name;
       const gained = card.earn(event.price);
-      const after = card.grade.name;
-      return after === before ? `${gained}점 적립` : `${gained}점 적립, ${after} 등급이 됐어요`;
+      const note = card.grade.name === before ? "" : `, ${card.grade.name} 등급이 됐어요`;
+      return `${gained}점 적립${note}`;
     }
-    if (event.type === "use") {
-      card.use(event.amount);
-      return `${event.amount}점 사용, ${card.points}점 남음`;
+    if (event.type !== "use") {
+      throw new PointError(`모르는 요청: ${event.type}`, "UNKNOWN");
     }
-    throw new PointError(`모르는 요청: ${event.type}`, "UNKNOWN");
+    card.use(event.amount);
+    return `${event.amount}점 사용, ${card.points}점 남음`;
   }
 
   runAll(events, onDone) {
@@ -272,31 +266,28 @@ class Cafe {
 }
 
 const cafe = new Cafe();
-const events = [
+cafe.runAll([
   { owner: "민지", type: "pay", price: 4500 },
   { owner: "민지", type: "pay", price: 8000 },
   { owner: "준호", type: "use", amount: 100 },
-  { owner: "민지", type: "use", amount: 500 },
   { owner: "민지", type: "pay", price: 20000 },
   { owner: "준호", type: "pay", price: -1000 },
   { owner: "준호", type: "gift", amount: 300 },
-];
-
-cafe.runAll(events, (owner, message) => console.log(`${owner}: ${message}`));
+], (owner, message) => console.log(`${owner}: ${message}`));
 
 for (const card of cafe.cards.values()) {
-  console.log(`${card.owner} — ${card.grade.name}, ${card.points}점, 결제 ${card.spent}원, 기록 ${card.history.join(" ") || "없음"}`);
+  console.log(`${card.owner} — ${card.grade.name}, ${card.points}점, 결제 ${card.spent}원`);
 }
 console.log("실패 코드:", cafe.errors.join(", "));""",
         "marks": [
-            {"start": 27, "end": 36, "concept": "class_state", "why": "적립률이 등급에 따라 달라지며 상태가 바뀌는 곳",
-             "explanation": "earn 은 결제 전 누적 금액(spent)으로 정한 등급의 적립률을 써서 포인트를 계산한 뒤, spent 와 points 를 늘려요. 그래서 8000원은 아직 기본 등급(5%)이라 400점, 20000원은 실버(7%)라 1400점이 쌓여요.",
-             "keywords": ["spent", "등급", "적립률", "400", "1400"]},
-            {"start": 63, "end": 76, "concept": "branch", "why": "요청 종류에 따라 갈리고 등급 변화를 알리는 곳",
-             "explanation": "handle 은 type 이 pay 면 적립 전후의 등급 이름을 비교해 달라졌을 때만 등급 안내를 붙이고, use 면 포인트를 써요. 둘 다 아니면 PointError 를 던져서 gift 요청은 실패해요.",
-             "keywords": ["pay", "전후", "비교", "use", "throw"]},
-            {"start": 78, "end": 90, "concept": "exception", "why": "던진 오류를 받아 기록하고 반복을 이어 가는 곳",
-             "explanation": "runAll 은 요청마다 try 안에서 handle 을 부르고 결과를 콜백 onDone 으로 넘겨요. PointError 면 code 를 errors 에 넣고 실패 안내를 넘긴 뒤 다음 요청으로 가요. 다른 오류는 다시 던져요. 실패 코드는 NOT_ENOUGH, BAD_PRICE, UNKNOWN 이에요.",
+            {"start": 26, "end": 33, "concept": "class_state", "why": "적립률이 등급에 따라 달라지며 상태가 바뀌는 곳",
+             "explanation": "earn 은 결제 전 누적 금액(spent)으로 정한 등급의 적립률로 포인트를 계산한 뒤 spent 와 points 를 늘려요. 그래서 8000원은 아직 기본 등급(5%)이라 400점, 20000원은 실버(7%)라 1400점이 쌓여요.",
+             "keywords": ["spent", "등급", "적립률", "400점", "1400점"]},
+            {"start": 59, "end": 66, "concept": "branch", "why": "요청 종류에 따라 갈리고 등급 변화를 알리는 곳",
+             "explanation": "handle 은 type 이 pay 면 적립 전후의 등급 이름을 비교해 달라졌을 때만 등급 안내를 붙여요. use 도 아니면 PointError 를 던져서 gift 요청은 실패해요. 두 번째 결제에서 실버, 세 번째 결제에서 골드 안내가 붙어요.",
+             "keywords": ["pay", "전후", "비교", "PointError", "골드"]},
+            {"start": 74, "end": 81, "concept": "exception", "why": "던진 오류를 받아 기록하고 반복을 이어 가는 곳",
+             "explanation": "runAll 은 요청마다 try 안에서 handle 을 부르고 결과를 콜백 onDone 으로 넘겨요. PointError 면 code 를 errors 에 넣고 실패 안내를 넘긴 뒤 다음 요청으로 가고, 다른 오류는 다시 던져요. 실패 코드는 NOT_ENOUGH, BAD_PRICE, UNKNOWN 이에요.",
              "keywords": ["try", "onDone", "PointError", "errors", "다시 던져"]},
         ],
     },
@@ -380,14 +371,6 @@ function averagePay(group) {
   return Math.round(totalPay(group) / people);
 }
 
-function listTeams(group, depth = 0, out = []) {
-  out.push(`${"  ".repeat(depth)}${group.name} (${countPeople(group)}명)`);
-  for (const team of group.teams) {
-    listTeams(team, depth + 1, out);
-  }
-  return out;
-}
-
 function report(names, measure) {
   for (const name of names) {
     try {
@@ -402,7 +385,6 @@ function report(names, measure) {
   }
 }
 
-console.log(listTeams(company).join("\\n"));
 console.log("전체 인원:", countPeople(company));
 console.log("서버 파트 위치:", findPath(company, "서버 파트").join(" > "));
 console.log("인사팀 위치:", findPath(company, "인사팀"));
@@ -415,11 +397,11 @@ report(["개발팀", "디자인팀"], countPeople);""",
         "marks": [
             {"start": 28, "end": 34, "concept": "recursion", "why": "자기 자신을 불러 아래 팀까지 세는 곳",
              "explanation": "countPeople 은 지금 그룹의 인원으로 시작해, 아래 팀마다 countPeople 을 다시 불러 그 결과를 더해요. 아래 팀이 없으면 반복이 돌지 않아 자기 인원만 돌려줘요. 개발팀은 5 + 3 + (4 + 2) = 14명, 전체는 19명이에요.",
-             "keywords": ["다시 불러", "아래 팀", "더해", "14", "19"]},
-            {"start": 41, "end": 53, "concept": "recursion", "why": "길을 찾으면 위로 돌려주는 곳",
+             "keywords": ["다시 불러", "아래 팀", "더해", "14명", "19명"]},
+            {"start": 42, "end": 52, "concept": "recursion", "why": "길을 찾으면 위로 돌려주는 곳",
              "explanation": "findPath 는 지금까지의 경로에 자기 이름을 붙이고, 찾는 이름이면 그 경로를 돌려줘요. 아니면 아래 팀마다 자신을 다시 불러 찾은 경로가 오면 바로 위로 돌려줘요. 어디에도 없으면 null 이라 인사팀은 null 이 나와요.",
              "keywords": ["경로", "다시 불러", "돌려줘", "null"]},
-            {"start": 83, "end": 95, "concept": "exception", "why": "팀마다 계산하다 오류가 나도 이어 가는 곳",
+            {"start": 77, "end": 84, "concept": "exception", "why": "팀마다 계산하다 오류가 나도 이어 가는 곳",
              "explanation": "report 는 이름마다 try 안에서 findTeam 으로 팀을 찾고 measure 콜백(averagePay·countPeople)으로 값을 구해요. OrgError 가 나면 catch 에서 '확인할 수 없어요'를 출력하고 다음 이름으로 가요. 영업팀은 0명이라, 인사팀은 없어서 실패해요.",
              "keywords": ["try", "findTeam", "measure", "catch", "영업팀"]},
         ],

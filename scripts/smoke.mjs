@@ -26,7 +26,7 @@ const check = (cond, msg) => {
   console.log(`✓ ${msg}`);
 };
 const PRIVATE = ["explanation", "keywords", "why"];
-const noAnswers = (codeItem) => codeItem.marks.every((m) => PRIVATE.every((k) => !(k in m)));
+const noAnswers = (codeItem) => codeItem.marks.every((m) => PRIVATE.every((k) => !(k in m))) && !("trace" in codeItem) && !("checks" in codeItem);   // 모범 설명·실행 추적표는 화면에 보내지 않는다
 
 try {
   // ── 연결 확인
@@ -47,11 +47,11 @@ try {
   await call("POST", "/topic/check", { level: 1, text: "가".repeat(51) }, {}, 400);
   check(true, "주제 50자 넘으면 400");
 
-  // ── 고급 (4단계): 알고리즘용 랜덤 주제, 120~300줄, ※ 5곳
+  // ── 고급 (4단계): 알고리즘용 랜덤 주제, 100~180줄, ※ 5곳
   const advTopic = await call("GET", "/topic/random?level=4");
   const adv = await call("POST", "/practice", { level: 4, topic: advTopic.topic });
   const advLines = adv.code.split("\n").length;
-  check(adv.levelName === "고급" && advLines >= 120 && advLines <= 300 && adv.marks.length === 5, `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
+  check(adv.levelName === "고급" && advLines >= 100 && advLines <= 180 && adv.marks.length === 5 && noAnswers(adv), `고급 코드 (${advTopic.topic} → ${adv.title}, ${advLines}줄, ※ ${adv.marks.length}곳)`);
 
   // ── 연습 모드 (practice.py)
   const codeItem = await call("POST", "/practice", { level: 2, topic: "편의점 재고" });
@@ -159,10 +159,10 @@ try {
 
   // ── 로그인 (auth.py): 로컬 가짜 로그인으로 흐름 확인 — 이 탭의 기록이 계정으로 옮겨지고, 로그아웃하면 새 학습자
   const meBefore = await call("GET", "/me");
-  check(meBefore.member === false && meBefore.providers.google && meBefore.providers.github, "로그인 전: 로그인 안 한 학습자");
+  check(meBefore.member === false && meBefore.providers.google && !("github" in meBefore.providers), "로그인 전: 로그인 안 한 학습자");
   const anonSid = sid;
   const back = "http://localhost:3000/study/";
-  const startRes = await fetch(`${api.url}/auth/start?provider=github&return=${encodeURIComponent(back)}&sid=${anonSid}`, { redirect: "manual" });
+  const startRes = await fetch(`${api.url}/auth/start?provider=google&return=${encodeURIComponent(back)}&sid=${anonSid}`, { redirect: "manual" });
   check(startRes.status === 302, "로그인 시작 → 로그인 화면으로 (302)");
   const cb = await fetch(startRes.headers.get("location"), { redirect: "manual" });
   const landing = cb.headers.get("location") || "";
@@ -256,7 +256,7 @@ try {
   sid = "11111111-1111-1111-1111-111111111111";
   await call("GET", "/topic/random");
   check(sid !== "11111111-1111-1111-1111-111111111111", "모르는 세션 id 는 새 세션으로 교체");
-  const pre = await fetch(`${api.url}/practice`, { method: "OPTIONS" });
+  const pre = await fetch(`${api.url}/practice`, { method: "OPTIONS", headers: { origin: "http://localhost:3000", "access-control-request-method": "POST" } });
   check(pre.status === 204 && pre.headers.get("access-control-allow-headers")?.includes("x-session-id"), "CORS 사전 요청(OPTIONS)");
 
   console.log("\n모든 Lambda 흐름 점검 통과");

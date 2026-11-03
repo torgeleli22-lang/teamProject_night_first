@@ -1,0 +1,6 @@
+# Lambda 함수에 묶어 넣는 외부 라이브러리 (docs/LAMBDA_STRUCTURE.md §4). 버전을 고정한다.
+# boto3 는 Lambda 런타임에 들어 있어서 묶지 않는다 (내 컴퓨터·CI 에서는 따로 설치: npm run setup:python).
+aws-lambda-powertools==3.38.0   # 경로 나누기 · JSON 로그 · 오류 지표
+pydantic==2.14.2                # 요청 본문 · AI 응답 형식
+tree-sitter==0.26.0             # JavaScript 진짜 문법 검사 (파서)
+tree-sitter-javascript==0.25.0  # JavaScript 문법 규칙

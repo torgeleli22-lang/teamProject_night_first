@@ -6,7 +6,7 @@
   단계 기록은 lambda/api/experiment.py 가 한다 (서비스 코드는 그대로, 단계 함수를 감싸서 기록만)
 
 두 가지 방법:
-  Lambda 로 (권장 — Bedrock 권한은 Lambda 실행 역할에 있음, 서비스와 같은 Python 3.13·모델):
+  Lambda 로 (권장 — Bedrock 권한은 Lambda 실행 역할에 있음, 서비스와 같은 Python 3.14·모델):
     python3 scripts/experiment_generation.py --url https://<함수 URL>        # 관리자 코드를 물어봄 (화면에 보이지 않음)
   이 컴퓨터에서 직접 (Bedrock·DynamoDB 권한이 있는 AWS 계정일 때):
     python3.11 scripts/experiment_generation.py --local
@@ -57,7 +57,7 @@ def remote_maker(url, admin_code):
             if e.code in (401, 429):
                 raise SystemExit(f"✗ 관리자 코드를 확인해 주세요 ({e.code}): {message}")
             if e.code == 404:
-                raise SystemExit("✗ Lambda 에 실험 경로가 없어요. 콘솔에 experiment.py 를 추가하고 lambda_function.py 를 바꾼 뒤 Deploy 해 주세요.")
+                raise SystemExit("✗ 이 함수에 실험 경로가 없어요. --url 이 jojo_admin(나누기 전에는 jojo_api_py)의 함수 URL 인지, CloudShell 에서 npm run deploy 로 최신 코드를 올렸는지 확인해 주세요.")
             return {**item, "origin": "error", "note": f"HTTP {e.code}: {message[:300]}", "attempts": [], "ai_calls": [], "ai_errors": [],
                     "tokens_in": 0, "tokens_out": 0, "seconds": 0, "code": "", "marks": [], "title": ""}
         except Exception as e:   # 연결 끊김·시간 초과 → 이 문항만 오류로 남기고 계속 (--resume 으로 다시 할 수 있게 저장하지 않음)
@@ -68,22 +68,23 @@ def remote_maker(url, admin_code):
 def local_maker(offline_db):
     """이 컴퓨터에서 Lambda 코드를 직접 실행 (AWS 권한 필요)"""
     if sys.version_info < (3, 10):
-        sys.exit("Python 3.10 이상이 필요해요 (Lambda 는 3.13). CloudShell: sudo dnf install -y python3.11 → python3.11 로 실행")
+        sys.exit("Python 3.10 이상이 필요해요 (Lambda 는 3.14). CloudShell: sudo dnf install -y python3.11 → python3.11 로 실행")
     os.environ.setdefault("AI_MODE", "live")
-    import common
+    import ai
+    import core
     import experiment
     import practice
     experiment.install()
     if offline_db:   # DynamoDB 없이 (월 예산 확인·사용량 기록 생략)
-        common.month_cost_usd = lambda include_mock=False: 0.0
-        common.ai_switch_on = lambda: True
+        ai.month_cost_usd = lambda include_mock=False: 0.0
+        core.ai_switch_on = lambda: True
         experiment._orig["log_usage"] = lambda *a, **k: None
         practice.log_ai_event = lambda *a, **k: None
-    if common.AI_MODE == "live":   # 권한·모델 접근 문제면 바로 멈춘다 (전부 예시 코드가 되는 것을 막기)
+    if core.AI_MODE == "live":   # 권한·모델 접근 문제면 바로 멈춘다 (전부 예시 코드가 되는 것을 막기)
         try:
-            common.ask_ai("experiment_preflight", "짧게 답해.", "ok 라고만 답해.",
+            ai.ask_ai("experiment_preflight", "짧게 답해.", "ok 라고만 답해.",
                           {"type": "object", "properties": {"ok": {"type": "string"}}, "required": ["ok"]}, max_tokens=50)
-        except common.AiUnavailable as e:
+        except ai.AiUnavailable as e:
             sys.exit(f"✗ AI 를 부를 수 없어요: {e}\n  이 계정에 Bedrock 권한이 없으면 --url <함수 URL> 로 Lambda 에서 실행하세요.")
     return experiment.make_one
 
@@ -108,11 +109,21 @@ def pct(n, d):
     return f"{n}/{d} ({100 * n / d:.1f}%)" if d else "0/0"
 
 
+def agree_text(rows, key):
+    """생성 쪽·검토 쪽 추적표 비교 결과 (True/False 만 세고, 비교할 수 없던 None 은 뺀다)"""
+    values = []
+    for r in rows:
+        v = (r.get("checks") or {}).get(key)
+        values += [x for x in (v.values() if isinstance(v, dict) else [v]) if x is not None]
+    return pct(sum(values), len(values)) if values else "-"
+
+
 def summarize(rows):
     n = len(rows)
     first = [r["attempts"][0] for r in rows if r["attempts"]]
     rule_first = sum(1 for a in first if a["rule_problems"])
     check_first = sum(1 for a in first if not a["rule_problems"] and a["check_problems"])
+    explain_first = sum(1 for a in first if not a["rule_problems"] and not a["check_problems"] and a.get("final_hard"))
     rule_any = sum(1 for r in rows if any(a["rule_problems"] for a in r["attempts"]))
     check_any = sum(1 for r in rows if any(a["check_problems"] for a in r["attempts"]))
     ai = [r for r in rows if r["origin"] == "ai"]
@@ -128,6 +139,7 @@ def summarize(rows):
         ("생성 문항 수", f"{n}개"),
         ("규칙 검사 재생성 판정 (첫 생성 기준)", pct(rule_first, n)),
         ("교차 검토 재생성 판정 (첫 생성 기준, 규칙 검사 통과 후)", pct(check_first, n)),
+        ("모범 설명 규칙 재생성 판정 (첫 생성 기준, 검토 뒤에도 빈 설명·가정 표현 등이 남음)", pct(explain_first, n)),
         ("교차 검토의 모범 설명 교정 (최종 AI 문항의 ※ 지점 기준)", f"{fixed}개 / {marks_total}곳 ({100 * fixed / marks_total:.1f}%) · 문항 {fixed_items}개" if marks_total else "0"),
         ("AI 문항 최종 제공", pct(len(ai), n)),
         ("예시 코드 대체", pct(len(sample), n)),
@@ -139,6 +151,9 @@ def summarize(rows):
         ("교차 검토에 걸린 문항 (두 번째 시도 포함)", pct(check_any, n)),
         ("교차 검토를 하지 못하고 통과한 AI 문항 (검토 호출 실패)", f"{no_check}개"),
         ("실험 오류", f"{len(errors)}개"),
+        ("두 실행 추적표 일치 (최종 AI 문항의 ※ 지점, 비교 가능한 것)", agree_text(ai, "traceAgree")),
+        ("두 실행 추적표의 출력 일치 (최종 AI 문항)", agree_text(ai, "outputAgree")),
+        ("근거를 찾지 못한 숫자가 있던 ※ 지점 (교차 검토가 확인)", f"{sum(len((r.get('checks') or {}).get('unsupported') or {}) for r in ai)}곳"),
         ("AI 문항 평균 생성 시간", f"{statistics.mean([r['seconds'] for r in ai]):.1f}초" if ai else "-"),
         ("토큰 합계 (입력 / 출력)", f"{sum(r['tokens_in'] for r in rows):,} / {sum(r['tokens_out'] for r in rows):,}"),
     ]

@@ -10,3 +10,4 @@ data/
 dist/
 __pycache__/
 experiment_out/
+.venv/

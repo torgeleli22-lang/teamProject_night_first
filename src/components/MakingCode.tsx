@@ -16,22 +16,24 @@ export function MakingCode({ language, advanced, what = "읽기 연습용" }: { 
     return () => clearInterval(timer);
   }, []);
   const write = advanced ? 50 : 10; // 코드를 쓰는 데 보통 걸리는 시간 (초)
+  const trace = advanced ? 40 : 10; // 실행 추적표와 모범 설명을 쓰는 데 보통 걸리는 시간 (초)
   const steps = [
-    `AI 가 ${what} ${LANGUAGE_NAMES[language]} 코드를 쓰고 있어요${advanced ? " (긴 코드라 1~2분쯤)" : ""}`,
-    "문법·오타·쓰지 않기로 한 기능을 규칙으로 검사해요",
-    "다른 AI 가 코드를 한 줄씩 따라가며 실행 오류와 ※ 모범 설명을 확인해요",
+    `AI 가 ${what} ${LANGUAGE_NAMES[language]} 코드를 쓰고 있어요${advanced ? " (긴 코드라 2분쯤)" : ""}`,
+    "문법·오타·난이도에 맞는 구조를 규칙으로 검사해요",
+    "코드를 한 줄씩 따라가며 실행 추적표를 쓰고, 그 기록으로 ※ 모범 설명을 써요",
+    "다른 AI 가 따로 따라가 보며 실행 오류와 ※ 모범 설명을 확인해요",
   ];
-  const now = sec < write ? 0 : sec < write + 2 ? 1 : 2;
+  const now = sec < write ? 0 : sec < write + 2 ? 1 : sec < write + 2 + trace ? 2 : 3;
   return (
     <div>
       <Waiting text={`${steps[now]}…`} />
       <ol className="-mt-3 ml-7 space-y-0.5 text-xs text-ink-500">
         {steps.map((s, i) => (
           <li key={s} className={i === now ? "font-semibold text-ink-900" : ""}>
-            {"①②③"[i]} {s}
+            {"①②③④"[i]} {s}
           </li>
         ))}
-        {sec > write + (advanced ? 40 : 20) && <li className="text-pen-red">검토에서 고칠 곳이 나오면 한 번 더 만들어서 조금 더 걸릴 수 있어요.</li>}
+        {sec > write + 2 + trace + (advanced ? 40 : 15) && <li className="text-pen-red">검사에서 고칠 곳이 나오면 다시 만들어서(2번까지) 조금 더 걸릴 수 있어요.</li>}
       </ol>
     </div>
   );

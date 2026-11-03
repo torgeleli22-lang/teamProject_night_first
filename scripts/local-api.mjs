@@ -4,7 +4,7 @@
  * 1. DynamoDB 흉내 서버(dynalite)를 메모리에 띄우고 테이블을 만든다 (끄면 데이터는 사라짐)
  * 2. Python 개발 서버(scripts/local_lambdas.py)가 lambda/api 함수를 실제와 같은 이벤트로 부른다
  *
- * 필요한 것: Python 3.10 이상 + boto3 (pip install boto3). AWS 계정·키는 필요 없다.
+ * 필요한 것: npm run setup:python 으로 만든 .venv (Lambda 라이브러리 + boto3). AWS 계정·키는 필요 없다.
  * AI 는 기본으로 목업(AI_MODE=mock, 비용 없음). .env 에 AI_MODE 를 적으면 그 값을 쓴다.
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -13,9 +13,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CreateTableCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import dynalite from "dynalite";
+import { findPython } from "./python-path.mjs";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PYTHON = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
+const PYTHON = findPython() || process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
 
 /** .env 의 KEY=VALUE 줄 (이미 있는 환경 변수가 먼저) */
 function readDotEnv() {
@@ -31,9 +32,9 @@ function readDotEnv() {
 
 /** 로컬 API 시작 → { url, stop() } */
 export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {}) {
-  const check = spawnSync(PYTHON, ["-c", "import boto3"], { encoding: "utf8" });
+  const check = spawnSync(PYTHON, ["-c", "import boto3, aws_lambda_powertools, pydantic, tree_sitter"], { encoding: "utf8" });
   if (check.status !== 0) {
-    throw new Error(`Python 과 boto3 가 필요해요. 설치: ${PYTHON} -m pip install boto3  (Python 경로가 다르면 PYTHON=... 으로 알려 주세요)`);
+    throw new Error(`Python 과 Lambda 라이브러리가 필요해요. 준비: npm run setup:python  (Python 경로가 다르면 PYTHON=... 으로 알려 주세요)`);
   }
 
   // 1. DynamoDB 흉내 서버 + 테이블
@@ -73,6 +74,7 @@ export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {
       AWS_ACCESS_KEY_ID: "local",
       AWS_SECRET_ACCESS_KEY: "local",
       AWS_REGION: "ap-northeast-2",
+      POWERTOOLS_LOG_LEVEL: process.env.POWERTOOLS_LOG_LEVEL || (quiet ? "WARNING" : "INFO"),   // JSON 로그 (CloudWatch 와 같은 모양)
       PYTHONUNBUFFERED: "1",
       PYTHONIOENCODING: "utf-8",
     },

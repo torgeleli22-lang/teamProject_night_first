@@ -63,11 +63,6 @@ function KeepNote({ me }: { me: Me | null }) {
           Google로 로그인해서 남기기
         </a>
       )}
-      {me?.providers.github && (
-        <a href={loginUrl("github")} className="text-pen-blue underline">
-          GitHub로 로그인해서 남기기
-        </a>
-      )}
     </p>
   );
 }
