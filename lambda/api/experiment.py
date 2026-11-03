@@ -47,13 +47,15 @@ _orig = {
 def check_generated(r, level, language="python", focus=None):
     """규칙 검사 A: 시도마다 문제 목록을 적는다. ※ 다시 고르기(_reselected)는 같은 시도에 덧붙인다"""
     code, marks, problems = _orig["check_generated"](r, level, language, focus)
-    if rec() is not None and r.get("_reselected") and rec()["attempts"]:
+    if rec() is not None and (r.get("_reselected") or r.get("_fixed")) and rec()["attempts"]:   # 같은 시도 안에서 고친 것
         attempt = rec()["attempts"][-1]
-        attempt.update(reselected=True, rule_problems_final=list(problems), marks=len(marks), kept=[[m["start"], m["end"]] for m in marks])
+        attempt.update(rule_problems_final=list(problems), marks=len(marks), kept=[[m["start"], m["end"]] for m in marks], lines=len(code.split("\n")))
+        attempt["reselected"] = attempt.get("reselected") or bool(r.get("_reselected"))
+        attempt["code_fixed"] = attempt.get("code_fixed") or bool(r.get("_fixed"))
         return code, marks, problems
     if rec() is not None:
         rec()["attempts"].append({"lines": len(code.split("\n")), "marks": len(marks), "rule_problems": list(problems),
-                                  "rule_problems_final": list(problems), "reselected": False, "explain_retry": False,
+                                  "rule_problems_final": list(problems), "reselected": False, "explain_retry": False, "code_fixed": False, "check_rounds": [],
                                   "explain_issues": None, "final_hard": [], "check_problems": None, "check_ran": False, "fixed": 0, "fixed_ids": [],
                                   # AI 가 적은 ※ 지점 그대로 (줄 찾기·겹침 분석용)
                                   "raw_marks": [{k: m.get(k) for k in ("startLine", "endLine", "startNo", "endNo")} for m in r.get("marks", [])],
@@ -67,10 +69,12 @@ def ai_check_code(code, marks, level, language, issues=None):
     problems, fixed_marks, review = _orig["ai_check_code"](code, marks, level, language, issues)
     if rec() is not None:
         attempt = rec()["attempts"][-1]
-        attempt["explain_retry"] = attempt["check_problems"] is not None   # ②·③ 을 한 번 더 한 시도 (모범 설명만 문제)
+        attempt.setdefault("check_rounds", []).append(list(problems))   # ②·③ 을 다시 했으면 여러 번
+        attempt["explain_retry"] = len(attempt["check_rounds"]) > 1 and not attempt.get("code_fixed")
         attempt["explain_issues"] = issues or {}
         attempt["check_ran"] = review is not None
-        attempt["check_problems"] = list(problems)
+        if attempt["check_problems"] is None:
+            attempt["check_problems"] = list(problems)   # 첫 교차 검토가 찾은 코드 문제 (부분 수정 전)
         attempt["fixed_ids"] = [m["id"] for m in fixed_marks if before.get(m["id"]) != m["explanation"]]
         attempt["fixed"] = len(attempt["fixed_ids"])
     return problems, fixed_marks, review
@@ -134,7 +138,7 @@ def make_one(item):
     req = {"ip": "experiment", "headers": {}, "user": user}
     started = time.time()
     try:
-        made = practice.make_code(req, item["level"], item["topic"], user, prompt_extra="", language=item["language"])
+        made = practice.make_code(req, item["level"], item["topic"], user, prompt_extra="", language=item["language"], grade=item.get("grade", "standard"))
         r.update(origin=made["origin"], note=made.get("note"), title=made["title"], code=made["code"],
                  marks=[{k: m.get(k) for k in ("id", "start", "end", "concept", "explanation", "keywords")} for m in made["marks"]],
                  trace=made.get("trace"), checks=made.get("checks"), verification=made.get("verification"))
@@ -152,6 +156,7 @@ class RunIn(Body):
     no: int = Field(0, ge=0, le=9999)
     language: Literal[tuple(LANGUAGES)]
     level: int = Field(ge=1, le=4)
+    grade: Literal[tuple(practice.GRADES)] = "standard"   # 학습자 등급 (등급별 비교 실험)
     topic: str = Field(max_length=50)
     rep: int = Field(0, ge=0, le=999)
 
@@ -159,7 +164,7 @@ class RunIn(Body):
 def run(req):
     # 1. 요청 값 확인
     body = read_body(req, RunIn)
-    item = {"no": body.no, "language": body.language, "level": body.level, "topic": body.topic.strip(), "rep": body.rep}
+    item = {"no": body.no, "language": body.language, "level": body.level, "topic": body.topic.strip(), "rep": body.rep, "grade": body.grade}
 
     # 2. 연습 모드와 같은 흐름으로 만들고 단계 기록을 돌려준다 (저장하지 않음)
     return make_one(item)

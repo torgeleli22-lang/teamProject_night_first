@@ -19,6 +19,7 @@
   summary.md     표 1 값 + 언어·난이도별 표               verify.md    무작위 AI 문항 10개: 실제 실행 출력 ↔ ※ 모범 설명 (연구진이 일치 여부 표시)
 """
 import argparse
+import collections
 import csv
 import getpass
 import json
@@ -39,6 +40,10 @@ sys.path.insert(0, os.path.join(ROOT, "lambda", "api"))
 from samples import ADVANCED_TOPIC_POOL, TOPIC_POOL  # noqa: E402
 
 LEVEL_NAMES = {1: "입문", 2: "초급", 3: "중급", 4: "고급"}
+GRADE_NAMES = {"basic": "기초", "standard": "보통", "expert": "전문가"}
+PRICE_PER_M = {"input": 1.0, "output": 5.0}   # Claude Haiku 4.5 (USD / 100만 토큰) — 관리자 화면 비용과 같은 값
+# 등급별 비교 (--grade-pairs): 같은 주제·언어·난이도를 기초·전문가로 한 쌍씩
+PAIR_COMBOS = [("python", 2), ("javascript", 3), ("python", 4), ("javascript", 2), ("python", 3), ("javascript", 4), ("python", 1), ("javascript", 1)]
 
 
 # ───────────────────────── 2. 문항 하나 만들기 (Lambda 로 / 이 컴퓨터에서) ─────────────────────────
@@ -102,6 +107,46 @@ def plan(reps, seed):
     return items
 
 
+def plan_pairs(pairs, seed):
+    """등급별 비교: (언어, 난이도) 를 섞어 pairs 쌍, 쌍마다 같은 주제를 기초·전문가로"""
+    rnd = random.Random(seed)
+    pools = {lv: rnd.sample(list(ADVANCED_TOPIC_POOL if lv == 4 else TOPIC_POOL), len(ADVANCED_TOPIC_POOL if lv == 4 else TOPIC_POOL)) for lv in (1, 2, 3, 4)}
+    items = []
+    for i in range(pairs):
+        language, level = PAIR_COMBOS[i % len(PAIR_COMBOS)]
+        topic = pools[level][i % len(pools[level])]
+        for grade in ("basic", "expert"):
+            items.append({"no": len(items) + 1, "language": language, "level": level, "rep": i + 1, "topic": topic, "grade": grade})
+    return items
+
+
+def cost_usd(r):
+    return r["tokens_in"] / 1e6 * PRICE_PER_M["input"] + r["tokens_out"] / 1e6 * PRICE_PER_M["output"]
+
+
+def output_lines(text):
+    return [line.strip() for line in str(text or "").split("\n") if line.strip()]
+
+
+def output_accuracy(rows, out_dir):
+    """AI 가 실행 추적표에 적은 출력 vs 코드를 실제로 실행한 출력 (최종 AI 문항) → (완전히 같은 문항 수, 비교한 문항 수, 줄 일치 비율)"""
+    folder = os.path.join(out_dir, "run_code")
+    os.makedirs(folder, exist_ok=True)
+    same = compared = 0
+    line_hits = line_total = 0
+    for r in rows:
+        if r["origin"] != "ai" or not (r.get("trace") or {}).get("output"):
+            continue
+        real = output_lines(run_code(r["code"], r["language"], folder, f"q{r['no']:02d}"))
+        guess = output_lines("\n".join(r["trace"]["output"]))
+        r["outputMatch"] = real == guess
+        compared += 1
+        same += real == guess
+        line_total += max(len(real), len(guess))
+        line_hits += sum(a == b for a, b in zip(real, guess))
+    return same, compared, (line_hits / line_total if line_total else 0)
+
+
 # ───────────────────────── 4. 표 1 계산 ─────────────────────────
 
 
@@ -123,7 +168,7 @@ def rule_final(a):
     return a.get("rule_problems_final", a.get("rule_problems"))
 
 
-def summarize(rows):
+def summarize(rows, accuracy=None):
     n = len(rows)
     first = [r["attempts"][0] for r in rows if r["attempts"]]
     rule_first = sum(1 for a in first if rule_final(a))
@@ -150,12 +195,19 @@ def summarize(rows):
         ("교차 검토의 모범 설명 교정 (최종 AI 문항의 ※ 지점 기준)", f"{fixed}개 / {marks_total}곳 ({100 * fixed / marks_total:.1f}%) · 문항 {fixed_items}개" if marks_total else "0"),
         ("AI 문항 최종 제공", pct(len(ai), n)),
         ("  └ 그중 교차 검토까지 거친 문항 (ai_reviewed)", pct(sum(1 for r in ai if r.get("verification") == "ai_reviewed"), n)),
+        ("실행 추적표의 출력 = 실제 실행 출력 (최종 AI 문항, 자동 비교)",
+         f"{pct(accuracy[0], accuracy[1])} · 줄 단위 {100 * accuracy[2]:.1f}%" if accuracy and accuracy[1] else "-"),
+        ("문항당 AI 비용 (평균)", f"${statistics.mean(cost_usd(r) for r in rows):.4f} (합계 ${sum(cost_usd(r) for r in rows):.3f})" if rows else "-"),
         ("예시 코드 대체", pct(len(sample), n)),
         ("모범 설명 실행 확인 (10문항)", "verify.md 에 표시 후 직접 집계"),
         ("문항당 평균 생성 시간", f"{statistics.mean(secs):.1f}초 (중앙값 {statistics.median(secs):.1f}초)" if secs else "-"),
     ]
     extra = [
         ("규칙 검사 A 에 걸렸지만 ※ 다시 고르기로 고친 문항 (첫 생성)", pct(reselect_fixed, n)),
+        ("부분 수정(code_fix)을 한 문항 (첫 생성)", pct(sum(1 for a in first if a.get("code_fixed")), n)),
+        ("부분 수정 뒤 그 시도에서 통과한 문항", pct(sum(1 for r in rows if r["origin"] == "ai" and r["attempts"] and r["attempts"][-1].get("code_fixed")), n)),
+        ("AI 호출 수 (작업별 합계)", ", ".join(f"{t} {c}" for t, c in sorted(collections.Counter(x["task"] for r in rows for x in r.get("ai_calls", [])).items()))),
+        ("문항당 AI 호출 수 (평균)", f"{statistics.mean(len(r.get('ai_calls', [])) for r in rows):.1f}번" if rows else "-"),
         ("모범 설명만 다시 쓴 문항 (첫 생성, ②·③ 한 번 더)", pct(explain_retry, n)),
         ("규칙 검사에 걸린 문항 (두 번째 시도 포함, 다시 고르기 전)", pct(rule_any, n)),
         ("교차 검토에 걸린 문항 (두 번째 시도 포함)", pct(check_any, n)),
@@ -168,6 +220,21 @@ def summarize(rows):
         ("토큰 합계 (입력 / 출력)", f"{sum(r['tokens_in'] for r in rows):,} / {sum(r['tokens_out'] for r in rows):,}"),
     ]
     return table, extra
+
+
+def grade_breakdown(rows):
+    """등급별 (기초 · 전문가 …): AI 제공 · 검토 통과 · 출력 일치 · 비용 · 시간"""
+    out = ["| 등급 | 문항 | AI 제공 | 교차 검토까지 | 출력 = 실제 | 부분 수정 | 다시 만든 문항 | 평균 비용 | 평균 시간 |", "|---|---|---|---|---|---|---|---|---|"]
+    for grade, name in GRADE_NAMES.items():
+        g = [r for r in rows if r.get("grade", "standard") == grade]
+        if not g:
+            continue
+        ai = [r for r in g if r["origin"] == "ai"]
+        out.append(f"| {name} | {len(g)} | {len(ai)} | {sum(1 for r in ai if r.get('verification') == 'ai_reviewed')} | "
+                   f"{sum(1 for r in ai if r.get('outputMatch'))}/{sum(1 for r in ai if 'outputMatch' in r)} | "
+                   f"{sum(1 for r in g if any(a.get('code_fixed') for a in r['attempts']))} | {sum(1 for r in g if len(r['attempts']) > 1)} | "
+                   f"${statistics.mean(cost_usd(r) for r in g):.4f} | {statistics.mean(r['seconds'] for r in g):.1f}초 |")
+    return "\n".join(out)
 
 
 def breakdown(rows):
@@ -243,6 +310,7 @@ def verify_sheet(rows, out_dir, count, seed):
 def main():
     ap = argparse.ArgumentParser(description="문항 생성·검증 실험 (논문 표 1)")
     ap.add_argument("--reps", type=int, default=5, help="언어·난이도마다 만들 문항 수 (기본 5 → 40문항)")
+    ap.add_argument("--grade-pairs", type=int, default=0, help="등급별 비교: 같은 주제·난이도를 기초·전문가로 N쌍 (예: 5 → 10문항)")
     ap.add_argument("--workers", type=int, default=4, help="동시에 만들 문항 수 (기본 4)")
     ap.add_argument("--seed", type=int, default=2026, help="주제 순서·확인 문항 고르기 (같은 값이면 같은 결과)")
     ap.add_argument("--verify", type=int, default=10, help="실행 확인할 AI 문항 수 (기본 10)")
@@ -267,7 +335,8 @@ def main():
     if os.path.exists(jsonl):
         with open(jsonl, encoding="utf-8") as f:
             done = {(r := json.loads(line))["no"]: r for line in f if line.strip()}
-    items = [i for i in plan(args.reps, args.seed) if i["no"] not in done]
+    planned = plan_pairs(args.grade_pairs, args.seed) if args.grade_pairs else plan(args.reps, args.seed)
+    items = [i for i in planned if i["no"] not in done]
     total = len(items) + len(done)
     print(f"{where} · 문항 {total}개 (남은 {len(items)}개) · 동시 {args.workers}개 → {out_dir}", flush=True)
 
@@ -284,7 +353,8 @@ def main():
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
             done[r["no"]] = r
             first = r["attempts"][0] if r["attempts"] else {}
-            print(f"[{len(done):2}/{total}] #{r['no']:02d} {r['language']:10} {LEVEL_NAMES[r['level']]} {r['origin']:6} {r['seconds']:6.1f}초 "
+            print(f"[{len(done):2}/{total}] #{r['no']:02d} {r['language']:10} {LEVEL_NAMES[r['level']]} {GRADE_NAMES.get(r.get('grade', 'standard'), '')} {r['origin']:6} {r['seconds']:6.1f}초 "
+                  f"수정 {'✓' if any(a.get('code_fixed') for a in r['attempts']) else '-'} ${cost_usd(r):.4f} "
                   f"규칙 {'✗' if rule_final(first) else ('↻' if first.get('reselected') else '✓')} 검토 {'✗' if first.get('check_problems') else '✓'} 교정 {r['attempts'][-1]['fixed'] if r['attempts'] else 0} · {r['topic']}",
                   flush=True)
 
@@ -304,18 +374,24 @@ def main():
                         " | ".join(a[1].get("rule_problems") or []), " | ".join(a[1].get("check_problems") or []),
                         r["attempts"][-1]["fixed"] if r["origin"] == "ai" and r["attempts"] else 0, len(r["marks"]),
                         r["attempts"][-1]["lines"] if r["attempts"] else "", r["tokens_in"], r["tokens_out"], " | ".join(r["ai_errors"]), r["note"] or ""])
+    accuracy = output_accuracy(rows, out_dir)
     picked = verify_sheet(rows, out_dir, args.verify, args.seed)
-    table, extra = summarize(rows)
+    table, extra = summarize(rows, accuracy)
     md = ["# 문항 생성·검증 실험 결과", "",
           f"- 실행: {datetime.now():%Y-%m-%d %H:%M} · {where} · AI_MODE={rows[0].get('aiMode', '?') if rows else '?'} · 모델 `{rows[0].get('model', '?') if rows else '?'}` · seed {args.seed}",
-          f"- 문항: 언어 2 × 난이도 4 × {args.reps}회 = {len(rows)}개 (주제는 서비스의 랜덤 주제 목록)", "",
+          (f"- 문항: 등급별 비교 {args.grade_pairs}쌍 (같은 주제·언어·난이도를 기초·전문가로) = {len(rows)}개" if args.grade_pairs
+           else f"- 문항: 언어 2 × 난이도 4 × {args.reps}회 = {len(rows)}개 (주제는 서비스의 랜덤 주제 목록)"), "",
           "## 표 1", "", "| 항목 | 결과 |", "|---|---|", *[f"| {k} | {v} |" for k, v in table], "",
           "## 참고 값", "", "| 항목 | 값 |", "|---|---|", *[f"| {k} | {v} |" for k, v in extra], "",
           "## 언어 · 난이도별", "", breakdown(rows), "",
+          "## 학습자 등급별", "", grade_breakdown(rows), "",
           "## 검출 사례 (일부)", "", problem_examples(rows), "",
           "## 정의", "",
           "- 규칙 검사 재생성: 첫 생성 결과가 규칙 검사(ast 문법·정의 안 된 이름·금지 모듈/함수, JS 괄호·따옴표·금지 기능, 줄 수, ※ 줄 위치)에서 문제 ≥1 → 재생성 (v1.2: ※ 위치만의 문제는 ※ 다시 고르기로 먼저 고치고, 그래도 남은 것만 셈. 진행 줄의 ↻ = 다시 고르기로 통과)",
-          "- 교차 검토 재생성: 첫 생성이 규칙 검사는 통과했지만 교차 검토(같은 모델이 머릿속으로 실행)가 실행 오류·난이도 불일치를 찾아 재생성",
+          "- 교차 검토 재생성: 첫 생성이 규칙 검사는 통과했지만 교차 검토(같은 모델이 머릿속으로 실행)가 실행 오류·난이도 불일치를 찾은 문항 (v1.3: 먼저 부분 수정으로 고침)",
+          "- 부분 수정: 걸린 문제만 고치도록 바꿀 줄만 받아 적용 (code_fix). 코드 전체를 다시 만들지 않아 출력 토큰이 적어요",
+          "- 출력 = 실제: AI 가 실행 추적표에 적은 출력 줄과, 코드를 실제로 실행한 출력 줄이 모두 같은 문항 (빈 줄·앞뒤 공백 무시)",
+          f"- 비용: 입력 {PRICE_PER_M['input']}달러 · 출력 {PRICE_PER_M['output']}달러 / 100만 토큰 (Claude Haiku 4.5)",
           "- 모범 설명 교정: 최종 제공된 AI 문항에서 교차 검토가 틀렸다고 판단해 교체한 ※ 모범 설명 수 / 그 문항들의 ※ 지점 총수 (재생성으로 버려진 시도의 교정은 세지 않음)",
           "- AI 최종 제공 / 예시 코드 대체: 최종 결과의 origin (ai / sample)",
           "- 생성 시간: 문항 하나를 요청해 최종 결과가 나올 때까지 (출제·검사·검토·재생성 포함)",
