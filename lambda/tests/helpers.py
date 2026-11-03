@@ -22,4 +22,4 @@ def load_lambda(name):
     return importlib.import_module(name)
 
 
-__all__ = ["ai", "code_store", "core", "load_lambda"]
+__all__ = ["API_DIR", "LAMBDA_DIR", "ai", "code_store", "core", "load_lambda"]

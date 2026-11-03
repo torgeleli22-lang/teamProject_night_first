@@ -29,7 +29,7 @@
 
 | 역할 | 화면이 보내는 헤더 | 그 값 | 화면이 보관하는 곳 | 서버가 확인하는 코드 |
 |---|---|---|---|---|
-| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:577` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
+| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:584` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
 | **회원** (Google 로그인) | `x-session-id` | **로그인 토큰** (uuid) — 학습자 id 가 아님 | `localStorage` `codereading.login` — 브라우저를 닫아도 남음 | `get_user` 2번 단계: `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE` |
 | **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:36` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
 
@@ -83,7 +83,7 @@
 | 항목 (pk / sk) | C | R | U | D | 언제 | 코드 |
 |---|---|---|---|---|---|---|
 | `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:34`, `admin.py:181` |
-| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:173` → `core.py:647` `set_meta` |
+| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:173` → `core.py:654` `set_meta` |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:127` |
 | `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:147` |
 | `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:154` |
@@ -96,7 +96,7 @@
 |---|---|---|---|
 | `OPS#LIMIT` / `all:<IP>#<분>` | 모든 요청 (관리자 경로 제외) | IP 당 1분 600번 제한 | 시간 칸 + 60초 |
 | `OPS#LIMIT` / `new:<IP>#<시간>` | 새 학습자를 만들 때 | IP 당 1시간 120명 | 〃 |
-| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:539` `ai_allowed`) | 〃 |
+| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:546` `ai_allowed`) | 〃 |
 | `OPS#STATS` / `DAY#<날짜>` | 연습·더 쉽게·주제 판정·점검·첨삭·다시 쓰기·튜터 | 오늘 칸 +1 | 90일 |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | AI 를 부를 때마다 | 호출 수·토큰·실패 누적 | 없음 |
 | `OPS#AILOG` / `<시각>` | AI 를 부를 때마다 | 한 건씩 기록 | 14일 |

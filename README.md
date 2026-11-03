@@ -62,7 +62,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 ```
 
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
-- **서버**: 기능별 Python Lambda **6개**로 나누는 중이에요 (`docs/LAMBDA_STRUCTURE.md`). 지금은 함수 하나(`jojo_api_py`)에서 입구 파일이 경로를 보고 기능 파일로 보내고, 공통 코드는 `core`·`ai`·`code_store` 로 나뉘어 있어요.
+- **서버**: 기능별 Python Lambda **6개** (`docs/LAMBDA_STRUCTURE.md`): 로그인 · 연습 · 내 코드 점검 · 첨삭 · 내 공부 · 관리자. 화면은 경로 앞부분으로 함수를 골라요 (`src/lib/api-routes.ts`). 공통 코드(`core`·`ai`·`code_store`)는 저장소에 한 벌만 두고, 함수마다 필요한 파일·라이브러리만 zip 으로 묶어 올려요 (`lambda/functions.json`, `npm run deploy`).
 - **로그인 안 함**: 학습자 id 를 이 탭(sessionStorage)에만 둬요. **탭·브라우저를 닫으면 기록이 사라지고**, 서버의 기록도 하루 안에 자동 삭제돼요. 읽은 코드·첨삭은 만든 사람만 열 수 있어요.
 - **로그인 (Google, 선택)**: 오른쪽 위 **로그인** → 계정 고르기. 기록을 1년(연습 코드 30일) 남기고, 로그인 전에 이 탭에서 한 공부도 계정으로 옮겨요. 받는 정보는 계정 고유 번호와 이름뿐 (`auth.py`, 보관 기간은 `core.keep_seconds`). 설정: `docs/DEPLOY_LAMBDA.md` 5단계 · 흐름: 아래 3.1
 
@@ -278,11 +278,12 @@ src/
 
 항목 모양을 바꾸면 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke` 로 확인해요. 자세한 표: `docs/PROJECT_BRIEF.md` §9.2
 
-### 5.5 콘솔에 반영하기
-1. GitHub 에서 바뀐 파일을 열고 **Raw** → 전체 복사 → 콘솔 `jojo_api_py` 코드 탭의 같은 이름 파일에 **전체를 바꿔** 붙여넣기 → **Deploy**
-2. 테스트 이벤트 `{"path": "/health", "method": "GET"}` → `"ok": true`
-3. 여러 파일이 서로 쓰는 함수를 옮겼다면 그 파일들을 **함께** 바꿔요 (일부만 바꾸면 `ImportError`)
-4. 설정: Python 3.14 · arm64 · 512MB · 제한 시간 **10분** · 실행 역할 `SafeRole-sgu-202688` · 환경 변수는 `docs/DEPLOY_LAMBDA.md`
+### 5.5 AWS 에 올리기
+1. main 에 병합한 뒤 AWS **CloudShell** 에서: `cd teamProject_night_first && git pull && npm run deploy`
+   - 함수마다 필요한 파일·라이브러리만 묶어(`npm run package`, 표는 `lambda/functions.json`) **바뀐 함수만** 올리고, 설정(Python 3.14 · arm64 · 제한 시간 · 메모리)을 맞추고, `/health` 를 확인해요
+2. 처음 한 번은 `npm run deploy -- check` → `npm run deploy -- setup` (함수 만들기 · 환경 변수 옮기기 · 함수 URL) — `docs/DEPLOY_LAMBDA.md`
+3. 라이브러리가 함께 들어 있어서 콘솔 코드 탭에서는 고칠 수 없어요. 고칠 것은 GitHub 에서
+4. 함수 이름·파일·환경 변수 이름은 `lambda/functions.json`, 환경 변수 값은 콘솔에만 (`docs/DEPLOY_LAMBDA.md`)
 
 ---
 
@@ -302,17 +303,19 @@ npm run dev                    # 터미널 2: 화면 http://localhost:3000  (관
 | `npm run verify` | 예시 코드를 실제로 실행하고 ※ 줄 범위 확인 |
 | `npm run build` | 정적 화면 빌드 (`out/`) |
 | `npm run smoke` | Lambda 전체 흐름 점검 (주제 → 코드 → 첨삭 → 다시 쓰기 → 튜터 → 점검 → 관리자) |
+| `npm run package` | 함수마다 zip 묶기 (`dist/lambda/`, Lambda 용 라이브러리 포함) |
+| `npm run deploy` | CloudShell 에서 AWS 에 올리기 (`-- check` 확인만 · `-- setup` 처음 한 번) |
 
-화면만 고쳤으면 `typecheck` · `build`, Lambda 를 고쳤으면 `test` · `verify` · `smoke` 까지 통과시킨 뒤 main 에 병합하세요. 화면은 병합하면 자동 배포되고, Lambda 는 5.5 처럼 콘솔에 붙여넣어요.
+화면만 고쳤으면 `typecheck` · `build`, Lambda 를 고쳤으면 `test` · `verify` · `smoke` 까지 통과시킨 뒤 main 에 병합하세요. 화면은 병합하면 자동 배포되고, Lambda 는 5.5 처럼 CloudShell 에서 `npm run deploy` 로 올려요.
 
 ## 7. 디렉터리 한눈에
 
 ```
 src/                화면 (4장)
-lambda/api/         서버 Lambda 파일 (5장) · lambda/tests/ Python 테스트
-scripts/            local-api.mjs + local_lambdas.py(로컬 실행) · smoke.mjs · verify_samples.py
+lambda/api/         서버 Lambda 파일 (5장) · lambda/functions/ 함수 6개의 입구 · lambda/functions.json 함수 표 · lambda/tests/ Python 테스트
+scripts/            local-api.mjs + local_lambdas.py(로컬 실행) · smoke.mjs · verify_samples.py · package_lambdas.py · deploy_lambdas.py(묶기·올리기)
 tests/              TypeScript 테스트
-docs/               PROJECT_BRIEF.md · ai-generation-policy.md · DEPLOY_LAMBDA.md
+docs/               PROJECT_BRIEF.md · GENERATION_STANDARD.md · LAMBDA_STRUCTURE.md · ai-generation-policy.md · DEPLOY_LAMBDA.md
 .github/workflows/  ci.yml(자동 검사) · pages.yml(화면 배포)
 ```
 

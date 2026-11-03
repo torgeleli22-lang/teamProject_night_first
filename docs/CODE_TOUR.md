@@ -85,7 +85,7 @@
 #### 학습자 `USER#<id> / PROFILE`
 - **만들기**: `core.py:526` `get_user(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:546`)
 - **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `USER#<id>/PROFILE` 직접, 로그인은 `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE`
-- **고치기**: `core.py:604` `use_user` (15분마다 lastSeen·기한 늘리기), `:615` `remember_topic` (최근 주제·난이도)
+- **고치기**: `core.py:611` `use_user` (15분마다 lastSeen·기한 늘리기), `:622` `remember_topic` (최근 주제·난이도)
 - **로그인 계정**: `auth.py:184` `account_user` (member 학습자 만들기), `auth.py:201` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
 
 #### 내 공부 `USER#<id> / STUDYREC#<코드 id>`
@@ -115,8 +115,8 @@
 #### 운영 항목 `OPS#…`
 - `OPS#STATS`: `core.py:610` `count_event("practices")` — 하루 사용 수 +1 (`update_item` 의 ADD)
 - `OPS#USAGE` · `OPS#AILOG`: `ai.py:72` `log_usage`, `:87` `log_ai_event` — AI 를 부를 때마다
-- `OPS#CONFIG`: `core.py:643` `get_meta`, `:647` `set_meta` — AI 스위치(`:630` `ai_switch_on`)
-- `OPS#LIMIT`: `core.py:522` `bump_counter`, `:534` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
+- `OPS#CONFIG`: `core.py:650` `get_meta`, `:654` `set_meta` — AI 스위치(`:637` `ai_switch_on`)
+- `OPS#LIMIT`: `core.py:529` `bump_counter`, `:541` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
 - 관리자 화면이 모아 읽기: `admin.py:127` `overview`
 
 ---
@@ -139,7 +139,7 @@
 ```
 
 1. **화면이 보냄**: `src/lib/api.ts` 의 `apiPost("/review", {...})` → 헤더 `x-session-id` 에 학습자(또는 로그인 토큰)
-2. **경로 표**: `lambda_function.py:52` `ROUTES` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
+2. **경로 표**: `lambda_function.py:47` `ROUTES` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
    ```python
    ROUTES = {"GET /health": health}
    for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin, experiment):
@@ -147,7 +147,8 @@
    APP = make_app(ROUTES, guards={"/admin": admin.require_admin})
    ```
    `make_app` (`core.py:269` `make_app`) 이 이 표를 **Powertools 경로 처리기**(`LambdaFunctionUrlResolver`)에 올려요. CORS(허용한 화면 주소만)·사전 요청(OPTIONS)·없는 경로(404)는 Powertools 가 처리해요
-3. **입구** `lambda_function.py:60` `lambda_handler` → `core.handle` (`core.py:329` `handle`)
+   배포된 **함수 6개**는 입구가 따로예요: `lambda/functions/jojo_review.py` 처럼 자기 기능 파일의 `ROUTES` 만 합쳐 `make_app` 에 올려요 (묶는 파일은 `lambda/functions.json`). 위의 `lambda_function.py` 는 모든 기능을 합친 입구라 예전 함수 `jojo_api_py` 와 내 컴퓨터(`npm run api`)가 써요
+3. **입구** `lambda_function.py:55` `lambda_handler` → `core.handle` (`core.py:336` `handle`)
    1. 콘솔 테스트 이벤트(`{"path": …, "method": …}`)도 함수 URL 이벤트 모양으로 (`to_url_event`)
    2. 로그 이름표: 경로·요청 id·처음 실행인지 → 이 요청의 모든 로그 줄에 붙어요
    3. `APP.resolve(event)` → 경로에 맞는 처리 함수
@@ -194,7 +195,7 @@ r = ask_ai("code_generation", system, prompt, CodeAnswer, max_tokens=OUTPUT_TOKE
 #### ① 연습 코드 받기 — `POST /practice` → `practice.py:250` `start_practice`
 ```
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      PracticeIn · read_body
-   get_user(req)                                           core.py:577
+   get_user(req)                                           core.py:584
 2. make_code()                                                practice.py:331
    ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:631
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
@@ -285,7 +286,7 @@ DynamoDB 콘솔 → 테이블 `jojo_table` → **표 항목 탐색(Explore table
 4. `pk` = `OPS#STATS` → 오늘 날짜의 `practices`·`reviews` 숫자가 늘어난 것 확인
 
 ### 3-2. 콘솔에서 Lambda 시험하기
-Lambda `jojo_api_py` → **테스트** 탭 → 이벤트에 붙여넣고 테스트
+Lambda 함수(예: `jojo_practice`, 함수를 나누기 전에는 `jojo_api_py`) → **테스트** 탭 → 이벤트에 붙여넣고 테스트
 ```json
 {"path": "/health", "method": "GET"}
 {"path": "/topic/random", "method": "GET"}

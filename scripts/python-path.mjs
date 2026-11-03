@@ -8,7 +8,8 @@ export const venvPython = path.join(ROOT, ".venv", process.platform === "win32" 
 
 const NEEDED = "import boto3, aws_lambda_powertools, pydantic, tree_sitter, tree_sitter_javascript";
 
-export function findPython() {
+/** libs: false 면 표준 라이브러리만 쓰는 스크립트용 (묶기·배포 — CloudShell 의 기본 Python 이면 돼요) */
+export function findPython({ libs = true } = {}) {
   const candidates = process.env.PYTHON ? [process.env.PYTHON] : [...(fs.existsSync(venvPython) ? [venvPython] : []), "python3", "python"];
-  return candidates.find((p) => spawnSync(p, ["-c", NEEDED], { stdio: "ignore" }).status === 0);
+  return candidates.find((p) => spawnSync(p, ["-c", libs ? NEEDED : "import json, zipfile"], { stdio: "ignore" }).status === 0);
 }

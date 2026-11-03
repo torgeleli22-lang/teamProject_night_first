@@ -323,6 +323,13 @@ def _route_handler(app, fn, path, guards):
     return run
 
 
+def health(req):
+    """연결 확인 — 모든 함수에 있어요 (콘솔 테스트 이벤트: {"path": "/health", "method": "GET"})"""
+    return {"ok": True, "mode": AI_MODE, "ai": ai_enabled(), "languages": list(LANGUAGES),
+            "maxCodeLines": MAX_CODE_LINES, "regenLimit": REGEN_LIMIT}
+
+
+HEALTH = {"GET /health": health}
 _warm = {"done": False}
 
 

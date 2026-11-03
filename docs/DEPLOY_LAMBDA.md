@@ -1,16 +1,23 @@
-# 배포하기: GitHub Pages(화면) + Lambda 1개 + DynamoDB + Bedrock
+# 배포하기: GitHub Pages(화면) + Lambda 함수 6개 + DynamoDB + Bedrock
 
 서버를 켜 두지 않는 구성입니다. 사람이 쓸 때만 Lambda 가 실행되고, 쓴 만큼만 요금이 나옵니다.
-Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**예요 (zip·빌드 없음). 왜 함수가 하나인지: [`lambda/README.md`](../lambda/README.md)
+Lambda 는 **기능별 함수 6개**예요 (구조 기준: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)). 함수마다 필요한 파일과 라이브러리(Powertools·Pydantic·tree-sitter)만
+**zip 으로 묶어** 올려요 — `npm run package` 가 묶고, `npm run deploy` 가 **AWS CloudShell** 에서 올려요. 무엇을 묶는지는 [`lambda/functions.json`](../lambda/functions.json) 하나에 있어요.
 
 ```
 브라우저 ──→ GitHub Pages (정적 화면)
-   │  JSON (x-session-id 헤더) — 주소는 하나. 내 코드는 화면에서 민감 정보를 가린 뒤 보냄
-   └─→ jojo_api 함수 URL (Python) ──→ DynamoDB jojo_table (서울)
-                                  └─→ Bedrock Claude Haiku 4.5 (us-east-1)
+   │  JSON (x-session-id 헤더) — 경로 앞부분으로 함수를 골라요 (src/lib/api-routes.ts). 내 코드는 화면에서 민감 정보를 가린 뒤 보냄
+   ├─→ jojo_auth      /me · /auth · /health         로그인
+   ├─→ jojo_practice  /practice · /topic            연습 코드 만들기 (AI 3번 · 최대 10분)
+   ├─→ jojo_inspect   /inspect                      내 코드 점검
+   ├─→ jojo_review    /review · /tutor · /code      첨삭·다시 쓰기·튜터·코드 다시 열기
+   ├─→ jojo_study     /study                        내 공부 (AI 없음)
+   └─→ jojo_admin     /admin                        관리자·논문 실험
+         모두 ──→ DynamoDB jojo_table (서울) · AI 를 쓰는 함수 ──→ Bedrock Claude Haiku 4.5 (us-east-1)
 ```
 
-> 비밀 값(관리자 복구 코드 `ADMIN_TOKEN`)은 Lambda 환경 변수에만 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
+> 비밀 값(관리자 복구 코드 `ADMIN_TOKEN`, Google `GOOGLE_CLIENT_SECRET`)은 Lambda 환경 변수에만 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
+> `npm run deploy` 는 환경 변수의 **이름만** 보여 주고 값은 찍지 않아요. 비밀 값은 그 값을 쓰는 함수에만 들어가요 (Google → `jojo_auth`, 관리자 → `jojo_admin`).
 
 ---
 
@@ -19,102 +26,108 @@ Lambda 코드는 **콘솔 코드 탭에 붙여넣는 읽을 수 있는 소스**�
 지금 쓰는 테이블 **`jojo_table`** (파티션 키 `pk` 문자열, 정렬 키 `sk` 문자열, TTL 속성 `jojo_ttl`)을 그대로 씁니다.
 새로 만든다면: DynamoDB → 테이블 생성 → 위의 이름·키 → 용량 **온디맨드** → 만든 뒤 **추가 설정 → TTL 켜기** → 속성 이름 `jojo_ttl`.
 
-예전 학습 기록(문제·풀이)은 새 서비스에서 읽지 않아요. 그대로 두어도 되고(관리자 코드·이번 달 AI 사용량은 이어서 씀), 지우고 싶으면 테이블을 비워도 됩니다.
+## 2단계. CloudShell 준비 (처음 한 번)
 
-## 2단계. `jojo_api` (Python) — 화면의 모든 요청
+AWS 콘솔 → 리전 **서울(ap-northeast-2)** → 위쪽 막대의 **CloudShell** 아이콘(`>_`).
+```bash
+git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
+cd teamProject_night_first
+python3 -m pip --version && node --version   # 둘 다 버전이 나오면 준비 끝 (CloudShell 에 들어 있어요)
+npm run deploy -- check                      # 확인만 — 아무것도 바꾸지 않아요
+```
+`check` 가 함수마다 보여 주는 것: 있는지 · **코드 올리기 권한**(실제로 올리지 않고 권한만 확인) · 환경 변수 개수(이름만) · 바꿀 설정 · 함수 URL.
+처음에는 `jojo_api_py` 만 있고 나머지 6개는 "없음" 이 정상이에요.
+- `pip` 가 없다고 나오면: `python3 -m ensurepip --user`
+- 코드 올리기 권한이 ✗ 면: `npm run package` 가 만든 `dist/lambda/<함수 이름>.zip` 을 콘솔에서 올려도 돼요 (함수 → 코드 → **에서 업로드 → .zip 파일**). CloudShell 오른쪽 위 **작업 → 파일 다운로드** 로 zip 을 받을 수 있어요
 
-이미 만든 **`jojo_api_py`** 를 그대로 고쳐 씁니다 (새로 만든다면 아래 1번부터).
+## 3단계. 지금 함수(`jojo_api_py`)를 zip 으로 바꾸기
 
-1. Lambda → **함수 생성 → 새로 작성**
-   - 런타임 **Python 3.14**, 아키텍처 **arm64**
-   - 기본 실행 역할 변경 → 기존 역할 사용 → **`SafeRole-sgu-202688`**
-2. **코드 탭** — 파일 목록을 아래와 똑같이 맞춥니다.
+함수를 나누기 전에 지금 화면이 쓰는 `jojo_api_py` 부터 새 코드로 바꿔요 (화면은 그대로 동작해요).
+```bash
+git pull
+npm run deploy -- jojo_api_py      # 묶기 → 올리기 → 설정(Python 3.14 · arm64 · 10분 · 512MB) 맞추기 → /health 확인
+```
+`✓ jojo_api_py  코드 올림 (4.4MB) · /health ✓` 가 나오면 끝이에요.
+- 이제 라이브러리가 함께 들어 있어서 **콘솔 코드 탭에서는 고칠 수 없어요** ("배포 패키지가 너무 커서 편집기에 표시할 수 없음"). 코드는 GitHub 에서 고치고 `npm run deploy` 로 올려요
+- 환경 변수는 그대로 둬요 (`deploy` 는 환경 변수를 건드리지 않아요). 지금 함수에 들어 있어야 하는 것:
 
-   | 파일 | 하는 일 |
-   |---|---|
-   | `lambda_function.py` | 입구 (경로 → 기능 파일) |
-   | `auth.py` | Google 로그인 (선택, 5단계) |
-   | `core.py` | 공통 조각: 설정·요청/응답·DynamoDB·요청 수 제한·학습자·설정 값·id |
-   | `ai.py` | 공통 조각: AI 호출·월 예산·사용량 기록 |
-   | `code_store.py` | 공통 조각: 읽을 코드 저장·꺼내기·※ 정리 |
-   | `topics.py` | 주제 고르기 (랜덤 · 직접 적은 주제 판정) |
-   | `practice.py` | 연습 코드 만들기 · 더 쉽게/어렵게 · 다시 읽기 |
-   | `inspect_code.py` | 내 코드 점검 |
-   | `review.py` | 빨간펜 첨삭 |
-   | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화 |
-   | `study.py` | 내 공부: 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 (AI 없음) |
-   | `admin.py` | 관리자 (AI 사용량·비용·AI 끄기) |
-   | `experiment.py` | 논문 실험: 문항 하나 만들고 단계 기록 (관리자 코드 필요, `docs/EXPERIMENT.md`) |
-   | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드 |
-   | `samples_js.py` | AI 를 쓸 수 없을 때의 JavaScript 예시 코드 |
+  | 키 | 값 |
+  |---|---|
+  | `TABLE_NAME` | `jojo_table` |
+  | `TTL_ATTR` | `jojo_ttl` |
+  | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
+  | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
+  | `AI_MONTHLY_BUDGET_USD` | `10` |
+  | `ADMIN_TOKEN` | 직접 정한 긴 값 (CloudShell `openssl rand -hex 24`) — **관리자 복구 코드** |
+  | 선택 | `MODEL_ID`, `RATE_LIMIT_*`(요청 수 제한, `core.py` 1번 설정), `POWERTOOLS_LOG_LEVEL`(기본 `INFO`), 로그인 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET` |
 
-   - **지울 파일** (예전 기능, 남아 있어도 불리지 않지만 헷갈리니 지우기): `questions.py`, `submit_answer.py`, `my_page.py`, `learner_analysis.py`, `generate_theory.py`, `load_content.py`, `content.json`, `test_events.json`
-   - 각 파일은 GitHub 에서 열고 **Raw** → 전체 선택·복사 → 콘솔의 같은 이름 파일에 **전체를 바꿔** 붙여넣기 (없으면 **파일 → 새 파일**로 이름 그대로) → **Deploy**
-   - 붙여넣기가 중간에 끊기면 `module 'xxx' has no attribute 'ROUTES'` 처럼 파일 이름을 알려 주는 오류가 나요. 그 파일만 다시 붙여넣으면 됩니다.
-3. **구성 → 일반 구성 → 편집**: 메모리 **512MB**, 제한 시간 **10분**
-   (화면 요청은 0.1초 안팎, AI 를 부르는 요청은 5~20초, **중급(60~100줄)·고급(100~180줄) 코드 만들기는 1~3분** (출제·실행 추적표·교차 검토 세 번). AI 가 만든 코드가 검사를 통과하지 못하면 한 번 더 부르기 때문에 넉넉하게 10분)
-4. **구성 → 환경 변수**
+  예전 변수 `GENERATE_CODE_FUNCTION`, `AI_GENERATION_DAILY_LIMIT`, `GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` 는 이제 쓰지 않아요 (지워도 됨, 함수를 나눌 때 옮기지도 않아요).
+- 콘솔 시험: **테스트 탭** → 이벤트 `{"path": "/health", "method": "GET"}` → body 에 `"ok": true, "maxCodeLines": 300, "regenLimit": 5`.
+  다른 시험 이벤트: [`lambda/api/test_events.json`](../lambda/api/test_events.json)
 
-   | 키 | 값 |
-   |---|---|
-   | `TABLE_NAME` | `jojo_table` |
-   | `TTL_ATTR` | `jojo_ttl` |
-   | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
-   | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
-   | `AI_MONTHLY_BUDGET_USD` | `10` |
-   | `ADMIN_TOKEN` | 직접 정한 긴 값 (CloudShell `openssl rand -hex 24`) — **관리자 복구 코드** |
+## 4단계. 함수 6개 만들기 (처음 한 번)
 
-   - 예전 변수 `GENERATE_CODE_FUNCTION`, `AI_GENERATION_DAILY_LIMIT` 는 이제 쓰지 않아요 (지워도 됨)
-   - 선택: `MODEL_ID`, `RATE_LIMIT_*`(요청 수 제한, `core.py` 1번 설정 참고)
-   - 로그인을 쓰려면 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET` (5단계). 예전 `GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET` 는 이제 쓰지 않아요 (지워도 됨)
-5. **테스트 탭** → 이벤트 `{"path": "/health", "method": "GET"}` → **테스트** → body 에 `"ok": true, "maxCodeLines": 300, "regenLimit": 5`
-   다른 시험 이벤트(주제 판정, 연습 코드, 내 코드 훑어보기, 관리자): [`lambda/api/test_events.json`](../lambda/api/test_events.json)
-6. **함수 URL** (이미 있으면 건너뛰기): 구성 → 함수 URL → 생성 → 인증 유형 **NONE**, **CORS 는 설정하지 않음**(코드가 `ALLOWED_ORIGINS` 로 처리).
-   학교 계정은 공개 허용이 빠질 수 있어서 CloudShell 에서 한 번 실행 (이미 있으면 `ResourceConflictException` 은 괜찮음):
-   ```bash
-   FN=jojo_api_py
-   aws lambda update-function-url-config --region ap-northeast-2 --function-name $FN --auth-type NONE
-   aws lambda add-permission --region ap-northeast-2 --function-name $FN --statement-id FunctionURLAllowPublicAccess --action lambda:InvokeFunctionUrl --principal "*" --function-url-auth-type NONE
-   aws lambda add-permission --region ap-northeast-2 --function-name $FN --statement-id FunctionURLAllowInvokeAction --action lambda:InvokeFunction --principal "*" --invoked-via-function-url
-   ```
-   확인: 브라우저에서 `<함수 URL>health`
+```bash
+npm run deploy -- setup     # 없는 함수 만들기 · 환경 변수 옮기기 · 함수 URL 만들기
+npm run deploy              # 코드 올리기 (바뀐 함수만) · /health 확인
+```
+`setup` 이 하는 일 (함수마다):
+1. **없으면 만들기** — 이름·런타임(Python 3.14)·arm64·제한 시간·메모리는 `functions.json`, 실행 역할은 `jojo_api_py` 와 같은 SafeRole
+2. **환경 변수 옮기기** — `jojo_api_py` 에서 그 함수에 필요한 이름만 (이미 있는 값은 그대로). 화면에는 이름만 나와요
+3. **함수 URL** — 인증 없음 + 공개 호출 허용 (CORS 는 코드가 `ALLOWED_ORIGINS` 로 처리해요. 함수 URL 설정에서 CORS 는 켜지 않아요)
+4. 마지막에 **화면에 넣을 주소(JSON)** 와 **Google 리디렉션 URI** 를 알려 줘요 → 5·6단계에 그대로 써요
 
-## 3단계. 화면에 연결
+| 함수 | 제한 시간 · 메모리 | 환경 변수 (공통 + ) |
+|---|---|---|
+| `jojo_auth` | 15초 · 256MB | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` (· `AUTH_CALLBACK_BASE`) |
+| `jojo_practice` | 10분 · 512MB | — |
+| `jojo_inspect` | 2분 · 512MB | — |
+| `jojo_review` | 3분 · 512MB | — |
+| `jojo_study` | 30초 · 256MB | — |
+| `jojo_admin` | 10분 · 512MB | `ADMIN_TOKEN` |
 
-GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables** → `API_URL` = 2단계 함수 URL (**끝의 `/` 빼고**)
-→ 화면 코드가 main 에 병합되면 자동 배포 (또는 **Actions → Deploy web (GitHub Pages) → Run workflow**)
+공통 = `TABLE_NAME` · `TTL_ATTR` · `DB_REGION` · `ALLOWED_ORIGINS` · `AI_MODE` · `MODEL_ID` · `BEDROCK_REGION` · `AI_MONTHLY_BUDGET_USD` · `RATE_LIMIT_*` · `POWERTOOLS_LOG_LEVEL` (있는 것만)
 
-## 4단계. 확인하고 정리
+- 학교 계정에서 **함수 만들기가 거절되면**: 콘솔에서 위 표대로 직접 만들고(런타임 Python 3.14 · arm64 · 기존 역할 `SafeRole-sgu-202688`) `npm run deploy -- setup` 을 다시 실행해요 (있는 함수는 환경 변수·URL 만 채워요)
+- 제한 시간: 연습 코드 만들기는 AI 를 세 번(출제·실행 추적표·교차 검토) 부르고, 검사를 통과하지 못하면 다시 만들어서 중급·고급은 1~3분, 넉넉하게 10분
 
-1. 화면에서 **연습 모드** → 난이도·주제 → 코드 받기 → 줄을 눌러 메모 → **첨삭 받기** → ○△✕ 결과
+## 5단계. 화면에 연결
+
+GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables**
+- **`API_URLS`** = 4단계 `setup` 이 알려 준 JSON 그대로 (`{"auth": "https://…", "practice": "https://…", …}`)
+- `API_URL` (예전 `jojo_api_py` 주소)은 당분간 그대로 두세요 — `API_URLS` 에 없는 함수는 이 주소로 가요
+
+→ **Actions → Deploy web (GitHub Pages) → Run workflow** (또는 main 에 병합하면 자동). 확인:
+1. 화면에서 **연습 모드** → 난이도·주제 → 코드 받기 → 줄을 눌러 메모 → **첨삭 받기** → ○△✕ 결과 → 다시 써 보기 · 튜터
 2. **내 코드 점검** → `.py` 파일 올리기 → 함수 고르기 → 메모하러 가기
-3. 관리자 화면(`/admin/`)에서 이번 달 비용·작업별 사용량이 늘었는지, **AI 끄기** 뒤 연습 코드가 예시 코드로 바뀌는지
-4. 예전 Node.js 함수 `jojo_generate_code` 와 예전 Node.js `jojo_api` 가 남아 있으면 삭제
-5. **키·필드 이름을 바꾼 버전을 처음 올렸다면**: 관리자 화면 → **예전 데이터 옮기기** 를 한 번 누르기 (`POST /admin/migrate`). 예전 키 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름(`USER#`·`CODE#`·`OPS#`)으로 옮기고, 예전 필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId` 등)을 고쳐요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요.
+3. **내 공부**, 관리자 화면(`/admin/`)의 이번 달 비용·작업별 사용량, **AI 끄기** 뒤 연습 코드가 예시 코드로 바뀌는지
+4. 브라우저 F12 → Network 에서 요청마다 다른 `lambda-url` 주소로 가는지
 
-## 5단계. Google 로그인 (선택)
+문제가 있으면 `API_URLS` 를 지우고 화면을 다시 배포하면 바로 `jojo_api_py` 하나로 돌아가요.
+
+## 6단계. Google 로그인 (선택)
 
 로그인하면 기록이 탭을 닫아도 남아요 (학습자·'내 공부' 1년, 연습 코드 30일). 설정하지 않으면 로그인 버튼이 화면에 나오지 않아요.
-**클라이언트 보안 비밀(secret)은 Lambda 환경 변수에만** 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
 
-콜백 주소는 함수 URL 뒤에 `/auth/callback/google` 을 붙인 값입니다 (함수 URL 끝의 `/` 는 하나만):
-- Google: `https://<함수 URL 도메인>/auth/callback/google`
-
-**Google**
 1. [Google Cloud Console](https://console.cloud.google.com/) → 프로젝트 만들기(또는 고르기)
 2. **API 및 서비스 → OAuth 동의 화면**: 사용자 유형 **외부**, 앱 이름·지원 이메일 입력, 범위는 `openid`·`profile` 만 (추가하지 않아도 됨). 테스트 중이면 **테스트 사용자**에 쓸 계정을 넣거나 **앱 게시**
-3. **사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID** → 유형 **웹 애플리케이션**
-   - 승인된 리디렉션 URI: 위 Google 콜백 주소
-4. 만들어진 **클라이언트 ID** → 환경 변수 `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET`
+3. **사용자 인증 정보 → OAuth 클라이언트 ID** (유형 **웹 애플리케이션**) → **승인된 리디렉션 URI** 에 `setup` 이 알려 준 주소 추가:
+   `https://<jojo_auth 함수 URL 도메인>/auth/callback/google` (함수를 나누기 전 `jojo_api_py` 주소도 남겨 두면 되돌릴 때 편해요)
+4. **클라이언트 ID** → `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET` — `jojo_auth` 의 구성 → 환경 변수에 (이미 `jojo_api_py` 에 있었다면 `setup` 이 옮겨 놓았어요)
+5. 확인: `<jojo_auth 함수 URL>/me` → `"providers": {"google": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
 
-**Lambda**
-1. 코드 탭에 `auth.py` 를 새 파일로 추가하고, `core.py`·`lambda_function.py` 를 바꿔 붙여넣기 → **Deploy**
-2. 구성 → 환경 변수에 위 두 값 추가 (`ALLOWED_ORIGINS` 는 그대로 — 로그인 뒤 돌아갈 화면도 이 주소만 허용)
-3. 확인: `<함수 URL>/me` → `"providers": {"google": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
+- 받는 정보는 계정 번호와 이름뿐이에요 (이메일은 요청하지 않음). 로그인하면 지금 탭에서 한 공부('내 공부', 연습 코드)가 계정으로 옮겨져요
+- 콜백은 로그인을 시작한 함수 주소로 와요. 다른 주소로 받아야 할 때만 `AUTH_CALLBACK_BASE` 에 그 앞부분을 넣어요 (보통은 비워 둠)
 
-- 받는 정보는 계정 번호와 이름뿐이에요 (이메일은 요청하지 않음).
-- 로그인하면 지금 탭에서 한 공부('내 공부', 연습 코드)가 계정으로 옮겨져요.
-- 함수 URL 이 아닌 다른 주소로 콜백을 받아야 하면 `AUTH_CALLBACK_BASE` 에 그 앞부분을 넣어요 (보통은 비워 둠).
+## 7단계. 정리
+
+1. **예전 데이터 옮기기** (아직 안 했다면): 관리자 화면 → **예전 데이터 옮기기** 를 한 번 (`POST /admin/migrate`). 예전 키 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름(`USER#`·`CODE#`·`OPS#`)으로, 예전 필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId` 등)을 고쳐요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요
+2. 6개 함수로 며칠 문제없으면 `jojo_api_py` 정지 → 일주일 뒤 삭제, GitHub 변수 `API_URL` 도 지우기
+   ```bash
+   aws lambda put-function-concurrency --region ap-northeast-2 --function-name jojo_api_py --reserved-concurrent-executions 0   # 정지 (되돌리기: delete-function-concurrency)
+   ```
+   그 뒤에는 `lambda/functions.json` 에서 `jojo_api_py` 항목을 지워요
+3. 예전 Node.js 함수 `jojo_generate_code`·`jojo_api` 가 남아 있으면 삭제
 
 ---
 
@@ -123,49 +136,63 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 | 바뀐 것 | 할 일 |
 |---|---|
 | 화면 | main 에 병합 → Pages 자동 배포 |
-| Lambda 코드 | GitHub 에서 바뀐 파일만 콘솔 코드 탭에 붙여넣고 **Deploy** |
-| 예시 코드·랜덤 주제 | `samples.py`·`samples_js.py` 를 바꾸고 `npm run verify` 통과 → 콘솔에 붙여넣기 |
-| 설정 (예산 등) | **구성 → 환경 변수** (다음 요청부터 반영) |
-| 급하게 AI 를 멈추기 | 관리자 화면 **AI 끄기** (30초 안에 반영) 또는 환경 변수 `AI_MODE=off` |
+| Lambda 코드 | main 에 병합 → CloudShell 에서 `cd teamProject_night_first && git pull && npm run deploy` (바뀐 함수만 올라가요. 같은 내용이면 zip 도 똑같아서 "코드 그대로") |
+| 함수 하나만 | `npm run deploy -- jojo_review` |
+| 예시 코드·랜덤 주제 | `samples.py`·`samples_js.py` 를 바꾸고 `npm run verify` 통과 → 병합 → `npm run deploy` |
+| 제한 시간·메모리 | `lambda/functions.json` 을 고치고 `npm run deploy` (설정을 맞춰요) |
+| 설정 (예산 등) | 함수마다 **구성 → 환경 변수** (다음 요청부터 반영). 모든 함수에 같은 값을 넣어야 하는 것(`AI_MODE`, `AI_MONTHLY_BUDGET_USD` 등)은 함수 6개 모두에 |
+| 급하게 AI 를 멈추기 | 관리자 화면 **AI 끄기** (모든 함수가 30초 안에 따라와요 — DynamoDB 의 스위치를 함께 읽어요) |
 
-콘솔에서 직접 고쳤다면 GitHub 의 같은 파일에도 반영해 주세요. 그래야 팀원과 공유되고 자동 검사(`npm run smoke`)가 확인합니다.
-내 컴퓨터에서는 `npm run api` 가 같은 코드를 `http://localhost:8787` 로 실행해요 (DynamoDB 흉내 서버 + 목업 AI).
+내 컴퓨터에서는 `npm run api` 가 모든 기능을 `http://localhost:8787` 하나로 실행해요 (DynamoDB 흉내 서버 + 목업 AI). `npm run package` 로 zip 만 만들어 볼 수도 있어요 (`dist/lambda/`).
+
+## 로그 보기 (CloudWatch)
+
+함수마다 로그 그룹이 따로예요: `/aws/lambda/jojo_practice` 처럼. 한 줄이 JSON 하나이고 `route`(경로)·`request_id`·`level` 이 붙어 있어요.
+CloudWatch → **Logs Insights** → 로그 그룹 고르기 → 검색문:
+```
+fields @timestamp, route, message, status, ms | filter level = "ERROR" | sort @timestamp desc        # 예상하지 못한 오류 (스택은 exception 칸)
+filter message like "AI 대신" | stats count() by message, reason                                     # AI 대신 예시 코드·규칙을 쓴 횟수와 이유
+filter message = "코드 다시 만듦" | fields @timestamp, problems                                         # 생성 코드가 규칙 검사에 걸린 이유
+filter message = "요청" and ms > 10000 | fields @timestamp, route, ms                                  # 10초 넘게 걸린 요청
+```
+함수별 오류 수·실행 시간·호출 수는 Lambda → 함수 → **모니터링** 탭에 저절로 나와요 (따로 지표를 만들지 않아요).
 
 ## 요금 (대략)
 
-- Lambda: 매달 요청 100만 건 · 40만 GB-초 무료 → 512MB 면 AI 를 기다리는 요청(10초)도 한 달 8만 번까지 무료
+- Lambda: 매달 요청 100만 건 · 40만 GB-초 무료 (함수가 6개여도 합쳐서 계산) → AI 를 기다리는 요청(10초, 512MB)도 한 달 8만 번까지 무료
 - DynamoDB 온디맨드: 쓰기 100만 건 약 1.4달러, 읽기 100만 건 약 0.3달러 → 수십 센트 이하
-- Bedrock (Haiku 4.5): 연습 코드 1개·첨삭 1번이 각각 1센트 안팎, 주제 판정 0.1센트 정도 (월 예산을 넘지 않게 코드가 막음)
-- 함수 URL: 무료 (API Gateway 를 쓰지 않음)
+- Bedrock (Haiku 4.5): 연습 코드 1개가 AI 세 번(출제·추적표·검토)이라 몇 센트, 첨삭 1번 1센트 안팎, 주제 판정 0.1센트 정도 (월 예산을 넘지 않게 코드가 막음)
+- 함수 URL: 무료 (API Gateway 를 쓰지 않음) · CloudWatch 로그: 적은 양은 무료 (보관 기간을 2주로)
 
 ## 악성 사용자·요금 폭탄 막기
 
-### 코드에 들어 있는 것 (`core.py`·`ai.py`, 설정 없이 동작)
+### 코드에 들어 있는 것 (`core.py`·`ai.py`, 설정 없이 동작 — 모든 함수가 DynamoDB 의 같은 카운터를 써요)
 | 막는 것 | 방법 |
 |---|---|
 | AI 요금 | 월 예산을 넘으면 AI 를 부르지 않고 예시 코드·규칙 판정·규칙 첨삭으로 (이번 호출의 최대 비용까지 미리 계산) |
 | 같은 코드를 계속 다시 만들기 | '더 쉽게·더 어렵게'는 처음 코드부터 **5번까지** |
 | 한 사람이 AI 를 많이 부름 | 학습자 1명 1시간 30번, IP 1개 1시간 300번, 서비스 전체 1시간 400번 (넘으면 AI 없이) |
 | 요청 폭주 | IP 1개 1분 600번, 새 학습자 IP 1개 1시간 120명, 요청 크기 256KB, 코드 300줄, 메모 20장·500자 |
-| 비밀 값 유출 | 올린 코드의 API 키·토큰·비밀번호는 **화면에서 먼저 가리고** 서버에서 한 번 더 가림. 올린 코드는 하루 뒤 자동 삭제 |
+| 이상한 요청 값 | 경로마다 정한 모양(Pydantic)으로 검사 — 형식·길이·범위가 틀리면 400 |
+| 비밀 값 유출 | 올린 코드의 API 키·토큰·비밀번호는 **화면에서 먼저 가리고** 서버에서 한 번 더 가림. 올린 코드는 하루 뒤 자동 삭제. 로그에는 본문·코드·메모를 남기지 않음 |
 | 남의 코드 보기 | 읽을 코드·첨삭은 만든 학습자만 열 수 있음 |
 | 관리자 코드 맞히기 | 10번 틀리면 15분 잠김 |
-| 다른 사이트에서 부르기 | `ALLOWED_ORIGINS` 의 화면 주소만 브라우저가 응답을 읽을 수 있음 |
+| 다른 사이트에서 부르기 | `ALLOWED_ORIGINS` 의 화면 주소만 브라우저가 응답을 읽을 수 있음 (CORS) |
 
 ### AWS 콘솔에서 해 두면 좋은 것
-1. **동시 실행 제한** — jojo_api → 구성 → 동시성 → **예약된 동시성 20**
-2. **AWS Budgets 알림** — Billing → Budgets → 월 예산(예: 15달러) → 80%·100% 에 이메일 알림
-3. **CloudWatch 로그 보관 기간** — 로그 그룹 `/aws/lambda/<함수 이름>` → 보존 기간 **2주**
+1. **AWS Budgets 알림** — Billing → Budgets → 월 예산(예: 15달러) → 80%·100% 에 이메일 알림
+2. **CloudWatch 로그 보관 기간** — 로그 그룹 `/aws/lambda/jojo_*` 마다 → 보존 기간 **2주**
+3. (계정의 동시 실행 한도가 넉넉하면) **예약된 동시성** — AI 비용이 큰 `jojo_practice` 에 10 정도
 
 ## 문제 해결
 
 | 증상 | 원인 / 해결 |
 |---|---|
-| `{"Message":"Forbidden"}` | 2단계 6번 함수 URL 공개 허용 |
-| `No module named 'xxx'` | 그 파일을 코드 탭에 새 파일로 만들었는지, 이름이 정확한지 (`inspect.py` 가 아니라 `inspect_code.py`) |
-| `xxx.py 에 ROUTES 이(가) 없어요` | 그 파일이 비었거나 일부만 붙여넣어졌어요 → 전체를 다시 붙여넣고 Deploy |
-| 화면에 "서버에 연결하지 못했어요" / CORS 오류 | `ALLOWED_ORIGINS`(경로 없이), GitHub `API_URL` 끝의 `/` 제거, 화면 다시 배포 |
-| 연습 코드가 늘 예시 코드("준비된 예시 코드를 드려요") | 관리자 화면 AI 스위치, `AI_MODE`, CloudWatch 로그의 `AI 대신 …` 줄의 `reason` (`AccessDeniedException` → 역할의 Bedrock 권한, `monthly AI budget reached` → 월 예산) |
-| "AI 가 만든 코드가 검사를 통과하지 못해…" | 로그의 `코드 다시 만듦` 줄 `problems` 에 이유가 있어요 (문법 오류, 너무 긺, ※ 줄을 못 찾음) |
-| `Task timed out` | 제한 시간을 10분으로 (중급·고급 코드 만들기가 오래 걸려요) |
-| 오랜만에 열면 첫 요청이 느림 | 정상 (콜드 스타트 약 1초) |
+| `{"Message":"Forbidden"}` | 함수 URL 공개 허용이 빠짐 → `npm run deploy -- setup` 다시 (이미 있는 것은 건너뛰어요) |
+| `Runtime.ImportModuleError` · `No module named 'pydantic_core._pydantic_core'` | 함수가 arm64·Python 3.14 가 아니에요 → `npm run deploy` 가 설정을 맞춰요 (콘솔에서 바꿨다면 **런타임 설정** 확인) |
+| `npm run deploy` 가 `AccessDeniedException` | `npm run deploy -- check` 로 어느 권한인지 확인 → 코드 올리기가 막히면 zip 을 콘솔에서 업로드 (2단계) |
+| 화면에 "서버에 연결하지 못했어요" / CORS 오류 | 그 함수의 `ALLOWED_ORIGINS`(경로 없이), GitHub `API_URLS` 의 주소, 화면 다시 배포 |
+| 연습 코드가 늘 예시 코드("준비된 예시 코드를 드려요") | 관리자 화면 AI 스위치, `jojo_practice` 의 `AI_MODE`, 로그의 `AI 대신 …` 줄 `reason` (`AccessDeniedException` → 역할의 Bedrock 권한, `monthly AI budget reached` → 월 예산) |
+| "AI 가 만든 코드가 검사를 통과하지 못해…" | `jojo_practice` 로그의 `코드 다시 만듦` 줄 `problems` 에 이유가 있어요 (문법 오류, 너무 긺, ※ 줄을 못 찾음) |
+| `Task timed out` | `npm run deploy` 로 `functions.json` 의 제한 시간을 맞춰요 (연습 코드 10분) |
+| 오랜만에 열면 첫 요청이 느림 | 정상 (콜드 스타트 약 1~2초, 함수마다 따로) |

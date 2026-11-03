@@ -7,7 +7,7 @@
 - 문항: 언어 2(Python · JavaScript) × 난이도 4 × 5회 = **40문항**. 주제는 서비스의 랜덤 주제 목록(고급은 알고리즘 주제)에서 고르고, `--seed` 가 같으면 같은 순서
 - 실험 문항은 저장하지 않아요 (학습자 기록과 섞이지 않게). AI 사용량은 관리자 화면 비용에 그대로 잡혀요
 - 실험 중에는 요청 수 한도(1시간 30번)만 건너뛰고, 월 예산 확인·AI 끄기는 서비스와 똑같이 동작
-- 실행 환경 = 서비스 환경: Lambda(Python 3.13) · 실행 역할의 Bedrock 권한 · 같은 모델(`MODEL_ID`)
+- 실행 환경 = 서비스 환경: Lambda `jojo_admin`(Python 3.14 · arm64, 연습 모드의 `jojo_practice` 와 같은 `practice.py`) · 실행 역할의 Bedrock 권한 · 같은 모델(`MODEL_ID`)
 - 비용: Claude Haiku 4.5 로 40문항 약 **3~6달러** (문항마다 출제·실행 추적표·교차 검토 3번, 관리자 화면에서 남은 예산 확인) · 시간: 4개씩 동시에 **약 20~40분**
 
 ## 결과 파일 (`experiment_out/<시각>/`)
@@ -33,15 +33,14 @@
 
 ## 실행하기
 
-### 0. Lambda 에 실험 경로 넣기 (한 번)
-제한 시간은 **10분**이어야 해요 (구성 → 일반 구성 — 중급·고급 코드는 한 번에 1~2분, 다시 만들면 두 배).
-콘솔 `jojo_api_py` 코드 탭에서
-- **새 파일 `experiment.py`** 를 만들고 GitHub main 의 `lambda/api/experiment.py` 를 Raw 로 붙여넣기
-- **`lambda_function.py`** 를 main 의 것으로 바꾸기 (`import experiment` 와 경로 표 한 줄이 더해짐)
-- **Deploy**
+### 0. Lambda 에 최신 코드 올리기
+실험 경로(`POST /admin/experiment`)는 **`jojo_admin`** 에 있어요 (함수를 나누기 전에는 `jojo_api_py` 에도). CloudShell 에서 `npm run deploy` 로 최신 코드를 올려 두세요 (`docs/DEPLOY_LAMBDA.md`).
+제한 시간 10분은 `npm run deploy` 가 맞춰요 (중급·고급 코드는 한 번에 1~2분, 다시 만들면 두 배).
+아래 `<함수 URL>` 은 `jojo_admin` 의 함수 URL 이에요 (나누기 전이면 `jojo_api_py`).
 
 ### 1. AWS CloudShell 열기
-AWS 콘솔 → 리전 **서울(ap-northeast-2)** → 위쪽 막대의 **CloudShell** 아이콘(`>_`). (내 컴퓨터 터미널에서 해도 돼요 — Python 3 만 있으면 됨, boto3 불필요)
+AWS 콘솔 → 리전 **서울(ap-northeast-2)** → 위쪽 막대의 **CloudShell** 아이콘(`>_`). (내 컴퓨터 터미널에서 해도 돼요 — Python 3.10 이상만 있으면 됨, boto3 불필요)
+CloudShell 의 기본 Python 은 3.9 라서 처음 한 번 `sudo dnf install -y python3.11` 로 설치하고 아래처럼 `python3.11` 로 실행해요.
 
 ### 2. 저장소 받기 (이미 받았다면 최신으로)
 ```bash

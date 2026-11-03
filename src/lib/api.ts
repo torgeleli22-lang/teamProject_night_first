@@ -1,26 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { baseFor, parseApiUrls } from "./api-routes";
 
 /**
- * 브라우저 → API(Lambda 함수 URL 하나 — lambda/api) 호출.
- * 모든 기능이 같은 주소라서 브라우저가 연결(HTTPS)을 한 번 맺고 계속 다시 쓴다 → 화면 이동·제출이 빠르다.
+ * 브라우저 → API(기능별 Lambda 함수 URL) 호출. 경로 앞부분으로 함수를 고른다 (api-routes.ts, docs/LAMBDA_STRUCTURE.md §8).
+ * 함수마다 주소가 달라서 처음 부를 때 연결(HTTPS)을 하나씩 맺고, 그다음부터는 다시 쓴다.
  * - 로그인 안 함: 학습자 id 를 sessionStorage 에 둔다 — 이 탭(창)을 닫으면 사라지고 다시 열면 새로 시작 (서버 기록도 하루 안에 지워짐)
  * - 로그인(Google): 로그인 토큰을 localStorage 에 둔다 — 브라우저를 닫아도 이어지고, 기록이 계정에 오래 남는다.
  *   둘 다 같은 x-session-id 헤더로 보낸다 (서버가 학습자 id 인지 로그인 토큰인지 구분).
  * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
- * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables → API_URL).
- * 내 컴퓨터에서는 npm run api 가 같은 Lambda 를 http://localhost:8787 로 실행한다.
+ * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables):
+ *   API_URLS = {"auth": "https://…", "practice": "https://…", …} 함수별 주소 (npm run deploy -- setup 이 알려 줌)
+ *   API_URL  = 주소 하나 (예전 함수 jojo_api_py — API_URLS 에 없는 함수는 여기로)
+ * 내 컴퓨터에서는 npm run api 가 모든 기능을 http://localhost:8787 하나로 실행한다.
  */
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
+const API_URLS = parseApiUrls(process.env.NEXT_PUBLIC_API_URLS);
 
-/** 요청할 전체 주소 */
+/** 요청할 전체 주소 (경로를 맡은 함수의 주소) */
 export function apiUrl(path: string): string {
-  return `${API_URL}${path}`;
+  return `${baseFor(path, API_URLS, API_URL)}${path}`;
 }
 
 /** 배포 화면인데 API 주소 없이 빌드된 경우 (화면 미리보기만 가능) */
-const API_MISSING = !process.env.NEXT_PUBLIC_API_URL && process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_BASE_PATH;
+const API_MISSING =
+  !process.env.NEXT_PUBLIC_API_URL && !process.env.NEXT_PUBLIC_API_URLS && process.env.NODE_ENV === "production" && !!process.env.NEXT_PUBLIC_BASE_PATH;
 
 const SESSION_KEY = "codereading.sid";
 const LOGIN_KEY = "codereading.login";

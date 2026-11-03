@@ -7,10 +7,11 @@ import review
 import study
 import topics
 import tutor_chat
-from core import (AI_MODE, LANGUAGES, MAX_CODE_LINES, REGEN_LIMIT, ai_enabled, handle, make_app)
+from core import (HEALTH, handle, make_app)
 
 # ─────────────────────────────────────────────────────────────
-# 코드 리딩 노트 API — 지금은 Lambda 함수 하나(jojo_api_py)의 입구 (기능별 6개로 나누는 중: docs/LAMBDA_STRUCTURE.md)
+# 코드 리딩 노트 API — 모든 기능을 함께 담은 입구: 예전 함수 jojo_api_py 와 내 컴퓨터(npm run api)
+#   기능별 함수 6개의 입구는 lambda/functions/ 에 있어요 (docs/LAMBDA_STRUCTURE.md)
 #
 #   화면(GitHub Pages) ──JSON──▶ 함수 URL ──▶ 이 파일 ──▶ 기능 파일 ──▶ DynamoDB(저장) · Bedrock(AI)
 #
@@ -42,14 +43,8 @@ def need(module, name):
     return getattr(module, name)
 
 
-def health(req):
-    """연결 확인 (콘솔 테스트 이벤트: {"path": "/health", "method": "GET"})"""
-    return {"ok": True, "mode": AI_MODE, "ai": ai_enabled(), "languages": list(LANGUAGES),
-            "maxCodeLines": MAX_CODE_LINES, "regenLimit": REGEN_LIMIT}
-
-
 # 경로 → 처리 함수 (기능 파일마다 있는 ROUTES 를 합친 표)
-ROUTES = {"GET /health": health}
+ROUTES = dict(HEALTH)
 for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin, experiment):
     ROUTES.update(need(feature, "ROUTES"))
 

@@ -6,7 +6,7 @@
   단계 기록은 lambda/api/experiment.py 가 한다 (서비스 코드는 그대로, 단계 함수를 감싸서 기록만)
 
 두 가지 방법:
-  Lambda 로 (권장 — Bedrock 권한은 Lambda 실행 역할에 있음, 서비스와 같은 Python 3.13·모델):
+  Lambda 로 (권장 — Bedrock 권한은 Lambda 실행 역할에 있음, 서비스와 같은 Python 3.14·모델):
     python3 scripts/experiment_generation.py --url https://<함수 URL>        # 관리자 코드를 물어봄 (화면에 보이지 않음)
   이 컴퓨터에서 직접 (Bedrock·DynamoDB 권한이 있는 AWS 계정일 때):
     python3.11 scripts/experiment_generation.py --local
@@ -57,7 +57,7 @@ def remote_maker(url, admin_code):
             if e.code in (401, 429):
                 raise SystemExit(f"✗ 관리자 코드를 확인해 주세요 ({e.code}): {message}")
             if e.code == 404:
-                raise SystemExit("✗ Lambda 에 실험 경로가 없어요. 콘솔에 experiment.py 를 추가하고 lambda_function.py 를 바꾼 뒤 Deploy 해 주세요.")
+                raise SystemExit("✗ 이 함수에 실험 경로가 없어요. --url 이 jojo_admin(나누기 전에는 jojo_api_py)의 함수 URL 인지, CloudShell 에서 npm run deploy 로 최신 코드를 올렸는지 확인해 주세요.")
             return {**item, "origin": "error", "note": f"HTTP {e.code}: {message[:300]}", "attempts": [], "ai_calls": [], "ai_errors": [],
                     "tokens_in": 0, "tokens_out": 0, "seconds": 0, "code": "", "marks": [], "title": ""}
         except Exception as e:   # 연결 끊김·시간 초과 → 이 문항만 오류로 남기고 계속 (--resume 으로 다시 할 수 있게 저장하지 않음)

@@ -14,7 +14,7 @@
 5. **올린 코드는 민감 정보를 가린 뒤에만 서버로 간다.** 화면(`src/lib/secrets.ts`)에서 먼저 가리고 Lambda(`inspect_code.mask_secrets`)에서 한 번 더 가린다. 두 파일의 패턴을 같게 유지한다. 올린 코드는 하루 뒤 TTL 로 지워진다.
 6. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다. Lambda 를 바꿨다면 `npm run smoke` 도.
 7. **화면 문구는 한국어 존댓말("~해요")**, 초보자·비개발자 눈높이. 틀렸을 때도 실패감을 주지 않는다.
-8. 구조는 **화면 GitHub Pages + 기능별 Lambda 6개 + DynamoDB + Bedrock** 이다 (§9, §10, **`docs/LAMBDA_STRUCTURE.md`**, `docs/DEPLOY_LAMBDA.md`). 로그·오류 수·제한 시간을 기능별로 나누고, 각 함수에는 필요한 파일만 넣는다. 공통 코드는 저장소에 한 벌(`core`·`ai`·`code_store`)만 두고 배포할 때 묶는다. 외부 라이브러리는 구조 기준 §4 에 정한 것만(Powertools·Pydantic·tree-sitter). **전환 중**: 지금 코드는 아직 함수 하나(`jojo_api_py`, `lambda/api/`)다. 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부른다 (`tests/boundaries.test.ts`). 연습 문항 생성·검토는 **`docs/GENERATION_STANDARD.md`** 를 따른다.
+8. 구조는 **화면 GitHub Pages + 기능별 Lambda 6개 + DynamoDB + Bedrock** 이다 (§9, §10, **`docs/LAMBDA_STRUCTURE.md`**, `docs/DEPLOY_LAMBDA.md`). 로그·오류 수·제한 시간을 기능별로 나누고, 각 함수에는 필요한 파일만 넣는다. 공통 코드는 저장소에 한 벌(`core`·`ai`·`code_store`)만 두고 배포할 때 묶는다. 외부 라이브러리는 구조 기준 §4 에 정한 것만(Powertools·Pydantic·tree-sitter). 함수마다 넣을 파일·라이브러리·환경 변수는 `lambda/functions.json`(입구 `lambda/functions/`)이 정하고 `npm run deploy`(CloudShell)로 올린다. 화면은 경로 앞부분으로 함수를 고른다(`src/lib/api-routes.ts`). 예전 함수 `jojo_api_py` 는 화면을 옮길 때까지 함께 둔다. 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부른다 (`tests/boundaries.test.ts`). 연습 문항 생성·검토는 **`docs/GENERATION_STANDARD.md`** 를 따른다.
 9. **비밀 값(ADMIN_TOKEN, API 키, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** Lambda 환경 변수(로컬은 `.env`)에만 둔다.
 10. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager 처럼 추가 권한이 필요한 기능에 의존하지 않는다. S3 등 §10 밖의 서비스는 사람이 요청하기 전까지 넣지 않는다.
 
@@ -97,10 +97,11 @@ AI 가 코드를 만들 때(내 코드 분석 때) 함께 정하고, 없거나 �
 src/app/                    화면: page.tsx(01) practice/(02) read/(03) result/(04) check/(05) admin/
 src/components/             NoteHeader(제목·로그인·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
 src/lib/                    api.ts(서버 부르기) api-types.ts(응답 모양) secrets.ts(민감 정보 가리기) highlight.ts(문법 색칠) memos.ts(메모 임시 저장)
-lambda/api/                 jojo_api: lambda_function.py(입구) core.py·ai.py·code_store.py(공통 조각) topics·practice·inspect_code·review·tutor_chat·study·auth·admin·experiment.py(기능) samples.py·samples_js.py(예시 코드)
-lambda/tests/               Python 단위 테스트
+lambda/api/                 lambda_function.py(모든 기능을 담은 입구: 예전 함수·내 컴퓨터) core.py·ai.py·code_store.py(공통 조각) topics·practice·inspect_code·review·tutor_chat·study·auth·admin·experiment.py(기능) samples.py·samples_js.py(예시 코드)
+lambda/functions/           함수 6개의 입구 (jojo_auth·practice·inspect·review·study·admin) · lambda/functions.json 함수 표
+lambda/tests/               Python 단위 테스트 (test_functions.py: 함수 표·의존 규칙)
 tests/                      TypeScript 단위 테스트 (민감 정보·문법 색칠·경계)
-scripts/                    local-api.mjs + local_lambdas.py(로컬 실행), smoke.mjs(전체 흐름), verify_samples.py(예시 코드 실행 검증)
+scripts/                    local-api.mjs + local_lambdas.py(로컬 실행), smoke.mjs(전체 흐름), verify_samples.py(예시 코드 실행 검증), package_lambdas.py·deploy_lambdas.py(묶기·올리기)
 docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 기준), DEPLOY_LAMBDA.md
 ```
 
@@ -212,9 +213,9 @@ npm run smoke     # Lambda 전체 흐름 점검
 | 계정 | 학교 계정 sgu-202688 (권한 제한 — IAM 역할 생성 불가). 리전 서울 ap-northeast-2, Bedrock 은 us-east-1 |
 | 실행 역할 | `SafeRole-sgu-202688` (DynamoDB·Bedrock 가능, VPC 없음) |
 | DynamoDB | `jojo_table` (pk·sk 문자열, TTL `jojo_ttl`, 보조 인덱스 없음) |
-| Lambda | `jojo_api_py` (Python, 함수 URL). 예전 Node.js `jojo_api`·`jojo_generate_code` 는 삭제 대상 |
+| Lambda | 함수 6개 `jojo_auth`·`jojo_practice`·`jojo_inspect`·`jojo_review`·`jojo_study`·`jojo_admin` (Python 3.14 arm64, 함수마다 함수 URL — `npm run deploy -- setup` 으로 만듦). 지금 쓰는 `jojo_api_py` 는 화면을 옮긴 뒤 정지·삭제. 예전 Node.js `jojo_api`·`jojo_generate_code` 는 삭제 대상 |
 | Bedrock | Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) |
-| 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URL`) |
+| 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URLS` 함수별 주소 · `API_URL` 예전 함수) |
 
 ### 10.2 이후 단계 (사람이 요청하면 진행)
 | 단계 | 내용 |
@@ -230,9 +231,9 @@ npm run smoke     # Lambda 전체 흐름 점검
 - 예전 기능(개념·코드 객관식 학습, 채점, 튜터, 학습 분석, 랭킹, AI 문제 생성, Node.js 생성 함수)은 모두 지웠다
 
 **다음 순서**
-1. 콘솔의 `jojo_api_py` 파일 바꾸기 (`docs/DEPLOY_LAMBDA.md` 2단계) → 화면 main 병합
+1. CloudShell 에서 Lambda 함수 6개로 옮기기: `jojo_api_py` 를 zip 으로 → `npm run deploy -- setup` → `npm run deploy` → GitHub 변수 `API_URLS` → 확인 (`docs/DEPLOY_LAMBDA.md` 2~5단계)
 2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기
-3. Google OAuth 앱 만들고 Lambda 환경 변수 넣기 (`docs/DEPLOY_LAMBDA.md` 5단계)
+3. Google OAuth 리디렉션 URI 를 `jojo_auth` 주소로 (`docs/DEPLOY_LAMBDA.md` 6단계) · 예전 데이터 옮기기 실행 뒤 `/admin/migrate` 지우기
 4. Java, 내 코드 점검의 JavaScript, 코드 실행 확인
 
 **팀이 정해야 할 것**
@@ -246,7 +247,7 @@ npm run smoke     # Lambda 전체 흐름 점검
 이 저장소의 docs/PROJECT_BRIEF.md 를 먼저 읽고 규칙(§0)을 지켜 주세요.
 작업: <예: 내 코드 점검에 JavaScript 추가>
 완료 기준: <예: .js 파일을 올리면 함수 목록과 ※ 지점이 나오고 첨삭까지 됨>
-제약: 화면 문구는 한국어 존댓말, 비밀 값은 코드에 넣지 않기, 학교 AWS 계정(권한 제한), Lambda 는 콘솔에 붙여넣는 소스
+제약: 화면 문구는 한국어 존댓말, 비밀 값은 코드에 넣지 않기, 학교 AWS 계정(권한 제한), Lambda 는 lambda/functions.json 대로 묶어 CloudShell 에서 npm run deploy
 마무리: typecheck · test · verify · build · smoke 통과 후, 바뀐 점과 사람이 콘솔에서 할 일을 정리해 주세요.
 ```
 - 오류를 물을 때는 화면의 메시지와 CloudWatch 로그(JSON 한 줄씩: `"level":"ERROR"`, `AI 대신 …`, `코드 다시 만듦` 메시지)를 함께 준다.
