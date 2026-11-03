@@ -47,14 +47,13 @@ npm run deploy -- setup     # 없는 함수 만들기 · 환경 변수 옮기기
 npm run deploy              # 코드 올리기 (바뀐 함수만) · /health 확인
 ```
 `setup` 이 하는 일 (함수마다):
-1. **없으면 만들기** — 이름·런타임(Python 3.14)·arm64·제한 시간·메모리는 `functions.json`, 실행 역할은 `jojo_api_py` 와 같은 SafeRole
-2. **환경 변수 옮기기** — `jojo_api_py` 에서 그 함수에 필요한 이름만 (이미 있는 값은 그대로). 화면에는 이름만 나와요
+1. **없으면 만들기** — 이름·런타임(Python 3.14)·arm64·제한 시간·메모리는 `functions.json`, 실행 역할은 이미 있는 다른 함수와 같은 SafeRole
+2. **공통 환경 변수 채우기** — 이미 있는 다른 함수에서 공통 이름만 (이미 있는 값은 그대로). 그 함수에만 넣는 비밀 값(`ADMIN_TOKEN`·Google)은 옮기지 않고 이름만 알려 줘요. 화면에는 이름만 나와요
 3. **함수 URL** — 인증 없음 + 공개 호출 허용
 4. 마지막에 **화면에 넣을 주소(JSON)** 와 **Google 리디렉션 URI** 를 알려 줘요
 
 - 방법 B 는 라이브러리가 함수 zip 에 함께 들어가서 레이어가 필요 없어요. 대신 콘솔 코드 탭에서는 고칠 수 없어요 ("배포 패키지가 너무 커서 편집기에 표시할 수 없음")
 - `pip` 가 없다고 나오면 `python3 -m ensurepip --user`. 학교 계정에서 함수 만들기가 거절되면 방법 A 로 만들고 `npm run deploy -- setup` 으로 환경 변수·URL 만 채워도 돼요
-- 지금 함수 `jojo_api_py` 도 새 코드로 바꾸려면 `npm run deploy -- jojo_api_py`
 
 ### 함수 표 (두 방법 같음)
 | 함수 | 제한 시간 · 메모리 | 환경 변수 (공통 + ) |
@@ -66,7 +65,7 @@ npm run deploy              # 코드 올리기 (바뀐 함수만) · /health 확
 | `jojo_study` | 30초 · 256MB | — |
 | `jojo_admin` | 10분 · 512MB | `ADMIN_TOKEN` |
 
-공통 환경 변수 (값은 지금 `jojo_api_py` 와 같게):
+공통 환경 변수 (값은 6개 함수 모두 같게):
 
 | 키 | 값 |
 |---|---|
@@ -86,15 +85,13 @@ npm run deploy              # 코드 올리기 (바뀐 함수만) · /health 확
 
 GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables**
 - **`API_URLS`** = 함수 6개의 함수 URL 을 담은 JSON (`{"auth": "https://…", "practice": "https://…", …}` — 방법 A 는 `lambda/console/README.md` 의 모양대로, 방법 B 는 `setup` 이 알려 준 그대로)
-- `API_URL` (예전 `jojo_api_py` 주소)은 당분간 그대로 두세요 — `API_URLS` 에 없는 함수는 이 주소로 가요
+- 함수 URL 앞뒤에 `< >` 를 붙이지 않아요 (주소는 `https://` 로 시작). 화면은 알아보지 못한 주소를 버려요
 
 → **Actions → Deploy web (GitHub Pages) → Run workflow** (또는 main 에 병합하면 자동). 확인:
 1. 화면에서 **연습 모드** → 난이도·주제 → 코드 받기 → 줄을 눌러 메모 → **첨삭 받기** → ○△✕ 결과 → 다시 써 보기 · 튜터
 2. **내 코드 점검** → `.py` 파일 올리기 → 함수 고르기 → 메모하러 가기
 3. **내 공부**, 관리자 화면(`/admin/`)의 이번 달 비용·작업별 사용량, **AI 끄기** 뒤 연습 코드가 예시 코드로 바뀌는지
-4. 브라우저 F12 → Network 에서 요청마다 다른 `lambda-url` 주소로 가는지
-
-문제가 있으면 `API_URLS` 를 지우고 화면을 다시 배포하면 바로 `jojo_api_py` 하나로 돌아가요.
+4. 브라우저 F12 → Network 에서 요청을 눌러 **Headers → Request URL** 이 기능마다 다른 `lambda-url` 주소인지 (또는 열 제목을 오른쪽 클릭 → **Domain** 열 켜기)
 
 ## 4단계. Google 로그인 (선택)
 
@@ -103,8 +100,8 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 1. [Google Cloud Console](https://console.cloud.google.com/) → 프로젝트 만들기(또는 고르기)
 2. **API 및 서비스 → OAuth 동의 화면**: 사용자 유형 **외부**, 앱 이름·지원 이메일 입력, 범위는 `openid`·`profile` 만 (추가하지 않아도 됨). 테스트 중이면 **테스트 사용자**에 쓸 계정을 넣거나 **앱 게시**
 3. **사용자 인증 정보 → OAuth 클라이언트 ID** (유형 **웹 애플리케이션**) → **승인된 리디렉션 URI** 에 추가:
-   `https://<jojo_auth 함수 URL 도메인>/auth/callback/google` (함수를 나누기 전 `jojo_api_py` 주소도 남겨 두면 되돌릴 때 편해요)
-4. **클라이언트 ID** → `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET` — `jojo_auth` 의 구성 → 환경 변수에 (이미 `jojo_api_py` 에 있었다면 같은 값을 옮겨요)
+   `https://<jojo_auth 함수 URL 도메인>/auth/callback/google`
+4. **클라이언트 ID** → `GOOGLE_CLIENT_ID`, **클라이언트 보안 비밀번호** → `GOOGLE_CLIENT_SECRET` — `jojo_auth` 의 구성 → 환경 변수에
 5. 확인: `<jojo_auth 함수 URL>/me` → `"providers": {"google": true}`, 화면 오른쪽 위 **로그인** → 계정 고르기 → 이름이 보이면 끝
 
 - 받는 정보는 계정 번호와 이름뿐이에요 (이메일은 요청하지 않음). 로그인하면 지금 탭에서 한 공부('내 공부', 연습 코드)가 계정으로 옮겨져요
@@ -112,13 +109,11 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 
 ## 5단계. 정리
 
-1. **예전 데이터 옮기기** (아직 안 했다면): 관리자 화면 → **예전 데이터 옮기기** 를 한 번 (`POST /admin/migrate`). 예전 키 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등)의 항목을 새 이름(`USER#`·`CODE#`·`OPS#`)으로, 예전 필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId` 등)을 고쳐요. 여러 번 눌러도 결과가 같아요 (두 번째부터는 0). 누르기 전까지는 예전 기록이 화면에 보이지 않아요
-2. 6개 함수로 며칠 문제없으면 `jojo_api_py` 정지 → 일주일 뒤 삭제, GitHub 변수 `API_URL` 도 지우기
-   ```bash
-   aws lambda put-function-concurrency --region ap-northeast-2 --function-name jojo_api_py --reserved-concurrent-executions 0   # 정지 (되돌리기: delete-function-concurrency)
-   ```
-   그 뒤에는 `lambda/functions.json` 에서 `jojo_api_py` 항목을 지워요
-3. 예전 Node.js 함수 `jojo_generate_code`·`jojo_api` 가 남아 있으면 삭제
+화면이 6개 함수로 가는지 확인했으면 (3단계 4번), 예전 함수를 지워요 (2026-11-03: 예전 데이터 옮기기를 마치고 옮기기 코드·예전 함수 코드는 저장소에서 지웠어요)
+1. Lambda → 함수 → **`jojo_api_py`** 선택 → **작업 → 삭제** (예전 Node.js `jojo_api`·`jojo_generate_code` 가 남아 있으면 같이)
+2. CloudWatch → 로그 그룹 `/aws/lambda/jojo_api_py` 삭제 (선택)
+3. GitHub 저장소 변수 **`API_URL`** 삭제 (화면은 `API_URLS` 만 써요)
+4. 지우기 전에 비밀 값이 새 함수에 있는지: 관리자 화면에 관리자 코드로 들어가지면 `jojo_admin` 은 됨, Google 로그인을 쓰면 `jojo_auth` 의 `GOOGLE_*`
 
 ---
 

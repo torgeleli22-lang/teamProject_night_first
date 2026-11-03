@@ -4,7 +4,7 @@
  *
  * - NEXT_PUBLIC_BASE_PATH: GitHub Pages 프로젝트 주소의 하위 경로 (예: /teamProject_night_first)
  * - NEXT_PUBLIC_API_URLS : 기능별 Lambda 함수 URL (JSON: {"auth": "https://…", …}, src/lib/api-routes.ts)
- * - NEXT_PUBLIC_API_URL  : Lambda 함수 URL 하나 (API_URLS 에 없는 함수 · 로컬 기본값 http://localhost:8787)
+ * - NEXT_PUBLIC_API_URL  : 주소 하나로 모두 보낼 때 (API_URLS 가 없을 때 · 로컬 기본값 http://localhost:8787)
  * TypeScript 가 없는 환경에서도 읽히도록 설정 파일은 JS 로 둔다.
  * @type {import("next").NextConfig}
  */

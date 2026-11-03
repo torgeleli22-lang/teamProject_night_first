@@ -29,7 +29,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
   ```json
   {"auth": "<jojo_auth 함수 URL>", "practice": "<jojo_practice 함수 URL>", "inspect": "<jojo_inspect 함수 URL>", "review": "<jojo_review 함수 URL>", "study": "<jojo_study 함수 URL>", "admin": "<jojo_admin 함수 URL>"}
   ```
-- `API_URL`(예전 `jojo_api_py` 주소)은 당분간 그대로 — 문제가 생기면 `API_URLS` 만 지우면 바로 예전 함수로 돌아가요
+- 함수 URL 앞뒤에 `< >` 를 붙이지 않아요 (주소는 `https://` 로 시작해야 해요)
 - **Actions → Deploy web (GitHub Pages) → Run workflow** 로 화면 다시 배포 → 연습·첨삭·내 코드 점검·내 공부·관리자 화면 확인
 
 ## 3. Google 로그인 (쓰고 있다면)

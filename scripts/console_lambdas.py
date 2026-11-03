@@ -36,10 +36,10 @@ ABOUT = {
     "review.py": "빨간펜 첨삭 · 힌트 보고 다시 쓰기 · 코드 다시 열기",
     "tutor_chat.py": "첨삭 뒤 AI 튜터 대화",
     "study.py": "내 공부 (난이도 추천 · 개념별 약점 · 설명 노트)",
-    "admin.py": "관리자 화면 (AI 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기)",
+    "admin.py": "관리자 화면 (AI 사용량·비용·AI 끄기·관리자 코드)",
     "experiment.py": "논문 실험 (문항 하나를 만들고 단계 기록)",
 }
-# 공통 환경 변수: 꼭 넣을 것 (값은 jojo_api_py 와 같게 — 비밀 값이 아닌 것만 예로 적어요)
+# 공통 환경 변수: 꼭 넣을 것 (값은 6개 함수 모두 같게 — 비밀 값이 아닌 것만 예로 적어요)
 REQUIRED_ENV = {"TABLE_NAME": "jojo_table", "TTL_ATTR": "jojo_ttl", "AI_MODE": "live", "ALLOWED_ORIGINS": "https://torgeleli22-lang.github.io",
                 "AI_MONTHLY_BUDGET_USD": "10"}
 SECRET_ENV = {"GOOGLE_CLIENT_SECRET", "ADMIN_TOKEN"}
@@ -48,7 +48,7 @@ ENV_NOTE = {"GOOGLE_CLIENT_ID": "Google 로그인 (없으면 로그인 버튼이
 
 
 def functions():
-    return [f for f in SPEC["functions"] if not f.get("legacy")]
+    return SPEC["functions"]
 
 
 def files_of(f):
@@ -67,7 +67,7 @@ def function_readme(f):
     files = files_of(f)
     routes = ", ".join(f"`{p}`" for p in f["paths"])
     rows = "\n".join(f"| {i} | [`{name}`]({name}) | {ABOUT[name]} |" for i, (name, _) in enumerate(files, 1))
-    env = "\n".join(f"| `{k}` | `{v}` (jojo_api_py 와 같게) |" for k, v in REQUIRED_ENV.items())
+    env = "\n".join(f"| `{k}` | `{v}` |" for k, v in REQUIRED_ENV.items())
     own_env = "\n".join(f"| `{k}` | {ENV_NOTE[k]} |" for k in f["env"])
     return f"""# {f['name']} — {f['about']}
 
@@ -94,14 +94,14 @@ def function_readme(f):
 ## 3. 구성
 - **일반 구성 → 편집**: 제한 시간 **{duration(f['timeout'])}**, 메모리 **{f['memory']}MB**
 - **계층(Layers) → 계층 추가 → 사용자 지정 계층 → `{LAYER}`** (가장 최근 버전) — 라이브러리(Powertools·Pydantic·tree-sitter)가 들어 있어요. 처음 한 번 만드는 법: [`../README.md`](../README.md)
-- **환경 변수** — 값은 `jojo_api_py` 의 구성 → 환경 변수에서 같은 이름의 값을 복사
+- **환경 변수** — 공통 값은 6개 함수 모두 같게 (이미 만든 다른 함수의 구성 → 환경 변수와 같은 값)
 
   | 키 | 값 |
   |---|---|
 {chr(10).join('  ' + line for line in env.split(chr(10)))}
 {chr(10).join('  ' + line for line in own_env.split(chr(10))) if own_env else ''}
 
-  선택: `jojo_api_py` 에 `MODEL_ID` · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` · `POWERTOOLS_LOG_LEVEL` 이 있으면 같은 값으로
+  선택: 다른 함수에 `MODEL_ID` · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` · `POWERTOOLS_LOG_LEVEL` 이 있으면 같은 값으로
 - **함수 URL → 생성**: 인증 유형 **NONE**, **CORS 는 설정하지 않음** (코드가 `ALLOWED_ORIGINS` 로 처리)
 
 ## 4. 확인
@@ -147,7 +147,7 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
   ```json
   {{{urls}}}
   ```
-- `API_URL`(예전 `jojo_api_py` 주소)은 당분간 그대로 — 문제가 생기면 `API_URLS` 만 지우면 바로 예전 함수로 돌아가요
+- 함수 URL 앞뒤에 `< >` 를 붙이지 않아요 (주소는 `https://` 로 시작해야 해요)
 - **Actions → Deploy web (GitHub Pages) → Run workflow** 로 화면 다시 배포 → 연습·첨삭·내 코드 점검·내 공부·관리자 화면 확인
 
 ## 3. Google 로그인 (쓰고 있다면)

@@ -9,7 +9,7 @@
 
 | 폴더·파일 | 내용 |
 |---|---|
-| [`api/`](api) | 공통 조각(`core`·`ai`·`code_store`) · 기능 파일 · 예시 코드 (저장소에 한 벌) · 모든 기능을 담은 입구 `lambda_function.py` (예전 함수 `jojo_api_py` · 내 컴퓨터) |
+| [`api/`](api) | 공통 조각(`core`·`ai`·`code_store`) · 기능 파일 · 예시 코드 (저장소에 한 벌) |
 | [`functions/`](functions) | 함수 6개의 입구 — zip 안에서는 `lambda_function.py` 가 돼요 |
 | [`console/`](console) | **콘솔에 붙여넣을 파일**을 함수 이름별 폴더로 + 라이브러리 레이어 zip — `npm run package` 가 만든 복사본 (직접 고치지 않음) |
 | [`functions.json`](functions.json) | 함수 표: 넣을 파일 · 라이브러리 · 환경 변수 이름 · 화면이 고를 경로 · 제한 시간 · 메모리 |

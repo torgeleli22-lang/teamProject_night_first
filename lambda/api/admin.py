@@ -7,19 +7,17 @@ from datetime import datetime, timedelta, timezone
 from pydantic import Field
 
 import core
-from core import (AI_MODE, INFO, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_CONFIG, OPS_STATS, OPS_USAGE, PROFILE, STATE, USER, ApiError,
-                  account_pk, ai_switch_on, auth_pk, batch_delete, batch_put, bump_counter, code_pk, get_item, get_meta, login_pk, query_all,
-                  read_body, read_counter, set_meta, studyrec_sk, to_plain, user_pk, Body)
+from core import (AI_MODE, MODEL_ID, MONTHLY_BUDGET_USD, OPS_AILOG, OPS_STATS, OPS_USAGE, ApiError, Body, ai_switch_on, bump_counter, get_item,
+                  get_meta, query_all, read_body, read_counter, set_meta)
 from ai import (estimate_cost, month_cost_usd, month_key, normalize_model)
 
 # ─────────────────────────────────────────────────────────────
-# 관리자 (admin.py) — jojo_api 의 기능 파일
+# 관리자 (admin.py) — jojo_admin 의 기능 파일
 #   관리자 화면(/admin)이 부른다. 모든 요청에 x-admin-token 헤더(관리자 코드)가 필요하다.
 #
 #   GET  /admin/overview   현황: AI 모드·AI 스위치·이번 달 비용·예산·작업별 사용량(성공·실패·마지막 실패 이유)·최근 AI 호출 기록·날짜별 사용 수
 #   POST /admin/ai         AI 켜기/끄기 {"enabled": false}  → 끄면 예시 코드·규칙 판정·규칙 첨삭으로 (비용 0)
 #   POST /admin/code       관리자 코드 바꾸기 {"code": "8자 이상"}
-#   POST /admin/migrate    예전 키 이름(LEARNER, READ#, STUDY# …)·필드 이름(learnerId, readingId, owner …)을 새 이름(USER#, CODE#, userId, codeId …)으로 옮기기 (다시 눌러도 안전)
 #
 #   관리자 코드: OPS#CONFIG / admin_code_hash 에 scrypt 해시로 저장 (원문은 저장하지 않음)
 #   복구 코드: 환경 변수 ADMIN_TOKEN (관리자 코드를 잊어도 들어올 수 있게). 틀린 코드를 15분에 10번 넣으면 그 IP 는 잠긴다
@@ -202,113 +200,9 @@ def change_code(req):
     return {"ok": True}
 
 
-def migrate(req):
-    """예전 키 이름·필드 이름의 항목을 새 이름으로 옮긴다. 키가 바뀐 항목은 새 이름으로 쓰고 예전 것은 지운다 — 여러 번 눌러도 결과가 같다"""
-    # 1. 테이블 전체를 훑어 예전 이름의 항목 찾기
-    moving, removing, untouched, renamed = [], [], 0, 0
-    for item in scan_table():
-        target = new_key(item["pk"], item["sk"])
-        if target == "drop":            # 요청 수 제한(RL)은 몇 분짜리라 옮기지 않고 지운다
-            removing.append(item)
-            continue
-        moved = {**item, "pk": target[0], "sk": target[1]} if target else item
-        fixed = new_fields(moved)       # learnerId → userId, readingId → codeId … (키는 그대로)
-        if target:
-            moving.append(fixed)
-            removing.append(item)
-        elif fixed != item:
-            moving.append(fixed)        # 같은 키에 덮어쓴다
-            renamed += 1
-        else:
-            untouched += 1              # 이미 새 이름이거나, 예전 서비스의 항목
-
-    # 2. 새 이름으로 쓰고 → 키가 바뀐 예전 것 지우기 (쓰기가 끝난 뒤에 지워서, 중간에 멈춰도 다시 누르면 이어서 된다)
-    batch_put(moving)
-    batch_delete(removing)
-    kinds = {}
-    for item in moving:
-        kind = item["pk"].split("#")[0] + (" · " + item["sk"].split("#")[0] if item["pk"].startswith(("USER#", "CODE#")) else "")
-        kinds[kind] = kinds.get(kind, 0) + 1
-    moved_count = len(moving) - renamed
-    return {"moved": moved_count, "renamed": renamed, "removed": len(removing) - moved_count, "untouched": untouched, "byKind": kinds}
-
 ROUTES = {
     "GET /admin/overview": overview,
     "POST /admin/ai": switch_ai,
     "POST /admin/code": change_code,
-    "POST /admin/migrate": migrate,
 }
 
-# ───────────────────────── 예전 키 이름 → 새 키 이름 (POST /admin/migrate) ─────────────────────────
-
-OLD_OPS = {"STATS": OPS_STATS, "USAGE": OPS_USAGE, "AILOG": OPS_AILOG, "META": OPS_CONFIG}
-
-
-def new_key(pk, sk):
-    """예전 (pk, sk) → 새 (pk, sk). 옮기지 않을 항목은 None, 지울 항목은 "drop" """
-    if pk == "LEARNER":
-        return user_pk(sk), PROFILE
-    if pk.startswith("STUDY#") and sk.startswith("R#"):
-        return user_pk(pk[len("STUDY#"):]), studyrec_sk(sk[len("R#"):])
-    if pk.startswith("READ#"):
-        code = code_pk(pk[len("READ#"):])
-        if sk == "CODE":
-            return code, INFO
-        if sk.startswith("REVIEW#"):
-            return code, sk
-        for kind in ("RETRY", "CHAT"):   # RETRY#<첨삭 시각>#<항목> → REVIEW#<첨삭 시각>#RETRY#<항목>
-            if sk.startswith(kind + "#"):
-                at, number = sk[len(kind) + 1:].rsplit("#", 1)
-                return code, f"REVIEW#{at}#{kind}#{number}"
-        return None
-    if pk == "LOGIN":
-        return login_pk(sk), USER
-    if pk == "ACCOUNT":
-        return account_pk(sk), USER
-    if pk == "AUTH":
-        return auth_pk(sk), STATE
-    if pk in OLD_OPS:
-        return OLD_OPS[pk], sk
-    if pk == "RL":
-        return "drop"
-    return None
-
-
-# 예전 필드 이름 → 새 이름 (항목 종류마다). 사용자 id 는 userId, 코드 id 는 codeId 로 통일
-OLD_FIELDS = {
-    "profile": {"formerIds": "formerUserIds"},
-    "studyrec": {"readingId": "codeId", "readingTtl": "codeTtl"},
-    "info": {"id": "codeId", "owner": "userId", "rootId": "rootCodeId"},
-    "login": {"learnerId": "userId"},
-}
-
-
-def new_fields(item):
-    """새 키 이름의 항목에서 예전 필드 이름을 새 이름으로 바꾼 사본 (바꿀 것이 없으면 같은 내용)"""
-    pk, sk = item["pk"], item["sk"]
-    kind = ("profile" if pk.startswith("USER#") and sk == PROFILE else
-            "studyrec" if pk.startswith("USER#") and sk.startswith("STUDYREC#") else
-            "info" if pk.startswith("CODE#") and sk == INFO else
-            "login" if pk.startswith(("LOGIN#", "ACCOUNT#")) and sk == USER else
-            "review" if pk.startswith("CODE#") and sk.startswith("REVIEW#") and sk.count("#") == 1 else None)
-    if kind == "review":   # 첨삭 결과 안의 readingId
-        result = item.get("result")
-        if isinstance(result, dict) and "readingId" in result:
-            result = {("codeId" if k == "readingId" else k): v for k, v in result.items()}
-            return {**item, "result": result}
-        return item
-    renames = OLD_FIELDS.get(kind, {})
-    if not any(old in item for old in renames):
-        return item
-    return {renames.get(k, k): v for k, v in item.items()}
-
-
-def scan_table():
-    """테이블 전체 (관리자가 옮기기를 누를 때만 — 평소 기능은 쓰지 않는다)"""
-    args = {}
-    while True:
-        page = core.table.scan(**args)
-        yield from to_plain(page.get("Items", []))
-        if "LastEvaluatedKey" not in page:
-            return
-        args["ExclusiveStartKey"] = page["LastEvaluatedKey"]

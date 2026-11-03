@@ -14,7 +14,7 @@
 5. **올린 코드는 민감 정보를 가린 뒤에만 서버로 간다.** 화면(`src/lib/secrets.ts`)에서 먼저 가리고 Lambda(`inspect_code.mask_secrets`)에서 한 번 더 가린다. 두 파일의 패턴을 같게 유지한다. 올린 코드는 하루 뒤 TTL 로 지워진다.
 6. **작업을 마치기 전에** `npm run typecheck`, `npm test`, `npm run verify`, `npm run build` 를 모두 통과시킨다. Lambda 를 바꿨다면 `npm run smoke` 도.
 7. **화면 문구는 한국어 존댓말("~해요")**, 초보자·비개발자 눈높이. 틀렸을 때도 실패감을 주지 않는다.
-8. 구조는 **화면 GitHub Pages + 기능별 Lambda 6개 + DynamoDB + Bedrock** 이다 (§9, §10, **`docs/LAMBDA_STRUCTURE.md`**, `docs/DEPLOY_LAMBDA.md`). 로그·오류 수·제한 시간을 기능별로 나누고, 각 함수에는 필요한 파일만 넣는다. 공통 코드는 저장소에 한 벌(`core`·`ai`·`code_store`)만 두고 배포할 때 묶는다. 외부 라이브러리는 구조 기준 §4 에 정한 것만(Powertools·Pydantic·tree-sitter). 함수마다 넣을 파일·라이브러리·환경 변수는 `lambda/functions.json`(입구 `lambda/functions/`)이 정한다. 올리는 법은 콘솔에 붙여넣기(함수 이름별 폴더 `lambda/console/`, 자동 생성 — 직접 고치지 않음) 또는 CloudShell `npm run deploy`. 화면은 경로 앞부분으로 함수를 고른다(`src/lib/api-routes.ts`). 예전 함수 `jojo_api_py` 는 화면을 옮길 때까지 함께 둔다. 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부른다 (`tests/boundaries.test.ts`). 연습 문항 생성·검토는 **`docs/GENERATION_STANDARD.md`** 를 따른다.
+8. 구조는 **화면 GitHub Pages + 기능별 Lambda 6개 + DynamoDB + Bedrock** 이다 (§9, §10, **`docs/LAMBDA_STRUCTURE.md`**, `docs/DEPLOY_LAMBDA.md`). 로그·오류 수·제한 시간을 기능별로 나누고, 각 함수에는 필요한 파일만 넣는다. 공통 코드는 저장소에 한 벌(`core`·`ai`·`code_store`)만 두고 배포할 때 묶는다. 외부 라이브러리는 구조 기준 §4 에 정한 것만(Powertools·Pydantic·tree-sitter). 함수마다 넣을 파일·라이브러리·환경 변수는 `lambda/functions.json`(입구 `lambda/functions/`)이 정한다. 올리는 법은 콘솔에 붙여넣기(함수 이름별 폴더 `lambda/console/`, 자동 생성 — 직접 고치지 않음) 또는 CloudShell `npm run deploy`. 화면은 경로 앞부분으로 함수를 고른다(`src/lib/api-routes.ts`). 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부른다 (`tests/boundaries.test.ts`). 연습 문항 생성·검토는 **`docs/GENERATION_STANDARD.md`** 를 따른다.
 9. **비밀 값(ADMIN_TOKEN, API 키, AWS 액세스 키)은 코드·문서·GitHub 에 절대 쓰지 않는다.** Lambda 환경 변수(로컬은 `.env`)에만 둔다.
 10. AWS 계정은 **학교 계정(권한 제한)** 이다. IAM 역할 생성, Secrets Manager 처럼 추가 권한이 필요한 기능에 의존하지 않는다. S3 등 §10 밖의 서비스는 사람이 요청하기 전까지 넣지 않는다.
 
@@ -97,7 +97,7 @@ AI 가 코드를 만들 때(내 코드 분석 때) 함께 정하고, 없거나 �
 src/app/                    화면: page.tsx(01) practice/(02) read/(03) result/(04) check/(05) admin/
 src/components/             NoteHeader(제목·로그인·인덱스 탭), ui(공책·포스트잇·도장·빨간펜 표시), CodeView(줄 번호·형광펜·※)
 src/lib/                    api.ts(서버 부르기) api-types.ts(응답 모양) secrets.ts(민감 정보 가리기) highlight.ts(문법 색칠) memos.ts(메모 임시 저장)
-lambda/api/                 lambda_function.py(모든 기능을 담은 입구: 예전 함수·내 컴퓨터) core.py·ai.py·code_store.py(공통 조각) topics·practice·inspect_code·review·tutor_chat·study·auth·admin·experiment.py(기능) samples.py·samples_js.py(예시 코드)
+lambda/api/                 core.py·ai.py·code_store.py(공통 조각) topics·practice·inspect_code·review·tutor_chat·study·auth·admin·experiment.py(기능) samples.py·samples_js.py(예시 코드)
 lambda/functions/           함수 6개의 입구 (jojo_auth·practice·inspect·review·study·admin) · lambda/functions.json 함수 표
 lambda/console/             콘솔에 붙여넣을 파일을 함수 이름별 폴더로 + 라이브러리 레이어 zip (npm run package 가 만듦, 직접 고치지 않음)
 lambda/tests/               Python 단위 테스트 (test_functions.py: 함수 표·의존 규칙)
@@ -153,27 +153,28 @@ docs/                       PROJECT_BRIEF.md, ai-generation-policy.md(AI 사용 
 
 ```
 브라우저 ──→ GitHub Pages (정적 화면, Next.js output: export)
-   │  JSON (x-session-id) — 주소 하나라 HTTPS 연결을 계속 다시 씀
-   └─→ jojo_api 함수 URL (Python, 512MB, 10분) ──→ DynamoDB jojo_table (서울)
-                                                 └─→ Bedrock Claude Haiku 4.5 (us-east-1, Converse)
+   │  JSON (x-session-id) — 경로 앞부분으로 함수를 골라요 (src/lib/api-routes.ts, 주소는 GitHub 변수 API_URLS)
+   └─→ Lambda 함수 6개 (Python 3.14 arm64, 함수 URL — lambda/functions.json)
+         jojo_auth · jojo_practice(10분) · jojo_inspect · jojo_review · jojo_study · jojo_admin(10분)
+         ──→ DynamoDB jojo_table (서울) · AI 를 쓰는 함수 ──→ Bedrock Claude Haiku 4.5 (us-east-1, Converse)
 ```
 
-### 9.1 요청 경로 (`lambda_function.ROUTES`)
-| 경로 | 파일 | AI |
-| --- | --- | --- |
-| `GET /health` | `lambda_function.py` | |
-| `GET /topic/random`, `POST /topic/check` | `topics.py` | 판정만 |
-| `POST /practice`, `POST /practice/adjust`, `GET /code` | `practice.py` | 만들기 |
-| `POST /inspect`, `POST /inspect/start` | `inspect_code.py` | 시작만 |
-| `POST /review`, `POST /review/retry` | `review.py` | ○ |
-| `POST /tutor` | `tutor_chat.py` | ○ |
-| `GET /study` | `study.py` | |
-| `GET /me`, `GET /auth/start`, `GET /auth/callback/google`, `POST /auth/logout` | `auth.py` | |
-| `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | `admin.py` (`x-admin-token`) | |
-| `POST /admin/experiment` | `experiment.py` (`x-admin-token`) | 논문 실험: 문항 하나 + 단계 기록 (저장 안 함) |
+### 9.1 요청 경로 (함수마다 입구 `lambda/functions/jojo_*.py` 의 `ROUTES`)
+| 경로 | 함수 | 파일 | AI |
+| --- | --- | --- | --- |
+| `GET /health` | 모든 함수 | `core.py` (`HEALTH`) | |
+| `GET /me`, `GET /auth/start`, `GET /auth/callback/google`, `POST /auth/logout` | `jojo_auth` | `auth.py` | |
+| `GET /topic/random`, `POST /topic/check` | `jojo_practice` | `topics.py` | 판정만 |
+| `POST /practice`, `POST /practice/adjust` | `jojo_practice` | `practice.py` | 만들기 |
+| `POST /inspect`, `POST /inspect/start` | `jojo_inspect` | `inspect_code.py` | 시작만 |
+| `POST /review`, `POST /review/retry`, `GET /code` | `jojo_review` | `review.py` | ○ |
+| `POST /tutor` | `jojo_review` | `tutor_chat.py` | ○ |
+| `GET /study` | `jojo_study` | `study.py` | |
+| `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | `jojo_admin` | `admin.py` (`x-admin-token`) | |
+| `POST /admin/experiment` | `jojo_admin` | `experiment.py` (`x-admin-token`) | 논문 실험: 문항 하나 + 단계 기록 (저장 안 함) |
 
 ### 9.2 DynamoDB 항목 (pk / sk) — 바꾸면 읽는 모든 기능 파일과 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke`
-규칙: pk = 무엇의 것인지 + id · sk = 종류 (+ 시각·번호) · 운영 데이터는 `OPS#`. 이름은 `core.py` 4번 구역의 `user_pk`·`studyrec_sk`·`code_pk`·`login_pk`·`account_pk`·`auth_pk` 로만 만든다. 예전 이름의 데이터는 `POST /admin/migrate`(`admin.py` `new_key`)로 옮긴다.
+규칙: pk = 무엇의 것인지 + id · sk = 종류 (+ 시각·번호) · 운영 데이터는 `OPS#`. 이름은 `core.py` 4번 구역의 `user_pk`·`studyrec_sk`·`code_pk`·`login_pk`·`account_pk`·`auth_pk` 로만 만든다.
 
 | pk | sk | 내용 | 자동 삭제 |
 | --- | --- | --- | --- |
@@ -214,9 +215,9 @@ npm run smoke     # Lambda 전체 흐름 점검
 | 계정 | 학교 계정 sgu-202688 (권한 제한 — IAM 역할 생성 불가). 리전 서울 ap-northeast-2, Bedrock 은 us-east-1 |
 | 실행 역할 | `SafeRole-sgu-202688` (DynamoDB·Bedrock 가능, VPC 없음) |
 | DynamoDB | `jojo_table` (pk·sk 문자열, TTL `jojo_ttl`, 보조 인덱스 없음) |
-| Lambda | 함수 6개 `jojo_auth`·`jojo_practice`·`jojo_inspect`·`jojo_review`·`jojo_study`·`jojo_admin` (Python 3.14 arm64, 함수마다 함수 URL — `npm run deploy -- setup` 으로 만듦). 지금 쓰는 `jojo_api_py` 는 화면을 옮긴 뒤 정지·삭제. 예전 Node.js `jojo_api`·`jojo_generate_code` 는 삭제 대상 |
+| Lambda | 함수 6개 `jojo_auth`·`jojo_practice`·`jojo_inspect`·`jojo_review`·`jojo_study`·`jojo_admin` (Python 3.14 arm64, 계층 `jojo_libs`, 함수마다 함수 URL — 2026-11-03 콘솔에서 만듦). 예전 함수 `jojo_api_py`·Node.js `jojo_api`·`jojo_generate_code` 는 삭제 대상 |
 | Bedrock | Claude Haiku 4.5 (`us.anthropic.claude-haiku-4-5-20251001-v1:0`) |
-| 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URLS` 함수별 주소 · `API_URL` 예전 함수) |
+| 화면 | GitHub Pages `https://torgeleli22-lang.github.io/teamProject_night_first/` (저장소 변수 `API_URLS` = 함수 6개의 주소) |
 
 ### 10.2 이후 단계 (사람이 요청하면 진행)
 | 단계 | 내용 |
@@ -227,14 +228,15 @@ npm run smoke     # Lambda 전체 흐름 점검
 ## 11. 현재 상태와 다음 할 일
 
 **완료**
-- 코드 리딩 노트로 전환: 화면 6개(공부 노트 디자인), Lambda 기능 파일 5개 + 예시 코드, 목업·대체 경로
+- 코드 리딩 노트로 전환: 화면 6개(공부 노트 디자인), Lambda 기능 파일 + 예시 코드, 목업·대체 경로
+- 생성·검토 기준 v1.1(`docs/GENERATION_STANDARD.md`)과 Lambda 구조 기준(`docs/LAMBDA_STRUCTURE.md`): 기능별 함수 6개로 나눠 배포, 예전 데이터 옮기기 끝 (옮기기 코드는 지움)
 - 품질: 단위 테스트(TS·Python), 예시 코드 실행 검증, Lambda 전체 흐름 점검(`npm run smoke`), 화면·Lambda 경계 테스트, CI
 - 예전 기능(개념·코드 객관식 학습, 채점, 튜터, 학습 분석, 랭킹, AI 문제 생성, Node.js 생성 함수)은 모두 지웠다
 
 **다음 순서**
-1. Lambda 함수 6개 만들기 — 콘솔에 붙여넣기(함수 이름별 폴더 `lambda/console/` + 레이어 `jojo_libs`) 또는 CloudShell `npm run deploy -- setup` → GitHub 변수 `API_URLS` → 확인 (`docs/DEPLOY_LAMBDA.md` 2~3단계)
-2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기
-3. Google OAuth 리디렉션 URI 를 `jojo_auth` 주소로 (`docs/DEPLOY_LAMBDA.md` 4단계) · 예전 데이터 옮기기 실행 뒤 `/admin/migrate` 지우기
+1. 새 생성 기준(실행 추적표 3단계)으로 시험 실험 8문항 → 본 실험 40문항 (`docs/EXPERIMENT.md`, `jojo_admin` 주소) → 논문 표 1 "적용 후"
+2. 실제 AI 로 연습 코드·첨삭 품질 확인 → `SYSTEM_PROMPT` 다듬기 (기준을 바꾸면 `docs/GENERATION_STANDARD.md` 부터)
+3. Google OAuth 리디렉션 URI 를 `jojo_auth` 주소로 (`docs/DEPLOY_LAMBDA.md` 4단계)
 4. Java, 내 코드 점검의 JavaScript, 코드 실행 확인
 
 **팀이 정해야 할 것**

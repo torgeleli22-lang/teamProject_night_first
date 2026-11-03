@@ -34,9 +34,9 @@
 ## 실행하기
 
 ### 0. Lambda 에 최신 코드 올리기
-실험 경로(`POST /admin/experiment`)는 **`jojo_admin`** 에 있어요 (함수를 나누기 전에는 `jojo_api_py` 에도). CloudShell 에서 `npm run deploy` 로 최신 코드를 올려 두세요 (`docs/DEPLOY_LAMBDA.md`).
+실험 경로(`POST /admin/experiment`)는 **`jojo_admin`** 에 있어요. 최신 코드를 올려 두세요 (콘솔: `lambda/console/jojo_admin/` · CloudShell: `npm run deploy`, `docs/DEPLOY_LAMBDA.md`).
 제한 시간 10분은 `npm run deploy` 가 맞춰요 (중급·고급 코드는 한 번에 1~2분, 다시 만들면 두 배).
-아래 `<함수 URL>` 은 `jojo_admin` 의 함수 URL 이에요 (나누기 전이면 `jojo_api_py`).
+아래 `<함수 URL>` 은 `jojo_admin` 의 함수 URL 이에요.
 
 ### 1. AWS CloudShell 열기
 AWS 콘솔 → 리전 **서울(ap-northeast-2)** → 위쪽 막대의 **CloudShell** 아이콘(`>_`). (내 컴퓨터 터미널에서 해도 돼요 — Python 3.10 이상만 있으면 됨, boto3 불필요)

@@ -3,7 +3,7 @@
 작업 전에 **`docs/PROJECT_BRIEF.md`** 를 먼저 읽으세요. 프로젝트 개요, 화면 흐름, AI 사용 원칙, 아키텍처, DynamoDB 항목, 디렉터리, 다음 할 일이 모두 정리되어 있습니다.
 프로젝트의 두 기준 문서를 따르세요 (바꿀 때는 문서부터 고칩니다):
 - **`docs/GENERATION_STANDARD.md`** — AI 연습 문항 생성·검토 기준 (학습 목표 → 코드 요건 → ※ 지점 → 모범 설명·실행 추적표 → 합격 기준 → 실패 처리)
-- **`docs/LAMBDA_STRUCTURE.md`** — Lambda 구조 기준 (함수 6개, 공통 조각 `core`·`ai`·`code_store`, 외부 라이브러리, 로그·오류, 배포). 함수마다 넣을 파일·라이브러리·환경 변수 이름은 **`lambda/functions.json`** 하나에 있고(입구는 `lambda/functions/`), `lambda/tests/test_functions.py` 가 코드와 맞는지 확인해요. 콘솔에 붙여넣을 파일은 함수 이름별 폴더 `lambda/console/<함수>/` 에 있어요 — **자동으로 만든 복사본이라 직접 고치지 않고**, 원본(`lambda/api`·`lambda/functions`)을 고친 뒤 `npm run package` 로 다시 만들어요 (다르면 `npm test` 가 실패). 콘솔에서 함수를 만들고 화면을 옮기는 일(§10 5·6단계)이 남았어요 — 그때까지 예전 함수 `jojo_api_py` 도 둬요
+- **`docs/LAMBDA_STRUCTURE.md`** — Lambda 구조 기준 (함수 6개, 공통 조각 `core`·`ai`·`code_store`, 외부 라이브러리, 로그·오류, 배포). 함수마다 넣을 파일·라이브러리·환경 변수 이름은 **`lambda/functions.json`** 하나에 있고(입구는 `lambda/functions/`), `lambda/tests/test_functions.py` 가 코드와 맞는지 확인해요. 콘솔에 붙여넣을 파일은 함수 이름별 폴더 `lambda/console/<함수>/` 에 있어요 — **자동으로 만든 복사본이라 직접 고치지 않고**, 원본(`lambda/api`·`lambda/functions`)을 고친 뒤 `npm run package` 로 다시 만들어요 (다르면 `npm test` 가 실패). 함수 6개는 콘솔에서 만들어 돌고 있고(계층 `jojo_libs`), 화면은 GitHub 변수 `API_URLS` 의 함수별 주소로 불러요
 
 AI 사용 기준(프롬프트·검사·대체 동작)은 `docs/ai-generation-policy.md`, Lambda 배포 순서는 `docs/DEPLOY_LAMBDA.md` 에 있습니다.
 

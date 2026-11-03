@@ -57,7 +57,7 @@ def remote_maker(url, admin_code):
             if e.code in (401, 429):
                 raise SystemExit(f"✗ 관리자 코드를 확인해 주세요 ({e.code}): {message}")
             if e.code == 404:
-                raise SystemExit("✗ 이 함수에 실험 경로가 없어요. --url 이 jojo_admin(나누기 전에는 jojo_api_py)의 함수 URL 인지, CloudShell 에서 npm run deploy 로 최신 코드를 올렸는지 확인해 주세요.")
+                raise SystemExit("✗ 이 함수에 실험 경로가 없어요. --url 이 jojo_admin 의 함수 URL 인지, 최신 코드를 올렸는지(lambda/console/jojo_admin 또는 npm run deploy) 확인해 주세요.")
             return {**item, "origin": "error", "note": f"HTTP {e.code}: {message[:300]}", "attempts": [], "ai_calls": [], "ai_errors": [],
                     "tokens_in": 0, "tokens_out": 0, "seconds": 0, "code": "", "marks": [], "title": ""}
         except Exception as e:   # 연결 끊김·시간 초과 → 이 문항만 오류로 남기고 계속 (--resume 으로 다시 할 수 있게 저장하지 않음)

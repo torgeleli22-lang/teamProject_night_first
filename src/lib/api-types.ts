@@ -41,7 +41,7 @@ export interface Me {
   providers: { google: boolean };
 }
 
-// ───────────────────────── 연결 확인 (lambda_function.py) ─────────────────────────
+// ───────────────────────── 연결 확인 (모든 함수, core.HEALTH) ─────────────────────────
 
 export interface Health {
   ok: boolean;
@@ -327,19 +327,6 @@ export interface DayCount {
   reviews: number;
   retries: number;
   tutorChats: number;
-}
-
-/** POST /admin/migrate — 예전 키 이름(LEARNER, READ#, STUDY# …)·필드 이름(learnerId, readingId, owner …)을 새 이름으로 옮긴 결과 */
-export interface MigrateResult {
-  /** 키를 새 이름으로 옮긴 수 */
-  moved: number;
-  /** 키는 그대로, 필드 이름만 고친 수 */
-  renamed: number;
-  /** 옮기지 않고 지운 수 (몇 분짜리 요청 수 제한) */
-  removed: number;
-  /** 이미 새 이름이거나 예전 서비스의 항목 */
-  untouched: number;
-  byKind: Record<string, number>;
 }
 
 export interface AdminOverview {

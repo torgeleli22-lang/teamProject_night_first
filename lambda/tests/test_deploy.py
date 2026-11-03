@@ -1,5 +1,5 @@
 """배포 명령 (scripts/deploy_lambdas.py) — AWS 없이 가짜 aws 로 흐름만 시험
-- setup: 없는 함수를 만들고, 환경 변수는 함수마다 필요한 이름만 옮기고(비밀 값은 쓰는 함수에만), 함수 URL·공개 허용
+- setup: 없는 함수를 만들고(실행 역할·공통 환경 변수는 이미 있는 함수에서), 비밀 값은 쓰는 함수에만 — 다른 함수로 옮기지 않음, 함수 URL·공개 허용
 - 화면(표준 출력)에 환경 변수 값·계정 번호를 찍지 않는다
 - deploy: 같은 zip 이면 올리지 않고, 설정(제한 시간 등)을 맞춘다
 """
@@ -25,11 +25,12 @@ class FakeLambda:
     """aws CLI 대신: 함수 설정을 dict 로 기억한다"""
 
     def __init__(self):
-        self.functions = {"jojo_api_py": {
+        # 이미 있는 함수 하나 (콘솔에서 만든 jojo_admin) — 공통 환경 변수 + 그 함수의 비밀 값 + 예전 변수
+        self.functions = {"jojo_admin": {
             "Role": f"arn:aws:iam::{ACCOUNT}:role/SafeRole", "Runtime": "python3.14", "Handler": "lambda_function.lambda_handler",
-            "Timeout": 600, "MemorySize": 512, "Architectures": ["arm64"], "CodeSha256": "old", "url": "https://legacy.example/",
+            "Timeout": 600, "MemorySize": 512, "Architectures": ["arm64"], "CodeSha256": "old", "url": "https://jojo_admin.example/",
             "Environment": {"Variables": {"TABLE_NAME": "jojo_table", "AI_MODE": "live", "ALLOWED_ORIGINS": "https://x.github.io",
-                                          "RATE_LIMIT_PER_MINUTE": "600", "GOOGLE_CLIENT_ID": "gid", "GENERATE_CODE_FUNCTION": "old", **SECRETS}}}}
+                                          "RATE_LIMIT_PER_MINUTE": "600", "GENERATE_CODE_FUNCTION": "old", "ADMIN_TOKEN": SECRETS["ADMIN_TOKEN"]}}}}
         self.calls = []
 
     def __call__(self, *args):
@@ -87,15 +88,16 @@ class Deploy(unittest.TestCase):
         fake = FakeLambda()
         printed = self.run_command(fake, ["setup"])
         made = fake.functions
-        self.assertEqual(set(made), {"jojo_api_py", "jojo_auth", "jojo_practice", "jojo_inspect", "jojo_review", "jojo_study", "jojo_admin"})
+        self.assertEqual(set(made), {"jojo_auth", "jojo_practice", "jojo_inspect", "jojo_review", "jojo_study", "jojo_admin"})
         env = lambda n: made[n]["Environment"]["Variables"]
-        # 비밀 값은 쓰는 함수에만, 예전 변수는 옮기지 않음, 공통 이름(RATE_LIMIT_* 포함)은 모두에
-        self.assertEqual({n for n in made if "GOOGLE_CLIENT_SECRET" in env(n)}, {"jojo_api_py", "jojo_auth"})
-        self.assertEqual({n for n in made if "ADMIN_TOKEN" in env(n)}, {"jojo_api_py", "jojo_admin"})
-        self.assertFalse(any("GENERATE_CODE_FUNCTION" in env(n) for n in made if n != "jojo_api_py"))
+        # 비밀 값은 원래 함수에만 (다른 함수로 옮기지 않음), 예전 변수도 옮기지 않음, 공통 이름(RATE_LIMIT_* 포함)은 모두에
+        self.assertEqual({n for n in made if "ADMIN_TOKEN" in env(n)}, {"jojo_admin"})
+        self.assertFalse(any("GOOGLE_CLIENT_SECRET" in env(n) for n in made))   # 어디에도 없던 값은 만들지 않음
+        self.assertFalse(any("GENERATE_CODE_FUNCTION" in env(n) for n in made if n != "jojo_admin"))
         self.assertTrue(all(env(n)["RATE_LIMIT_PER_MINUTE"] == "600" and env(n)["TABLE_NAME"] == "jojo_table" for n in made))
         self.assertEqual((made["jojo_practice"]["Timeout"], made["jojo_auth"]["MemorySize"], made["jojo_study"]["Role"]),
-                         (600, 256, made["jojo_api_py"]["Role"]))
+                         (600, 256, made["jojo_admin"]["Role"]))
+        self.assertIn("jojo_auth: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET", printed)   # 그 함수에만 넣는 값은 직접 넣으라고 이름만 알려 줌
         self.assertEqual(made["jojo_review"]["perms"], {"FunctionURLAllowPublicAccess", "FunctionURLAllowInvokeAction"})
         # 화면에는 이름만: 비밀 값·계정 번호가 찍히지 않음. 화면에 넣을 주소(JSON)와 Google 리디렉션 URI 를 알려 줌
         for secret in SECRETS.values():
@@ -108,8 +110,8 @@ class Deploy(unittest.TestCase):
         # deploy: 같은 zip(CodeSha256 같음)은 올리지 않고, 다른 설정은 맞춘다
         made["jojo_study"]["Timeout"] = 3
         fake.calls.clear()
-        printed = self.run_command(fake, ["deploy", "jojo_study", "jojo_api_py"])
-        self.assertEqual(sum(c == ("lambda", "update-function-code") for c in fake.calls), 1)   # jojo_study 는 이미 같은 코드
+        printed = self.run_command(fake, ["deploy", "jojo_study", "jojo_admin"])
+        self.assertEqual(sum(c == ("lambda", "update-function-code") for c in fake.calls), 1)   # jojo_study 는 이미 같은 코드, jojo_admin 만 올림
         self.assertEqual(made["jojo_study"]["Timeout"], 30)
         self.assertIn("코드 그대로", printed)
 

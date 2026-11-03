@@ -2,8 +2,8 @@
 Lambda 함수 올리기 (CloudShell 에서: npm run deploy). 표는 lambda/functions.json, 묶기는 scripts/package_lambdas.py.
 
   npm run deploy -- check        확인만 (아무것도 바꾸지 않음): 함수가 있는지 · 런타임·제한 시간 · 코드 올리기 권한 · 함수 URL
-  npm run deploy -- setup        처음 한 번: 없는 함수 만들기(실행 역할은 jojo_api_py 와 같게) ·
-                                 환경 변수 옮기기(jojo_api_py 에서, 함수마다 필요한 이름만) · 함수 URL 만들기 → 화면에 넣을 주소 안내
+  npm run deploy -- setup        없는 함수 만들기 (실행 역할·공통 환경 변수는 이미 있는 다른 함수와 같게) ·
+                                 빠진 공통 환경 변수 채우기 · 함수 URL 만들기 → 화면에 넣을 주소 안내
   npm run deploy                 코드 올리기 (바뀐 함수만) + 설정(런타임·제한 시간·메모리) 맞추기 + /health 확인
   npm run deploy -- jojo_auth    그 함수만 (여러 개 가능)
 
@@ -24,7 +24,6 @@ import package_lambdas as pkg  # noqa: E402
 
 SPEC = pkg.SPEC
 REGION = SPEC["region"]
-SOURCE = next(f["name"] for f in SPEC["functions"] if f.get("legacy"))   # 환경 변수·실행 역할을 가져올 지금 함수 (jojo_api_py)
 
 
 class AwsError(Exception):
@@ -81,7 +80,7 @@ def setting_gaps(f, cfg):
 
 def env_for(f, source_env):
     """이 함수에 필요한 환경 변수만 (sharedEnv + 함수의 env, RATE_LIMIT_* 처럼 * 는 앞부분이 같은 이름 모두)"""
-    names = SPEC["sharedEnv"] + f["env"]
+    names = SPEC["sharedEnv"] + f["env"]   # 다른 함수에서 가져오면 공통 이름만 남아요 (비밀 값은 그 함수에만 있으니까)
     keep = lambda n: n in names or any(p.endswith("*") and n.startswith(p[:-1]) for p in names)
     return {k: v for k, v in source_env.items() if keep(k)}
 
@@ -137,14 +136,14 @@ def check(targets):
 
 
 def setup(targets):
-    source = config(SOURCE)
+    # 실행 역할·공통 환경 변수는 이미 있는 함수 하나에서 가져와요 (처음이면 콘솔에서 하나 만들고 환경 변수를 넣은 뒤)
+    source_name, source = next(((f["name"], cfg) for f in SPEC["functions"] for cfg in [config(f["name"])] if cfg), (None, None))
     if not source:
-        raise SystemExit(f"✗ {SOURCE} 를 찾지 못했어요. 실행 역할·환경 변수를 여기서 가져와요")
+        raise SystemExit("✗ 함수가 하나도 없어요. 콘솔에서 하나 만들고 환경 변수를 넣은 뒤 다시 실행해 주세요 (실행 역할·환경 변수를 거기서 가져와요)")
+    print(f"· 실행 역할·공통 환경 변수는 {source_name} 에서 가져와요")
     source_env = (source.get("Environment") or {}).get("Variables", {})
-    urls = {}
+    urls, todo = {}, []
     for f in targets:
-        if f.get("legacy"):
-            continue
         name, cfg = f["name"], config(f["name"])
         variables = env_for(f, source_env)
         # 1. 없으면 만들기 (실행 역할·런타임·아키텍처·제한 시간·메모리·환경 변수)
@@ -169,6 +168,10 @@ def setup(targets):
             if add:
                 set_env(name, {**have, **add})
             print(f"✓ {name:<14} 있음" + (f" · 환경 변수 채움: {', '.join(sorted(add))}" if add else " · 환경 변수 그대로"))
+            variables = {**have, **add}
+        missing = [n for n in f["env"] if n not in variables and n != "AUTH_CALLBACK_BASE"]
+        if missing:
+            todo.append(f"{name}: {', '.join(missing)}")
         # 3. 함수 URL (인증 없음 — CORS 는 코드가 처리) + 공개 호출 허용
         url = function_url(name)
         if not url:
@@ -186,6 +189,8 @@ def setup(targets):
         print(json.dumps(urls, ensure_ascii=False))
         if "auth" in urls:
             print(f"\nGoogle 로그인: Google Cloud Console 의 승인된 리디렉션 URI 에 추가 → {urls['auth']}/auth/callback/google")
+        if todo:
+            print("\n그 함수에만 넣는 환경 변수는 콘솔에서 직접 넣어 주세요 (구성 → 환경 변수) — " + " · ".join(todo))
         print("다음: npm run deploy  (코드를 올리고 /health 확인)")
 
 
