@@ -72,7 +72,7 @@ FOCUS_MIN_LEVEL = {"loop_update": 1, "branch": 1, "data_update": 1, "call_flow":
                    "class_state": 3, "exception": 3, "recursion": 3, "algorithm": 4}
 GEN_ATTEMPTS = 3                               # 처음 1번 + 다시 만들기 최대 2번 (그래도 안 되면 예시 코드)
 OUTPUT_TOKENS = {1: 2000, 2: 3000, 3: 6000, 4: 9000}   # ① 코드 + ※ 위치
-TRACE_TOKENS = {1: 2500, 2: 4000, 3: 7000, 4: 9000}    # ② 실행 추적표 + 모범 설명
+TRACE_TOKENS = {1: 2500, 2: 4000, 3: 8000, 4: 12000}    # ② 실행 추적표 + 모범 설명
 CHECK_TOKENS = {1: 2500, 2: 3500, 3: 6000, 4: 8000}    # ③ 독립 추적 + 판정
 RESELECT_TOKENS = 1500                         # ※ 다시 고르기 (코드는 그대로, ※ 위치만)
 MARK_ONLY = re.compile(r"너무 넓어요|겹쳐요|곳뿐이에요|찾지 못했어요|중심 개념")   # 규칙 검사 A 중 ※ 위치만의 문제 (코드는 그대로 두고 ※ 만 다시 고른다)
@@ -171,6 +171,7 @@ class FlowStep(AiAnswer):
 
 class MarkTrace(AiAnswer):
     """※ 지점 하나의 추적 + 모범 설명"""
+    fill_empty = ("keywords", "steps")   # 핵심 표현은 서버가 설명에서 채운다 (규칙 검사 B)
     id: str = Field(description="m1, m2 …")
     enter: str = Field(description=STATE)
     steps: list[str] = []

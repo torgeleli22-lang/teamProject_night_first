@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from functools import lru_cache
 from types import UnionType
-from typing import Literal, Union, get_args, get_origin
+from typing import ClassVar, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
@@ -135,6 +135,28 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
         return result
     if AI_MODE != "live":
         raise AiUnavailable("AI is off")
+    # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
+    try:
+        return _ask_live(task, system, prompt, schema, max_tokens, history)
+    except AiUnavailable as e:
+        if not str(e).startswith("could not parse response:") or "결과(JSON)가 없음" in str(e):
+            raise
+        hint = (f"{prompt}\n\n(앞선 답의 형식이 맞지 않았어요: {str(e)[len('could not parse response: '):][:300]}. "
+                f"정해진 모든 칸을 최상위에 빠짐없이 채워 answer 로 다시 제출해 주세요.)")
+        logger.info("AI 답 형식을 다시 물음", extra={"task": task, "reason": str(e)[:200]})
+        return _ask_live(task, system, hint, schema, max_tokens, history)
+
+
+def _shape(value):
+    """받은 답의 칸 이름만 (값은 남기지 않음) — 형식 오류를 로그로 찾을 때"""
+    if isinstance(value, dict):
+        return {k: (sorted(v) if isinstance(v, dict) else type(v).__name__) for k, v in value.items()}
+    return type(value).__name__
+
+
+def _ask_live(task, system, prompt, schema, max_tokens, history):
+    """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록)"""
+    started = time.time()
     messages = build_messages(history, prompt)
     input_chars = len(system) + sum(len(m["content"][0]["text"]) for m in messages)
     check_budget(input_chars, max_tokens)
@@ -168,7 +190,7 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, history=Non
             raise AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")
         value, issues = parse_answer(tool["input"], schema)
         if issues:
-            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3]})
+            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3], "shape": _shape(tool["input"])})
             raise AiUnavailable("could not parse response: " + "; ".join(issues[:3]))
         ok = True
         return value
@@ -195,10 +217,18 @@ def _kinds(annotation):
     return {get_origin(annotation) or annotation}
 
 
+def _own_fields(model, name):
+    """model 의 name 칸이 모양(AiAnswer)이면 그 모양의 칸 이름들"""
+    f = model.model_fields.get(name)
+    kinds = _kinds(f.annotation) if f else set()
+    return {n for k in kinds if isinstance(k, type) and issubclass(k, BaseModel) for n in k.model_fields}
+
+
 class AiAnswer(BaseModel):
     """AI 답의 모양. 받은 답에서 자주 어긋나는 것만 고쳐서 받는다:
     빠진 칸 중 null 이 될 수 있는 칸 → null · 문자열로 감싼 배열·객체 → 풀기 · "3" → 3 (Pydantic 기본). 모양에 없는 칸은 그대로 둔다"""
     model_config = ConfigDict(extra="allow")
+    fill_empty: ClassVar[tuple] = ()   # 빠지면 [] 로 받는 목록 칸 (서버가 채울 수 있는 것만)
 
     @model_validator(mode="before")
     @classmethod
@@ -213,9 +243,15 @@ class AiAnswer(BaseModel):
         out = dict(data)
         for name, f in cls.model_fields.items():
             kinds = _kinds(f.annotation)
+            if name not in out:   # 다른 칸 안에 잘못 들어간 칸은 바깥으로 꺼낸다 (예: trace 안에 codeProblems) — 그 칸 자신의 칸이면 두고
+                holder = next((v for k, v in out.items() if isinstance(v, dict) and name in v and name not in _own_fields(cls, k)), None)
+                if holder is not None:
+                    out[name] = holder.pop(name)
             if name not in out:
                 if type(None) in kinds:
                     out[name] = None
+                elif name in getattr(cls, "fill_empty", ()):   # 빠져도 서버가 채울 수 있는 목록
+                    out[name] = []
             elif isinstance(out[name], str) and str not in kinds and out[name].strip()[:1] in ("[", "{"):
                 try:
                     out[name] = json.loads(out[name].strip())
