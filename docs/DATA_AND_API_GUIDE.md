@@ -203,7 +203,7 @@ put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": "goo
 
 ### 2-4. 읽을 코드 `CODE#<코드 id> / INFO`
 
-**언제**: 연습 코드 받기(`practice.py:316`), 더 쉽게·어렵게(`:351`), 내 코드 점검 시작(`inspect_code.py:108`)
+**언제**: 연습 코드 받기(`practice.py:320`), 더 쉽게·어렵게(`:355`), 내 코드 점검 시작(`inspect_code.py:108`)
 
 ```python
 # lambda/api/code_store.py:91  save_code

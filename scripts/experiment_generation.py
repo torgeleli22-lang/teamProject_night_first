@@ -355,7 +355,7 @@ def main():
             first = r["attempts"][0] if r["attempts"] else {}
             print(f"[{len(done):2}/{total}] #{r['no']:02d} {r['language']:10} {LEVEL_NAMES[r['level']]} {GRADE_NAMES.get(r.get('grade', 'standard'), '')} {r['origin']:6} {r['seconds']:6.1f}초 "
                   f"수정 {'✓' if any(a.get('code_fixed') for a in r['attempts']) else '-'} ${cost_usd(r):.4f} "
-                  f"규칙 {'✗' if rule_final(first) else ('↻' if first.get('reselected') else '✓')} 검토 {'✗' if first.get('check_problems') else '✓'} 교정 {r['attempts'][-1]['fixed'] if r['attempts'] else 0} · {r['topic']}",
+                  f"규칙 {'✗' if rule_final(first) else ('↻' if first.get('reselected') else '✓')} 검토 {'✗' if first.get('check_problems') else ('✓' if any(a.get('check_ran') for a in r['attempts']) else '-')} 교정 {r['attempts'][-1]['fixed'] if r['attempts'] else 0} · {r['topic']}",
                   flush=True)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:

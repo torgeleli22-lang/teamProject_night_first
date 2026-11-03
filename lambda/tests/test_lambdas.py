@@ -239,7 +239,7 @@ class CodeCheckPipeline(unittest.TestCase):
                 "marks": [{"id": "m1", "enter": "total=0", "steps": ["8번 줄 total=3000", "8번 줄 total=6500", "8번 줄 total=10000"],
                            "exit": "total=10000", "branch": "", "count": 3, "explanation": explanation or m["explanation"], "keywords": m["keywords"]}]}
 
-    ok = {"trace": {"output": ["결제할 금액: 9000"], "marks": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3}]},
+    ok = {"trace": {"output": ["결제할 금액: 9000"], "points": [{"id": "m1", "enter": "total=0", "exit": "total=10000", "count": 3}]},
           "codeProblems": [], "marks": [{"id": "m1", "ok": True}]}
 
     def run_with(self, checks, traces=None, bad_first=False, level=1, wide_first=False, reselects=None, grade="standard", fix_works=True):
@@ -316,10 +316,15 @@ class CodeCheckPipeline(unittest.TestCase):
         saved = practice.fix_code
         practice.fix_code = lambda *a, **k: called.append(1)
         try:
-            _, _, _, problems, used = practice.repair({}, "x", [], ["코드가 200줄이라 너무 길어요 (180줄 이하)"], 4, "python", ("algorithm",), "standard", used_fix=False)
+            _, _, _, problems, used = practice.repair({}, "x", [], ["코드가 300줄이라 너무 길어요 (180줄 이하)"], 4, "python", ("algorithm",), "standard", used_fix=False)
         finally:
             practice.fix_code = saved
         self.assertEqual((called, used, len(problems)), ([], False, 1))
+        # 한도에서 20% 안쪽이면 부분 수정으로 (줄 몇 개 빼기·기능 하나 더하기)
+        self.assertFalse(practice.too_far("코드가 102줄이라 너무 길어요 (100줄 이하) — 기능 하나를 빼서"))
+        self.assertFalse(practice.too_far("코드가 51줄이라 중급으로는 너무 짧아요 (60줄 이상, 기능이 이어지는 프로그램으로)"))
+        self.assertTrue(practice.too_far("코드가 40줄이라 중급으로는 너무 짧아요 (60줄 이상, 기능이 이어지는 프로그램으로)"))
+        self.assertFalse(practice.too_far("8번째 줄: totl 은(는) 어디에도 정의하지 않은 이름이에요"))
 
     def test_grade_changes_mark_and_explanation_guidance_but_not_review(self):
         self.run_with([self.ok], grade="basic")

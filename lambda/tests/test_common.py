@@ -63,6 +63,19 @@ class AiRetry(unittest.TestCase):
         self.assertEqual((issues, fixed["codeProblems"]), ([], ["x"]))
         self.assertTrue(ai.parse_answer({"trace": {"codeProblems": []}}, Sample)[1])   # 꺼낼 게 없으면 그대로 오류
 
+    def test_text_fields_take_numbers_and_objects(self):
+        # v1.3.1: 실험에서 state·enter·branch 에 객체·숫자가 와서 답을 통째로 버렸어요 → 글자로 바꿔 받기
+        class Step(ai.AiAnswer):
+            fill_empty = ("enter",)
+            state: str
+            enter: str
+            steps: list[str] = []
+            count: int | None = None
+        fixed, issues = ai.parse_answer({"state": {"total": 4500, "items": ["라떼", "우유"]}, "steps": [3, {"i": 1}], "count": 2}, Step)
+        self.assertEqual(issues, [])
+        self.assertEqual((fixed["state"], fixed["enter"], fixed["steps"], fixed["count"]), ("total=4500, items=라떼, 우유", "", ["3", "i=1"], 2))
+        self.assertEqual(ai.parse_answer({"state": 7, "enter": True}, Step)[0]["enter"], "true")
+
     def test_asks_again_once_when_shape_is_wrong(self):
         answers = [{"trace": {"name": "t"}}, {"trace": {"name": "t"}, "codeProblems": []}]
         prompts = []
