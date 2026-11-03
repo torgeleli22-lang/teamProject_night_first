@@ -217,6 +217,19 @@ def _kinds(annotation):
     return {get_origin(annotation) or annotation}
 
 
+def _as_text(value):
+    """글자 칸에 온 숫자·참거짓·객체·배열 → 글자 (예: {"total": 4500} → "total=4500", ["a", "b"] → "a, b")"""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, dict):
+        return ", ".join(f"{k}={_as_text(v)}" for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_as_text(v) for v in value)
+    return str(value)
+
+
 def _own_fields(model, name):
     """model 의 name 칸이 모양(AiAnswer)이면 그 모양의 칸 이름들"""
     f = model.model_fields.get(name)
@@ -226,9 +239,10 @@ def _own_fields(model, name):
 
 class AiAnswer(BaseModel):
     """AI 답의 모양. 받은 답에서 자주 어긋나는 것만 고쳐서 받는다:
-    빠진 칸 중 null 이 될 수 있는 칸 → null · 문자열로 감싼 배열·객체 → 풀기 · "3" → 3 (Pydantic 기본). 모양에 없는 칸은 그대로 둔다"""
+    빠진 칸 중 null 이 될 수 있는 칸 → null · 문자열로 감싼 배열·객체 → 풀기 · "3" → 3 (Pydantic 기본)
+    · 글자만 받는 칸(목록 안 글자 포함)에 온 숫자·객체·배열 → 글자 (_as_text). 모양에 없는 칸은 그대로 둔다"""
     model_config = ConfigDict(extra="allow")
-    fill_empty: ClassVar[tuple] = ()   # 빠지면 [] 로 받는 목록 칸 (서버가 채울 수 있는 것만)
+    fill_empty: ClassVar[tuple] = ()   # 빠지면 빈 값([] · "")으로 받는 칸 (서버가 채우거나 비어도 되는 것만)
 
     @model_validator(mode="before")
     @classmethod
@@ -250,13 +264,17 @@ class AiAnswer(BaseModel):
             if name not in out:
                 if type(None) in kinds:
                     out[name] = None
-                elif name in getattr(cls, "fill_empty", ()):   # 빠져도 서버가 채울 수 있는 목록
-                    out[name] = []
+                elif name in getattr(cls, "fill_empty", ()):   # 빠져도 서버가 채우거나 비어도 되는 칸
+                    out[name] = "" if str in kinds else []
             elif isinstance(out[name], str) and str not in kinds and out[name].strip()[:1] in ("[", "{"):
                 try:
                     out[name] = json.loads(out[name].strip())
                 except ValueError:
                     pass
+            if name in out and kinds == {str} and not isinstance(out[name], str):   # 글자 칸에 온 숫자·객체 → 글자
+                out[name] = _as_text(out[name])
+            elif name in out and get_origin(f.annotation) is list and get_args(f.annotation) == (str,) and isinstance(out[name], list):
+                out[name] = [v if isinstance(v, str) else _as_text(v) for v in out[name]]
         return out
 
 
