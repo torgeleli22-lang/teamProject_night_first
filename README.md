@@ -48,7 +48,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 | AI 튜터 | `/result/` | 첨삭 항목 하나에 대해 묻고 답하기 (대화 저장) | ○ |
 | 내 코드 점검 | `/check/` | 민감 정보 다시 가리기 · 함수 목록 · 훑어본 난이도(규칙) → '메모하러 가기'에서 AI 가 난이도·※ | 시작할 때 |
 | 내 공부 | `/study/` | 첨삭 기록(로그인 안 함: 이 탭에서만 · 로그인: 1년)으로 난이도 추천 · 개념별 ○ 비율 · ○ 받은 설명 모음 · 최근 공부 | — |
-| 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드, 예전 데이터 옮기기 | — |
+| 관리자 | `/admin/` | AI 사용량·비용·실패 이유, AI 끄기, 관리자 코드 | — |
 
 **AI 가 없어도 동작해요.** 관리자가 AI 를 끄거나, 월 예산($10)에 닿거나, 요청 한도를 넘으면 예시 코드 · 규칙 판정 · 규칙 첨삭으로 바뀌고 화면에 안내가 나와요.
 
@@ -56,9 +56,9 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 
 ```
 브라우저 ──→ GitHub Pages (정적 화면, src/)
-   │  JSON (x-session-id 헤더) — 주소는 하나
-   └─→ Lambda jojo_api (Python, lambda/api/, 함수 URL) ──→ DynamoDB jojo_table (서울)
-                                                       └─→ Bedrock Claude Haiku 4.5 (us-east-1)
+   │  JSON (x-session-id 헤더) — 경로 앞부분으로 함수를 골라요 (src/lib/api-routes.ts)
+   └─→ Lambda 함수 6개 (Python, 함수 URL): jojo_auth · jojo_practice · jojo_inspect · jojo_review · jojo_study · jojo_admin
+          ──→ DynamoDB jojo_table (서울) · AI 를 쓰는 함수 ──→ Bedrock Claude Haiku 4.5 (us-east-1)
 ```
 
 - **화면**: Next.js 정적 내보내기(`output: "export"`). 서버 없이 GitHub Pages 에 올려요. main 에 병합하면 자동 배포.
@@ -72,7 +72,7 @@ AI 로 코드를 받아 쓰는 사람은 많지만, 그 코드가 **어떤 순�
 sequenceDiagram
     autonumber
     participant B as 브라우저 (화면)
-    participant L as Lambda jojo_api (auth.py)
+    participant L as Lambda jojo_auth (auth.py)
     participant G as Google
     participant D as DynamoDB
 
@@ -194,8 +194,7 @@ src/
 
 | 파일 | 하는 일 | 경로 | AI 작업 이름 |
 |---|---|---|---|
-| `lambda_function.py` | **입구**: 경로 → 기능 파일, 관리자 코드 확인, `GET /health` | `GET /health` | — |
-| `core.py` · `ai.py` · `code_store.py` | **공통 조각** (아래 5.2) | — | — |
+| `core.py` · `ai.py` · `code_store.py` | **공통 조각** (아래 5.2) · 연결 확인은 모든 함수에 (`core.HEALTH`) | `GET /health` | — |
 | `topics.py` | 랜덤 주제 · 직접 적은 주제 판정 | `GET /topic/random`, `POST /topic/check` | `topic_check` |
 | `practice.py` | 연습 코드(Python·JavaScript) + ※ 만들기 · 규칙 검사 · 실행 추적표 · 교차 검토 · 더 쉽게/어렵게 | `POST /practice`, `POST /practice/adjust` | `code_generation`, `code_trace`, `code_check` |
 | `inspect_code.py` | 내 코드: 민감 정보 가리기 · 함수 찾기 · 난이도·※ | `POST /inspect`, `POST /inspect/start` | `code_inspection` |
@@ -203,7 +202,7 @@ src/
 | `tutor_chat.py` | 첨삭 항목별 AI 튜터 대화 | `POST /tutor` | `tutor_chat` |
 | `study.py` | 내 공부: 첨삭 기록 저장 · 난이도 추천 · 개념별 약점 · 내 설명 노트 (AI 없음) | `GET /study` | — |
 | `auth.py` | Google 로그인 (OAuth) · 익명 기록을 계정으로 옮기기 | `GET /me`, `GET /auth/start`, `GET /auth/callback/google`, `POST /auth/logout` | — |
-| `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code`, `POST /admin/migrate` | — |
+| `admin.py` | 관리자 (`x-admin-token` 필요): 사용량·비용·AI 끄기·관리자 코드 | `GET /admin/overview`, `POST /admin/ai`, `POST /admin/code` | — |
 | `experiment.py` | 논문 실험 (`x-admin-token` 필요): 연습 문항 하나를 만들고 규칙 검사·실행 추적표·교차 검토 단계 기록 (저장 안 함, `docs/EXPERIMENT.md`) | `POST /admin/experiment` | `code_generation`, `code_trace`, `code_check` |
 | `samples.py` | AI 를 못 쓸 때의 예시 코드 (Python 8개) · 랜덤 주제 목록 | — | — |
 | `samples_js.py` | AI 를 못 쓸 때의 JavaScript 예시 코드 7개 (`samples.py` 가 합침) | — | — |
@@ -248,7 +247,7 @@ src/
 | 개념 종류·이름, 개념 추정 규칙 | `core.py` → `CONCEPTS` · `code_store.py` → `_CONCEPT_RULES`, `guess_concept` (화면 `CONCEPT_NAMES` 도 같이) |
 | 난이도 추천 기준(80%·40%·최근 5개·3개 이상), 약점 기준 | `study.py` → `LEVEL_UP`, `LEVEL_DOWN`, `RECENT_PER_LEVEL`, `MIN_FOR_LEVEL`, `MIN_FOR_WEAK` |
 | 보관 기간 (로그인 안 함: 학습자 12시간·기록 1일 / 로그인: 1년·연습 코드 30일 / 올린 코드 1일) | `core.py` → `ANON_HOURS`, `ANON_CODE_HOURS`, `MEMBER_DAYS`, `CODE_KEEP_DAYS`, `UPLOAD_KEEP_DAYS`, `keep_seconds` |
-| 새 기능 경로 추가 | 기능 파일을 새로 만들고 `ROUTES` 를 둔 뒤 `lambda_function.py` 의 `for feature in (…)` 에 추가 (함수를 늘리지 않음) |
+| 새 기능 경로 추가 | 기능 파일에 `ROUTES` 를 두고 그 기능을 맡은 함수의 입구(`lambda/functions/jojo_*.py`)에 더해요. `lambda/functions.json` 의 `files`·`paths`, 화면 `src/lib/api-routes.ts` 도 함께 (`npm test` 가 맞는지 확인) |
 
 ### 5.4 DynamoDB 항목 (테이블 `jojo_table`, pk / sk)
 
@@ -273,8 +272,6 @@ src/
 | `OPS#USAGE` · `OPS#AILOG` | 월·작업·모델 / 시각 | AI 토큰·비용, AI 호출 기록 |
 | `OPS#CONFIG` | `ai_switch` · `admin_code_hash` | AI 스위치, 관리자 코드 |
 | `OPS#LIMIT` | `<이름>#<시간 칸>` | 요청 수 제한 카운터 |
-
-예전 이름(`LEARNER`, `READ#…`, `STUDY#…`, `STATS` 등 · 필드 `learnerId`, `readingId`, `owner` 등)으로 저장된 데이터는 관리자 화면의 **예전 데이터 옮기기**(`POST /admin/migrate`)로 옮겨요.
 
 항목 모양을 바꾸면 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고치고 `npm run smoke` 로 확인해요. 자세한 표: `docs/PROJECT_BRIEF.md` §9.2
 

@@ -4,9 +4,9 @@ import fs from "node:fs";
 import test from "node:test";
 import { baseFor, FUNCTION_PATHS, functionFor, parseApiUrls } from "../src/lib/api-routes";
 
-type Fn = { key: string; paths: string[]; legacy?: boolean };
+type Fn = { key: string; paths: string[] };
 const spec = JSON.parse(fs.readFileSync(new URL("../lambda/functions.json", import.meta.url), "utf8")) as { functions: Fn[] };
-const functions = spec.functions.filter((f) => !f.legacy);
+const functions = spec.functions;
 
 test("경로 앞부분 → 함수가 functions.json 과 같음", () => {
   assert.deepEqual(Object.fromEntries(functions.map((f) => [f.key, f.paths])), FUNCTION_PATHS);

@@ -1,7 +1,7 @@
 """
 jojo_admin — 관리자 화면·논문 실험 (관리자 코드 필요)
 
-  GET /admin/overview · POST /admin/ai · POST /admin/code · POST /admin/migrate · POST /admin/experiment · GET /health
+  GET /admin/overview · POST /admin/ai · POST /admin/code · POST /admin/experiment · GET /health
 
 배포할 때 이 파일이 zip 안의 lambda_function.py 가 되고, lambda/functions.json 에 적은 파일·라이브러리만 함께 묶여요
 (npm run package · npm run deploy, 구조 기준: docs/LAMBDA_STRUCTURE.md).

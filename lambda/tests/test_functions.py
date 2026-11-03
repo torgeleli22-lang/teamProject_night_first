@@ -1,7 +1,7 @@
 """lambda/functions.json 이 코드와 맞는지 + 의존 규칙 (docs/LAMBDA_STRUCTURE.md §1·§2)
 - 함수마다 묶는 파일 = 입구에서 import 를 따라간 파일 (빠지면 배포한 함수가 ImportError, 남으면 필요 없는 파일)
 - 라이브러리 = 그 파일들이 부르는 외부 라이브러리 · 환경 변수 = 그 파일들이 읽는 이름
-- 경로: 함수 6개를 합치면 예전 함수(jojo_api_py)와 같고, 한 경로는 한 함수에만 · 화면이 경로 앞부분으로 함수를 고를 수 있게
+- 경로: 함수 6개를 합치면 서비스의 모든 경로이고, 한 경로는 한 함수에만 · 화면이 경로 앞부분으로 함수를 고를 수 있게
 """
 import ast
 import importlib.util
@@ -14,8 +14,13 @@ import unittest
 from helpers import API_DIR, LAMBDA_DIR
 
 SPEC = json.load(open(os.path.join(LAMBDA_DIR, "functions.json"), encoding="utf-8"))
-FUNCTIONS = [f for f in SPEC["functions"] if not f.get("legacy")]
-LEGACY = next(f for f in SPEC["functions"] if f.get("legacy"))
+FUNCTIONS = SPEC["functions"]
+# 서비스의 모든 경로 (하나라도 빠지거나 두 함수에 있으면 실패)
+ALL_ROUTES = {
+    "GET /health", "GET /me", "GET /auth/start", "GET /auth/callback/google", "POST /auth/logout",
+    "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust",
+    "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "GET /code", "POST /tutor", "GET /study",
+    "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/experiment"}
 LOCAL = {f[:-3] for f in os.listdir(API_DIR) if f.endswith(".py")}
 # 외부 라이브러리 이름 (import 이름 → requirements 이름). boto3·botocore 는 Lambda 런타임에 들어 있다
 LIBS = {"aws_lambda_powertools": "aws-lambda-powertools", "pydantic": "pydantic", "tree_sitter": "tree-sitter",
@@ -100,7 +105,6 @@ class FunctionsJson(unittest.TestCase):
         self.assertEqual(holders("ADMIN_TOKEN"), {"jojo_admin"})
 
     def test_routes_split_without_overlap(self):
-        legacy = load_entry(LEGACY).ROUTES
         seen = {}
         for f in FUNCTIONS:
             routes = load_entry(f).ROUTES
@@ -113,7 +117,12 @@ class FunctionsJson(unittest.TestCase):
                 path = key.split(" ", 1)[1]
                 owners = [g["name"] for g in FUNCTIONS if any(path == p or path.startswith(p + "/") for p in g["paths"])]
                 self.assertEqual(owners, [f["name"]], f"{key}: 화면이 경로 앞부분(paths)으로 이 함수를 고를 수 있어야 해요")
-        self.assertEqual(set(seen) | {"GET /health"}, set(legacy))
+        self.assertEqual(set(seen) | {"GET /health"}, ALL_ROUTES)
+        # 기능 파일의 경로는 모두 어느 함수엔가 들어 있다 (새 경로를 만들고 입구에 넣지 않은 경우)
+        for m in LOCAL:
+            text = open(os.path.join(API_DIR, f"{m}.py"), encoding="utf-8").read()
+            for key in re.findall(r'"((?:GET|POST) /[\w/]*)":', text):
+                self.assertIn(key, ALL_ROUTES, f"{m}.py")
 
     def test_settings(self):
         self.assertEqual((SPEC["runtime"], SPEC["architecture"], SPEC["handler"]), ("python3.14", "arm64", "lambda_function.lambda_handler"))
@@ -128,7 +137,7 @@ class DependencyRules(unittest.TestCase):
             self.assertEqual(imports(os.path.join(API_DIR, f"{name}.py")) & LOCAL, allowed, name)
 
     def test_features_use_shared_pieces_and_listed_exceptions(self):
-        for name in LOCAL - set(SHARED) - {"lambda_function"}:
+        for name in LOCAL - set(SHARED):
             local = imports(os.path.join(API_DIR, f"{name}.py")) & LOCAL
             self.assertEqual(local - set(SHARED) - FEATURE_IMPORTS.get(name, set()), set(), f"{name}.py 가 다른 기능 파일을 불러요")
 

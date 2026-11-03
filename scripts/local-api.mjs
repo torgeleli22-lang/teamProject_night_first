@@ -2,7 +2,7 @@
  * 내 컴퓨터에서 Lambda 실행:  npm run api  →  http://localhost:8787
  *
  * 1. DynamoDB 흉내 서버(dynalite)를 메모리에 띄우고 테이블을 만든다 (끄면 데이터는 사라짐)
- * 2. Python 개발 서버(scripts/local_lambdas.py)가 lambda/api 함수를 실제와 같은 이벤트로 부른다
+ * 2. Python 개발 서버(scripts/local_lambdas.py)가 함수 6개(lambda/functions)를 실제와 같은 이벤트로 부른다 (경로 앞부분으로 함수를 골라)
  *
  * 필요한 것: npm run setup:python 으로 만든 .venv (Lambda 라이브러리 + boto3). AWS 계정·키는 필요 없다.
  * AI 는 기본으로 목업(AI_MODE=mock, 비용 없음). .env 에 AI_MODE 를 적으면 그 값을 쓴다.
@@ -58,7 +58,7 @@ export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {
     }),
   );
 
-  // 2. Python 개발 서버 (jojo_api)
+  // 2. Python 개발 서버 (함수 6개)
   const url = `http://127.0.0.1:${port}`;
   const child = spawn(PYTHON, [path.join(ROOT, "scripts", "local_lambdas.py")], {
     cwd: ROOT,
@@ -100,7 +100,7 @@ export async function startLocalApi({ port = 8787, quiet = false, env = {} } = {
 
   return {
     url,
-    dbUrl, // DynamoDB 흉내 서버 주소 (smoke 가 예전 이름 항목을 직접 넣어 옮기기를 시험할 때)
+    dbUrl, // DynamoDB 흉내 서버 주소
     stop: () => {
       child.kill();
       db.close();

@@ -509,18 +509,6 @@ def update_item(pk, sk, set_values=None, add_values=None, condition=None, names=
     return to_plain(result.get("Attributes", {}))
 
 
-def batch_delete(keys):
-    with table.batch_writer() as batch:
-        for k in keys:
-            batch.delete_item(Key={"pk": k["pk"], "sk": k["sk"]})
-
-
-def batch_put(items):
-    with table.batch_writer() as batch:
-        for item in items:
-            batch.put_item(Item=to_db(item))
-
-
 # ─────────────────────────────────────────────────────────────
 # 5. 요청 수 제한 (함수가 여러 개 떠도 함께 세도록 DynamoDB 의 OPS#LIMIT / 키#구간 항목에 센다)
 # ─────────────────────────────────────────────────────────────
@@ -593,7 +581,7 @@ def get_user(req):
             return use_user(req, found, sid)
         # 2. 로그인 학습자: 로그인 토큰 (LOGIN#<토큰> / USER → 계정의 학습자, auth.py 가 만든다)
         login = get_item(login_pk(sid), USER)
-        if login and alive(login) and login.get("userId"):   # userId 가 없는 토큰은 로그인으로 보지 않는다 (예전 형식은 '예전 데이터 옮기기'로 고친다)
+        if login and alive(login) and login.get("userId"):
             member = get_item(user_pk(login["userId"]), PROFILE)
             if member and alive(member):
                 return use_user(req, member, sid, login)

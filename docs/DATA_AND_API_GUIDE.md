@@ -23,18 +23,18 @@
 
 이름은 모두 `core.py` 의 작은 함수로 만들어요: `user_pk(id)` · `studyrec_sk(코드 id)` · `code_pk(id)` · `login_pk(토큰)` · `account_pk("google:번호")` · `auth_pk(state)`, 그리고 고정 이름 `PROFILE` · `INFO` · `USER` · `STATE` · `OPS_…`.
 
-> 예전 이름(`LEARNER`, `READ#…/CODE`, `STUDY#…/R#…`, `RETRY#…`, `CHAT#…`, `LOGIN`·`ACCOUNT`·`AUTH` 고정 pk, `STATS`·`USAGE`·`AILOG`·`META`·`RL`)으로 저장된 데이터는 관리자 화면의 **"예전 데이터 옮기기"**(`POST /admin/migrate`, `admin.py:193`)로 한 번에 새 이름으로 옮겨요. 바꾸는 규칙은 `admin.py:247` `new_key`(키), `admin.py:286` `new_fields`(필드 — `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`) 에 있어요.
+> 2026년 10월까지의 예전 이름(`LEARNER`, `READ#…/CODE`, `STUDY#…/R#…` 등)은 2026-11-03 에 모두 새 이름으로 옮겼어요. 옮기기 코드(`POST /admin/migrate`)는 지웠어요 (git 기록에).
 
 ### 서버는 요청한 사람이 누구인지 어떻게 알까요?
 
 | 역할 | 화면이 보내는 헤더 | 그 값 | 화면이 보관하는 곳 | 서버가 확인하는 코드 |
 |---|---|---|---|---|
-| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:584` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
+| **비회원** | `x-session-id` | 학습자 id (uuid) | `sessionStorage` `codereading.sid` — **탭을 닫으면 사라짐** | `core.py:572` `get_user` 1번 단계: `USER#<id>/PROFILE` 을 바로 찾음 |
 | **회원** (Google 로그인) | `x-session-id` | **로그인 토큰** (uuid) — 학습자 id 가 아님 | `localStorage` `codereading.login` — 브라우저를 닫아도 남음 | `get_user` 2번 단계: `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE` |
-| **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:36` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
+| **관리자** | `x-admin-token` | 관리자 코드 | `sessionStorage` `codereading.admin` | `admin.py:34` `require_admin`: 환경 변수 `ADMIN_TOKEN` 또는 `OPS#CONFIG/admin_code_hash` 와 비교 |
 
 - 비회원과 회원은 **같은 헤더**를 써요. 서버가 그 값으로 `USER#<값>` 이 있는지(비회원), `LOGIN#<값>` 이 있는지(회원) 보고 구분해요.
-- 회원의 실제 학습자 id 는 화면으로 보내지 않아요. 누가 회원 학습자 id 를 직접 헤더에 넣어도 1번 단계에서 `member` 이면 받지 않아요 (`core.py:534`).
+- 회원의 실제 학습자 id 는 화면으로 보내지 않아요. 누가 회원 학습자 id 를 직접 헤더에 넣어도 1번 단계에서 `member` 이면 받지 않아요 (`core.py:580`).
 - 관리자는 학습자가 아니에요. 관리자 경로(`/admin/...`)는 학습자를 만들지 않아요.
 
 ---
@@ -70,7 +70,7 @@
 | `CODE#…` / `INFO` 등 | | | | | 보관 기간만 다름 | **30일** (올린 코드는 그대로 1일) |
 | `USER#<학습자 id>` / `STUDYREC#…` | | | | | 보관 기간만 다름 | **1년** |
 
-**로그인하는 순간 비회원 기록을 옮겨요** (`auth.py:201` `adopt_anonymous`):
+**로그인하는 순간 비회원 기록을 옮겨요** (`auth.py:199` `adopt_anonymous`):
 - `USER#<비회원 id>/STUDYREC#…` → `USER#<회원 id>/STUDYREC#…` 로 **새로 쓰고 옛 줄은 삭제** (pk 는 바꿀 수 없어서 복사 후 삭제)
 - 그 코드들의 `CODE#…/INFO` 는 `userId` 를 회원 id 로, 기한을 30일로 **고치기**
 - 비회원 id 를 회원 `USER#…/PROFILE` 의 `formerUserIds` 에 기억 (로그인 전에 받은 코드도 계속 열리게)
@@ -82,13 +82,12 @@
 
 | 항목 (pk / sk) | C | R | U | D | 언제 | 코드 |
 |---|---|---|---|---|---|---|
-| `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:34`, `admin.py:181` |
-| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:173` → `core.py:654` `set_meta` |
-| `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:127` |
-| `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:147` |
-| `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:154` |
-| `OPS#LIMIT` / `admin-fail:<IP>#<시간 칸>` | ● | ● | ● | | 관리자 코드를 틀리면 +1, 15분에 10번이면 잠금 | `admin.py:36`, `:48` |
-| (예전 이름의 모든 항목) | ● | ● | | ● | "예전 데이터 옮기기" — 새 이름으로 쓰고 예전 것 삭제 | `admin.py:205` `migrate` |
+| `OPS#CONFIG` / `admin_code_hash` | ● | ● | ● | | 관리자 확인할 때마다 읽기 / 관리자 코드 바꾸기 | `admin.py:34`, `admin.py:191` |
+| `OPS#CONFIG` / `ai_switch` | ● | ● | ● | | AI 켜기·끄기 | `admin.py:183` → `core.py:642` `set_meta` |
+| `OPS#USAGE` / `<월>#<작업>#<모델>` | | ● | | | 작업별 AI 사용량·비용 | `admin.py:125` |
+| `OPS#AILOG` / `<시각>` | | ● | | | 최근 AI 호출 기록 50건 | `admin.py:145` |
+| `OPS#STATS` / `DAY#<날짜>` | | ● | | | 최근 2주 사용 수 (14번 `get_item`) | `admin.py:152` |
+| `OPS#LIMIT` / `admin-fail:<IP>#<시간 칸>` | ● | ● | ● | | 관리자 코드를 틀리면 +1, 15분에 10번이면 잠금 | `admin.py:34`, `:48` |
 
 ### 1-4. 모두에게 공통 — 서버가 알아서 쓰는 항목
 
@@ -96,11 +95,11 @@
 |---|---|---|---|
 | `OPS#LIMIT` / `all:<IP>#<분>` | 모든 요청 (관리자 경로 제외) | IP 당 1분 600번 제한 | 시간 칸 + 60초 |
 | `OPS#LIMIT` / `new:<IP>#<시간>` | 새 학습자를 만들 때 | IP 당 1시간 120명 | 〃 |
-| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:546` `ai_allowed`) | 〃 |
+| `OPS#LIMIT` / `ai-s:<학습자>#…` · `ai-ip:<IP>#…` · `ai-all#…` | AI 를 쓰는 요청 | 학습자·IP·전체 1시간 AI 요청 수 (`core.py:534` `ai_allowed`) | 〃 |
 | `OPS#STATS` / `DAY#<날짜>` | 연습·더 쉽게·주제 판정·점검·첨삭·다시 쓰기·튜터 | 오늘 칸 +1 | 90일 |
 | `OPS#USAGE` / `<월>#<작업>#<모델>` | AI 를 부를 때마다 | 호출 수·토큰·실패 누적 | 없음 |
 | `OPS#AILOG` / `<시각>` | AI 를 부를 때마다 | 한 건씩 기록 | 14일 |
-| `OPS#CONFIG` / `ai_switch` | AI 를 부르기 전 | 30초마다 읽어 AI 꺼짐 확인 (`core.py:579`, 값 `"on"`/`"off"`) | 없음 |
+| `OPS#CONFIG` / `ai_switch` | AI 를 부르기 전 | 30초마다 읽어 AI 꺼짐 확인 (`core.py:625`, 값 `"on"`/`"off"`) | 없음 |
 
 ---
 
@@ -115,11 +114,11 @@ DB 도구는 모두 `core.py` 4번 구역에 있어요:
 | 재료 | 만드는 코드 | 예 | 쓰는 곳 |
 |---|---|---|---|
 | 이름 함수 | `user_pk` · `studyrec_sk` · `code_pk` · `login_pk` · `account_pk` · `auth_pk` (`core.py` 4번 구역) | `user_pk("019a…")` → `USER#019a…` | 모든 pk·sk |
-| 시간순 id | `new_id()` `core.py:627` — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
+| 시간순 id | `new_id()` `core.py:670` — 시간순 UUID(버전 7): 앞 12글자 = 만든 시각(밀리초), 나머지 무작위 | `019a1b2c-3d4e-7f01-8a2b-5c6d7e8f9a0b` | 학습자 id, 코드 id |
 | 무작위 id | `str(uuid.uuid4())` (파이썬 표준, 전부 무작위) | `3c90fba9-a5c3-4c44-b98e-e363f1dae667` | 로그인 토큰 (비밀번호 같은 값이라 시각을 넣지 않음) · 예전에 만든 학습자·코드 id |
-| 시간순 번호 | `pad(time_id())` `core.py:380`, `:385` — 밀리초×1000 + 0~999, 앞을 0으로 16자리 | `1792592284764123` | `REVIEW#…`, `OPS#AILOG` |
-| 한국 날짜 | `day_key()` `core.py:605` (UTC+9) | `2026-10-24` | `OPS#STATS` |
-| 월 | `month_key()` `ai.py:29` | `2026-10` | `OPS#USAGE` |
+| 시간순 번호 | `pad(time_id())` `core.py:438`, `:443` — 밀리초×1000 + 0~999, 앞을 0으로 16자리 | `1792592284764123` | `REVIEW#…`, `OPS#AILOG` |
+| 한국 날짜 | `day_key()` `core.py:651` (UTC+9) | `2026-10-24` | `OPS#STATS` |
+| 월 | `month_key()` `ai.py:34` | `2026-10` | `OPS#USAGE` |
 | 첨삭 아래 기록 키 | `review_key(review, kind, index)` `code_store.py:124` | `REVIEW#1792592284764123#CHAT#003` | 다시 쓰기·튜터 대화 |
 
 > **시간순 UUID (`new_id`)**: 지금처럼 36글자 uuid 모양이라 id 검사(`SESSION_ID`, `load_code`)·화면 주소·예전 uuid4 데이터를 그대로 함께 쓸 수 있어요.
@@ -204,7 +203,7 @@ put_item({"pk": login_pk(token), "sk": USER, "userId": user_id, "provider": "goo
 
 ### 2-4. 읽을 코드 `CODE#<코드 id> / INFO`
 
-**언제**: 연습 코드 받기(`practice.py:236`), 더 쉽게·어렵게(`:271`), 내 코드 점검 시작(`inspect_code.py:105`)
+**언제**: 연습 코드 받기(`practice.py:265`), 더 쉽게·어렵게(`:300`), 내 코드 점검 시작(`inspect_code.py:108`)
 
 ```python
 # lambda/api/code_store.py:91  save_code
@@ -217,7 +216,7 @@ item = {"pk": code_pk(code_id), "sk": INFO,                         # ② pk = C
         TTL_ATTR: ttl_after(keep), **fields}                           #    source, level, topic, title, code, marks …
 put_item(item)                                                         # ③ 저장
 ```
-화면에는 `public_code(item)` (`code_store.py:138`) 으로 **모범 설명을 뺀** 모양만 보내요.
+화면에는 `public_code(item)` (`code_store.py:135`) 으로 **모범 설명을 뺀** 모양만 보내요.
 
 **저장된 모양** (marks 의 explanation·keywords 는 DB 에만 있어요)
 ```json
@@ -256,7 +255,7 @@ attempts = review_children(rv, "RETRY", rows).get(index, {}).get("attempts", [])
 attempts.append({...})
 put_item({"pk": code_pk(id), "sk": key, "attempts": attempts, …})   # review.py:156  같은 키로 덮어써 이어 쓰기
 ```
-튜터 대화도 같은 방식이에요: `tutor_chat.py:70` 읽기(`review_children(rv, "CHAT", rows)`) → `turns` 에 질문·답 추가 → `tutor_chat.py:96` 같은 키로 `put_item`.
+튜터 대화도 같은 방식이에요: `tutor_chat.py:75` 읽기(`review_children(rv, "CHAT", rows)`) → `turns` 에 질문·답 추가 → `tutor_chat.py:101` 같은 키로 `put_item`.
 `GET /code` 는 같은 `rows` 하나로 첨삭·대화·다시 쓰기를 모두 돌려줘요 (`practice.py` `get_code`).
 
 ### 2-7. 내 공부 `USER#<학습자 id> / STUDYREC#<코드 id>`
@@ -285,8 +284,8 @@ update_item(OPS_USAGE, f"{month}#{task}#{model}", set_values={마지막 시각·
 update_item(OPS_LIMIT, f"{key}#{window_start}", set_values={TTL_ATTR: 구간 끝 + 60}, add_values={"n": 1}, return_new=True)
 ```
 - ADD 는 항목이 없으면 새로 만들어 주고, 여러 Lambda 가 동시에 더해도 숫자가 틀리지 않아요.
-- AI 호출 기록은 한 건씩 새 줄: `put_item({"pk": OPS_AILOG, "sk": pad(time_id()), "task": …, "ok": …})` (`ai.py:86`)
-- 설정: `set_meta("ai_switch", "off")` → `put_item({"pk": "OPS#CONFIG", "sk": "ai_switch", "value": "off"})` (`core.py:596`, 관리자 `admin.py:175`)
+- AI 호출 기록은 한 건씩 새 줄: `put_item({"pk": OPS_AILOG, "sk": pad(time_id()), "task": …, "ok": …})` (`ai.py:91`)
+- 설정: `set_meta("ai_switch", "off")` → `put_item({"pk": "OPS#CONFIG", "sk": "ai_switch", "value": "off"})` (`core.py:642`, 관리자 `admin.py:185`)
 
 ---
 
@@ -308,13 +307,13 @@ src/lib/api.ts                                https://tmf42….lambda-url.ap-nor
 ### 3-2. 주소는 어디서 오나요?
 
 ```ts
-// src/lib/api.ts
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
-export function apiUrl(path: string) { return `${API_URL}${path}`; }   // 예) https://…on.aws/review
+// src/lib/api.ts — 경로 앞부분으로 함수를 골라 그 함수의 주소로 (src/lib/api-routes.ts)
+const API_URLS = parseApiUrls(process.env.NEXT_PUBLIC_API_URLS);   // {"review": "https://qtp7…on.aws", …}
+export function apiUrl(path: string) { return `${baseFor(path, API_URLS, API_URL)}${path}`; }   // 예) /review → https://qtp7…on.aws/review
 ```
-- **배포 화면**: GitHub 저장소 변수 `API_URL` → `.github/workflows/pages.yml:38` 에서 빌드할 때 `NEXT_PUBLIC_API_URL` 로 넣어요. 정적 화면이라 주소가 빌드된 JS 안에 들어가요.
-- **내 컴퓨터**: `npm run api` 가 같은 Lambda 코드를 `http://localhost:8787` 로 띄워요.
-- 함수 URL 하나에 경로만 바꿔 모든 기능을 불러요 (`/practice`, `/review`, `/study` …). `/api` 같은 앞부분은 없어요.
+- **배포 화면**: GitHub 저장소 변수 `API_URLS`(함수 6개의 주소 JSON) → `.github/workflows/pages.yml:39` 에서 빌드할 때 `NEXT_PUBLIC_API_URLS` 로 넣어요. 정적 화면이라 주소가 빌드된 JS 안에 들어가요.
+- **내 컴퓨터**: `npm run api` 가 함수 6개를 `http://localhost:8787` 하나로 띄워요 (`API_URLS` 가 없으면 `NEXT_PUBLIC_API_URL` 주소 하나로 모두).
+- 경로 앞부분 → 함수: `/me`·`/auth`·`/health` → auth, `/practice`·`/topic` → practice, `/inspect` → inspect, `/review`·`/tutor`·`/code` → review, `/study` → study, `/admin` → admin. `/api` 같은 앞부분은 없어요.
 
 ### 3-3. 요청을 보내는 함수 (모든 화면이 이것만 써요)
 
@@ -446,7 +445,6 @@ access-control-max-age: 86400     ← 하루 동안은 다시 묻지 않음
 | `GET /admin/overview` | 관리자 | — (헤더 `x-admin-token`) | 사용량·비용·AI 기록·2주 사용 수 | OPS#USAGE, OPS#AILOG, OPS#STATS, OPS#CONFIG |
 | `POST /admin/ai` | 관리자 | `{enabled: true\|false}` | `{aiSwitch}` | OPS#CONFIG/ai_switch |
 | `POST /admin/code` | 관리자 | `{code}` | `{ok}` | OPS#CONFIG/admin_code_hash |
-| `POST /admin/migrate` | 관리자 | `{}` (헤더 `x-admin-token`) | `{moved, removed, untouched, byKind}` | 테이블 전체 (예전 이름 → 새 이름) |
 
 "(AI)" 표시가 있는 요청은 `ask_ai` 를 거치며 `OPS#USAGE`·`OPS#AILOG`·`OPS#LIMIT`·`OPS#CONFIG/ai_switch` 도 함께 써요.
 응답 모양(TypeScript)은 `src/lib/api-types.ts` 에 Lambda 와 똑같이 적어 두었어요.

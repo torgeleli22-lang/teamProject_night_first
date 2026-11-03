@@ -1,5 +1,5 @@
 """jojo_api 기능 파일의 규칙 부분: 예시 코드(samples), 주제 판정(topics), 코드 검사(practice), 민감 정보·함수 찾기(inspect_code),
-규칙 첨삭(review), 관리자 코드(admin), 경로 표(lambda_function)"""
+규칙 첨삭(review), 관리자 코드(admin)"""
 import os
 import unittest
 
@@ -580,26 +580,13 @@ class Login(unittest.TestCase):
         finally:
             auth.get_item, auth.put_item, auth.update_item = saved
 
-    def test_old_format_account_stops_instead_of_making_a_new_user(self):
-        auth = load_lambda("auth")
-        db = {(core.account_pk("google:9"), core.USER): {"learnerId": "u1"}}   # '예전 데이터 옮기기' 전
-        saved = auth.get_item, auth.put_item
-        auth.get_item = lambda pk, sk: db.get((pk, sk))
-        auth.put_item = lambda item: db.__setitem__((item["pk"], item["sk"]), dict(item))
-        try:
-            with self.assertRaises(core.ApiError):
-                auth.account_user("google", {"id": "9", "name": "김철수"})
-            self.assertEqual(len(db), 1)                     # 새 학습자를 만들지 않음
-        finally:
-            auth.get_item, auth.put_item = saved
-
     def test_unknown_provider_is_refused(self):
         with self.assertRaises(core.ApiError):
             load_lambda("auth").provider_of("kakao")
 
 
 class KeyNames(unittest.TestCase):
-    """키 이름표 (core.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화 · 예전 이름 옮기기 (admin.migrate)"""
+    """키 이름표 (core.py 4번 구역) · 첨삭과 딸린 다시 쓰기·대화"""
 
     def test_review_children_live_under_their_review(self):
         rv1 = {"sk": "REVIEW#0000000000000100", "result": {}}
@@ -610,70 +597,6 @@ class KeyNames(unittest.TestCase):
         self.assertIs(code_store.latest_review("x", rows), rv2)                      # 대화·다시 쓰기는 첨삭으로 치지 않음
         self.assertEqual(list(code_store.review_children(rv2, "CHAT", rows)), [3])  # 최신 첨삭에 딸린 것만
         self.assertEqual(list(code_store.review_children(rv1, "RETRY", rows)), [2])
-
-    def test_old_names_map_to_new_names(self):
-        k = admin.new_key
-        self.assertEqual(k("LEARNER", "u1"), ("USER#u1", "PROFILE"))
-        self.assertEqual(k("STUDY#u1", "R#c1"), ("USER#u1", "STUDYREC#c1"))
-        self.assertEqual(k("READ#c1", "CODE"), ("CODE#c1", "INFO"))
-        self.assertEqual(k("READ#c1", "REVIEW#0001"), ("CODE#c1", "REVIEW#0001"))
-        self.assertEqual(k("READ#c1", "RETRY#0001#002"), ("CODE#c1", "REVIEW#0001#RETRY#002"))
-        self.assertEqual(k("READ#c1", "CHAT#0001#000"), ("CODE#c1", "REVIEW#0001#CHAT#000"))
-        self.assertEqual(k("LOGIN", "t1"), ("LOGIN#t1", "USER"))
-        self.assertEqual(k("ACCOUNT", "google:9"), ("ACCOUNT#google:9", "USER"))
-        self.assertEqual(k("AUTH", "s1"), ("AUTH#s1", "STATE"))
-        self.assertEqual(k("STATS", "DAY#2026-10-24"), ("OPS#STATS", "DAY#2026-10-24"))
-        self.assertEqual(k("META", "ai_switch"), ("OPS#CONFIG", "ai_switch"))
-        self.assertEqual(k("RL", "all:1.2.3.4#1"), "drop")
-        self.assertIsNone(k("USER#u1", "PROFILE"))        # 이미 새 이름
-        self.assertIsNone(k("QUESTION#1", "X"))           # 예전 서비스 항목은 그대로
-
-    def test_old_field_names_become_user_id_and_code_id(self):
-        f = admin.new_fields
-        self.assertEqual(f({"pk": "USER#u1", "sk": "PROFILE", "formerIds": ["u0"]})["formerUserIds"], ["u0"])
-        rec = f({"pk": "USER#u1", "sk": "STUDYREC#c1", "readingId": "c1", "readingTtl": 5})
-        self.assertEqual((rec["codeId"], rec["codeTtl"]), ("c1", 5))
-        self.assertNotIn("readingId", rec)
-        self.assertEqual(f({"pk": "ACCOUNT#google:9", "sk": "USER", "learnerId": "u1"})["userId"], "u1")
-        review = f({"pk": "CODE#c1", "sk": "REVIEW#0001", "result": {"readingId": "c1", "summary": "s"}})
-        self.assertEqual(review["result"], {"codeId": "c1", "summary": "s"})
-        chat = {"pk": "CODE#c1", "sk": "REVIEW#0001#CHAT#000", "turns": [], "id": "x"}
-        self.assertIs(f(chat), chat)                       # 다른 종류는 그대로 ("id" 도 건드리지 않음)
-        new = {"pk": "CODE#c1", "sk": "INFO", "codeId": "c1", "userId": "u1"}
-        self.assertIs(f(new), new)                         # 이미 새 이름
-
-    def test_migrate_moves_then_deletes_and_is_repeatable(self):
-        table = {("LEARNER", "u1"): {"pk": "LEARNER", "sk": "u1", "level": 2},
-                 ("READ#c1", "CODE"): {"pk": "READ#c1", "sk": "CODE", "id": "c1", "owner": "u1", "rootId": "c1"},
-                 ("LOGIN#t1", "USER"): {"pk": "LOGIN#t1", "sk": "USER", "learnerId": "u1"},   # 키는 새 이름, 필드만 예전 이름
-                 ("RL", "all:x#1"): {"pk": "RL", "sk": "all:x#1", "n": 3},
-                 ("OPS#STATS", "DAY#1"): {"pk": "OPS#STATS", "sk": "DAY#1"}}
-        saved = admin.scan_table, admin.batch_put, admin.batch_delete
-        admin.scan_table = lambda: [dict(v) for v in table.values()]
-        admin.batch_put = lambda items: table.update({(i["pk"], i["sk"]): i for i in items})
-        admin.batch_delete = lambda keys: [table.pop((i["pk"], i["sk"]), None) for i in keys]
-        try:
-            first = admin.migrate({})
-            self.assertEqual((first["moved"], first["renamed"], first["removed"], first["untouched"]), (2, 1, 1, 1))
-            self.assertEqual(table[("USER#u1", "PROFILE")]["level"], 2)
-            info = table[("CODE#c1", "INFO")]
-            self.assertEqual((info["codeId"], info["userId"], info["rootCodeId"]), ("c1", "u1", "c1"))
-            self.assertNotIn("owner", info)
-            self.assertEqual(table[("LOGIN#t1", "USER")], {"pk": "LOGIN#t1", "sk": "USER", "userId": "u1"})
-            self.assertNotIn(("LEARNER", "u1"), table)
-            again = admin.migrate({})
-            self.assertEqual((again["moved"], again["renamed"], again["removed"]), (0, 0, 0))   # 다시 눌러도 아무것도 바뀌지 않음
-        finally:
-            admin.scan_table, admin.batch_put, admin.batch_delete = saved
-
-
-class Entry(unittest.TestCase):
-    def test_every_path_has_a_feature(self):
-        entry = load_lambda("lambda_function")
-        self.assertEqual(set(entry.ROUTES), {
-            "GET /health", "GET /topic/random", "POST /topic/check", "POST /practice", "POST /practice/adjust", "GET /code",
-            "POST /inspect", "POST /inspect/start", "POST /review", "POST /review/retry", "POST /tutor", "GET /study", "GET /admin/overview", "POST /admin/ai", "POST /admin/code", "POST /admin/migrate", "POST /admin/experiment",
-            "GET /me", "GET /auth/start", "GET /auth/callback/google", "POST /auth/logout"})
 
 
 if __name__ == "__main__":

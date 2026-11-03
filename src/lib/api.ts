@@ -12,8 +12,8 @@ import { baseFor, parseApiUrls } from "./api-routes";
  * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
  * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables):
  *   API_URLS = {"auth": "https://…", "practice": "https://…", …} 함수별 주소 (npm run deploy -- setup 이 알려 줌)
- *   API_URL  = 주소 하나 (예전 함수 jojo_api_py — API_URLS 에 없는 함수는 여기로)
- * 내 컴퓨터에서는 npm run api 가 모든 기능을 http://localhost:8787 하나로 실행한다.
+ *   (API_URLS 가 없으면 NEXT_PUBLIC_API_URL 주소 하나로 — 내 컴퓨터의 npm run api)
+ * 내 컴퓨터에서는 npm run api 가 함수 6개를 http://localhost:8787 하나로 실행한다.
  */
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
 const API_URLS = parseApiUrls(process.env.NEXT_PUBLIC_API_URLS);

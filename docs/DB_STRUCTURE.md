@@ -188,39 +188,14 @@ erDiagram
 | 로그아웃 | `POST /auth/logout` | — | `LOGIN#<토큰>` 삭제 |
 | AI 호출 (모든 AI 작업) | `ask_ai` | `OPS#CONFIG/ai_switch`, `OPS#USAGE` | `OPS#USAGE`, `OPS#AILOG`, `OPS#LIMIT` |
 | 관리자 화면 | `/admin/...` | `OPS#USAGE`, `OPS#AILOG`, `OPS#STATS`, `OPS#CONFIG` | `OPS#CONFIG` (AI 스위치·관리자 코드) |
-| 예전 데이터 옮기기 | `POST /admin/migrate` | 테이블 전체 scan | 새 이름으로 쓰고 예전 이름 삭제 |
 
 ---
 
-## 5. 예전 이름 → 새 이름
+## 5. 예전 이름 → 새 이름 (끝남)
 
-| 예전 (pk / sk) | 새 (pk / sk) |
-|---|---|
-| `LEARNER` / `<id>` | `USER#<id>` / `PROFILE` |
-| `STUDY#<id>` / `R#<코드 id>` | `USER#<id>` / `STUDYREC#<코드 id>` |
-| `READ#<코드 id>` / `CODE` | `CODE#<코드 id>` / `INFO` |
-| `READ#<코드 id>` / `REVIEW#<t>` | `CODE#<코드 id>` / `REVIEW#<t>` |
-| `READ#<코드 id>` / `RETRY#<t>#<n>` | `CODE#<코드 id>` / `REVIEW#<t>#RETRY#<n>` |
-| `READ#<코드 id>` / `CHAT#<t>#<n>` | `CODE#<코드 id>` / `REVIEW#<t>#CHAT#<n>` |
-| `LOGIN` / `<토큰>` | `LOGIN#<토큰>` / `USER` |
-| `ACCOUNT` / `<제공자>:<번호>` | `ACCOUNT#<제공자>:<번호>` / `USER` |
-| `AUTH` / `<state>` | `AUTH#<state>` / `STATE` |
-| `STATS` · `USAGE` · `AILOG` · `META` / 그대로 | `OPS#STATS` · `OPS#USAGE` · `OPS#AILOG` · `OPS#CONFIG` / 그대로 |
-| `RL` / … | 옮기지 않고 삭제 (몇 분짜리 카운터, 새 이름 `OPS#LIMIT`) |
-
-**필드 이름** — id 를 가리키는 필드는 pk 이름에 맞춰 `userId`(USER#) · `codeId`(CODE#) 로 통일했어요.
-
-| 항목 | 예전 필드 | 새 필드 |
-|---|---|---|
-| `USER#…/PROFILE` | `formerIds` | `formerUserIds` |
-| `USER#…/STUDYREC#…` | `readingId` · `readingTtl` | `codeId` · `codeTtl` |
-| `CODE#…/INFO` | `id` · `owner` · `rootId` | `codeId` · `userId` · `rootCodeId` |
-| `CODE#…/REVIEW#<t>` 의 `result` | `readingId` | `codeId` |
-| `LOGIN#…/USER` · `ACCOUNT#…/USER` | `learnerId` | `userId` |
-
-API 도 같은 이름을 써요: 요청 본문 `readingId` → `codeId`, `GET /reading?id=` → `GET /code?codeId=`, 응답 `reading` → `codeItem`.
-
-바꾸는 규칙은 `lambda/api/admin.py` 의 `new_key`(키)·`new_fields`(필드), 옮기는 순서(새 이름으로 쓰기 → 예전 것 지우기)는 `migrate` 에 있어요. 여러 번 실행해도 결과가 같아요.
+2026년 10월까지 쓰던 키 이름(`LEARNER` → `USER#…/PROFILE`, `READ#…/CODE` → `CODE#…/INFO`, `STUDY#…/R#…` → `USER#…/STUDYREC#…`, `STATS`·`USAGE`·`AILOG`·`META` → `OPS#…` 등)과
+필드 이름(`learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`)은 **2026-11-03 에 모두 옮겼어요.**
+옮기는 코드(`POST /admin/migrate`, `admin.py` 의 `new_key`·`new_fields`)는 옮긴 뒤 지웠고, git 기록(병합 #41 까지)에 남아 있어요.
 
 ---
 
@@ -228,5 +203,5 @@ API 도 같은 이름을 써요: 요청 본문 `readingId` → `codeId`, `GET /r
 
 1. 이름은 `core.py` 4번 구역의 함수·상수만 고쳐요.
 2. 그 항목을 읽는 기능 파일 모두와 `src/lib/api-types.ts` 를 함께 고쳐요.
-3. 이미 저장된 데이터가 있으면 `admin.py` `new_key`(키)·`new_fields`(필드) 에 옮기는 규칙을 더해요.
+3. 이미 저장된 데이터가 있으면 옮기는 방법을 함께 정해요 (예: 관리자 경로를 잠깐 두고 한 번 옮긴 뒤 지우기 — 2026-11 의 `POST /admin/migrate` 가 그 예, git 기록)
 4. `npm test`, `npm run smoke` 로 확인하고, 이 문서와 그림(`docs/images/jojo_table_erd.png`)도 함께 고쳐요.

@@ -186,8 +186,6 @@ def account_user(provider, profile):
     key = account_pk(f"{provider}:{profile['id']}")
     account = get_item(key, USER)
     member = {"member": True}
-    if account and "userId" not in account:   # 예전 형식 — 새 학습자를 만들면 기록이 끊기므로 멈추고 알린다
-        raise ApiError(409, "계정 정보가 예전 형식이에요. 관리자에게 '예전 데이터 옮기기'를 요청해 주세요.")
     if account and get_item(user_pk(account["userId"]), PROFILE):
         update_item(user_pk(account["userId"]), PROFILE, set_values={"name": profile["name"], "lastSeen": now_ms(), TTL_ATTR: ttl_after(keep_seconds(member, "user"))})
         return account["userId"]

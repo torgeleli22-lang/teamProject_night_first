@@ -59,16 +59,6 @@
       "env": ["ADMIN_TOKEN"],
       "paths": ["/admin"],
       "timeout": 600, "memory": 512
-    },
-    {
-      "name": "jojo_api_py", "key": "all", "about": "예전 함수 하나 (모든 기능) — 화면이 6개 함수로 옮겨 가기 전까지만. 옮긴 뒤 정지하고 지워요",
-      "legacy": true,
-      "entry": "api/lambda_function.py",
-      "files": ["core.py", "ai.py", "code_store.py", "auth.py", "topics.py", "practice.py", "samples.py", "samples_js.py", "inspect_code.py", "review.py", "tutor_chat.py", "study.py", "admin.py", "experiment.py"],
-      "libs": ["aws-lambda-powertools", "pydantic", "tree-sitter", "tree-sitter-javascript"],
-      "env": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AUTH_CALLBACK_BASE", "ADMIN_TOKEN"],
-      "paths": ["/"],
-      "timeout": 600, "memory": 512
     }
   ]
 }

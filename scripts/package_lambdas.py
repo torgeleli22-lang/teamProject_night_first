@@ -6,7 +6,7 @@ Lambda 함수마다 zip 묶기 (npm run package). 표는 lambda/functions.json �
   npm run package -- jojo_auth         → 그 함수의 zip 만
 
 함수 zip 안:
-  lambda_function.py   그 함수의 입구 (lambda/functions/<이름>.py — 예전 함수는 lambda/api/lambda_function.py)
+  lambda_function.py   그 함수의 입구 (lambda/functions/<이름>.py)
   <기능·공통 파일>      functions.json 의 files (lambda/api 에서)
   <라이브러리>          functions.json 의 libs — lambda/requirements.txt 의 버전으로, Lambda(Python 3.14 · arm64)용 배포판을 받아요
 

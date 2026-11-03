@@ -58,9 +58,7 @@
 | 설정 | `OPS#CONFIG` | `ai_switch` · `admin_code_hash` | AI 켜고 끄기, 관리자 코드(해시) | 없음 |
 | 요청 수 제한 | `OPS#LIMIT` | `이름#시간 칸` | 이 시간 칸의 요청 수 | 시간 칸이 지나면 |
 
-> 예전 이름(2026년 10월까지): `LEARNER` → `USER#…/PROFILE`, `STUDY#…/R#…` → `USER#…/STUDYREC#…`, `READ#…/CODE` → `CODE#…/INFO`,
-> `RETRY#t#n`·`CHAT#t#n` → `REVIEW#t#RETRY#n`·`REVIEW#t#CHAT#n`, `LOGIN`·`ACCOUNT`·`AUTH` → `LOGIN#…`·`ACCOUNT#…`·`AUTH#…`,
-> `STATS`·`USAGE`·`AILOG`·`META`·`RL` → `OPS#STATS`·`OPS#USAGE`·`OPS#AILOG`·`OPS#CONFIG`·`OPS#LIMIT`. 필드도 `learnerId`·`owner` → `userId`, `readingId`·`id` → `codeId`, `formerIds` → `formerUserIds`, `rootId` → `rootCodeId`. 옮기기: 관리자 화면 '예전 데이터 옮기기' (`admin.py` `migrate`)
+> 2026년 10월까지의 예전 키 이름(`LEARNER`, `READ#…` 등)은 2026-11-03 에 모두 새 이름으로 옮겼어요 (옮긴 코드는 git 기록에).
 
 자세한 필드 표: `docs/PROJECT_BRIEF.md` §9.2
 
@@ -68,13 +66,13 @@
 
 | 함수 | 줄 | 하는 일 | 쉬운 비유 |
 |---|---|---|---|
-| `get_item(pk, sk)` | `core.py:389` | 항목 하나 꺼내기 | 서랍의 칸 하나 열기 |
-| `put_item(item)` | `core.py:393` | 항목 하나 통째로 쓰기 (있으면 덮어씀) | 칸에 새 종이 넣기 |
-| `update_item(pk, sk, set_values=…, add_values=…)` | `core.py:420` | 필드 일부만 바꾸거나 숫자 더하기 | 종이의 한 줄만 고치기 |
-| `delete_item(pk, sk)` | `core.py:397` | 항목 지우기 | 칸 비우기 |
-| `query_all(pk, prefix=…)` | `core.py:401` | 한 서랍(pk)의 항목을 모두 (sk 가 prefix 로 시작하는 것만) | 서랍째 꺼내 보기 |
-| `to_db` / `to_plain` | `core.py:355` / `:345` | 소수 ↔ Decimal 바꾸기 (DynamoDB 는 숫자를 Decimal 로만 받음) | 통역 |
-| `ttl_after(초)` / `alive(item)` | `core.py:369` / `:374` | 자동 삭제 시각 만들기 / 기한 지났는지 확인 | 유통기한 붙이기 / 확인하기 |
+| `get_item(pk, sk)` | `core.py:447` | 항목 하나 꺼내기 | 서랍의 칸 하나 열기 |
+| `put_item(item)` | `core.py:451` | 항목 하나 통째로 쓰기 (있으면 덮어씀) | 칸에 새 종이 넣기 |
+| `update_item(pk, sk, set_values=…, add_values=…)` | `core.py:478` | 필드 일부만 바꾸거나 숫자 더하기 | 종이의 한 줄만 고치기 |
+| `delete_item(pk, sk)` | `core.py:455` | 항목 지우기 | 칸 비우기 |
+| `query_all(pk, prefix=…)` | `core.py:459` | 한 서랍(pk)의 항목을 모두 (sk 가 prefix 로 시작하는 것만) | 서랍째 꺼내 보기 |
+| `to_db` / `to_plain` | `core.py:413` / `:403` | 소수 ↔ Decimal 바꾸기 (DynamoDB 는 숫자를 Decimal 로만 받음) | 통역 |
+| `ttl_after(초)` / `alive(item)` | `core.py:427` / `:432` | 자동 삭제 시각 만들기 / 기한 지났는지 확인 | 유통기한 붙이기 / 확인하기 |
 
 > **TTL(자동 삭제)**: 항목에 `jojo_ttl = 유닉스 시각(초)`를 넣어 두면, 그 시각이 지난 뒤 DynamoDB 가 알아서 지워요.
 > 지우는 데 몇 시간 늦을 수 있어서 읽을 때 `alive()` 로 한 번 더 걸러요.
@@ -83,10 +81,10 @@
 ### 1-4. 항목마다 "누가 쓰고 누가 읽나"
 
 #### 학습자 `USER#<id> / PROFILE`
-- **만들기**: `core.py:526` `get_user(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:546`)
+- **만들기**: `core.py:526` `get_user(req)` 3번 단계 — 헤더의 id 가 없거나 기한이 지났으면 새 id(시간순 UUID, `new_id`) 로 `put_item` (`:592`)
 - **찾기**: 같은 함수 1·2번 단계 — 로그인 안 함은 `USER#<id>/PROFILE` 직접, 로그인은 `LOGIN#<토큰>/USER` → `userId` → `USER#<id>/PROFILE`
-- **고치기**: `core.py:611` `use_user` (15분마다 lastSeen·기한 늘리기), `:622` `remember_topic` (최근 주제·난이도)
-- **로그인 계정**: `auth.py:184` `account_user` (member 학습자 만들기), `auth.py:201` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
+- **고치기**: `core.py:599` `use_user` (15분마다 lastSeen·기한 늘리기), `:610` `remember_topic` (최근 주제·난이도)
+- **로그인 계정**: `auth.py:184` `account_user` (member 학습자 만들기), `auth.py:199` `adopt_anonymous` (비회원 서랍의 공부 기록을 회원 서랍으로 옮기고 비회원 학습자 지우기)
 
 #### 내 공부 `USER#<id> / STUDYREC#<코드 id>`
 - 쓰기: 첨삭할 때 `study.py:49` `record_review` (코드 하나당 한 줄), 다시 써서 나아지면 `study.py:72` `record_retry`
@@ -104,20 +102,20 @@
   - 가장 최근 첨삭: `code_store.py:117` `latest_review` — 그중 sk 에 `#` 가 하나뿐인 것(첨삭)의 마지막
   - 첨삭 하나에 딸린 다시 쓰기·대화: `code_store.py:129` `review_children(review, "RETRY"|"CHAT", rows)`
   - sk 이름 짓기: `code_store.py:124` `review_key(review, "CHAT"|"RETRY", 항목 번호)` → `REVIEW#<첨삭 시각>#CHAT#003`
-- 첨삭 쓰기: `review.py:93` (`review` 함수 4번 단계)
-- 다시 쓰기 읽기/쓰기: `review.py:138` / `review.py:160`, 목록: `review.py:306` `retries_for`
-- 튜터 읽기/쓰기: `tutor_chat.py:70` / `:96`, 목록: `tutor_chat.py:114` `chats_for`
+- 첨삭 쓰기: `review.py:117` (`review` 함수 4번 단계)
+- 다시 쓰기 읽기/쓰기: `review.py:161` / `review.py:183`, 목록: `review.py:306` `retries_for`
+- 튜터 읽기/쓰기: `tutor_chat.py:75` / `:101`, 목록: `tutor_chat.py:114` `chats_for`
 
 #### 로그인 `LOGIN#` · `ACCOUNT#` · `AUTH#`
 - `AUTH#<state>/STATE` 쓰기 `auth.py:61` (로그인 시작) → 읽고 바로 지우기 `auth.py:85~88` (콜백, 한 번만)
-- `ACCOUNT#<제공자>:<번호>/USER` 읽기/쓰기 `auth.py:187` / `:197`, `LOGIN#<토큰>/USER` 쓰기 `auth.py:95`, 지우기(로그아웃) `auth.py:105`
+- `ACCOUNT#<제공자>:<번호>/USER` 읽기/쓰기 `auth.py:187` / `:195`, `LOGIN#<토큰>/USER` 쓰기 `auth.py:95`, 지우기(로그아웃) `auth.py:105`
 
 #### 운영 항목 `OPS#…`
 - `OPS#STATS`: `core.py:610` `count_event("practices")` — 하루 사용 수 +1 (`update_item` 의 ADD)
 - `OPS#USAGE` · `OPS#AILOG`: `ai.py:72` `log_usage`, `:87` `log_ai_event` — AI 를 부를 때마다
-- `OPS#CONFIG`: `core.py:650` `get_meta`, `:654` `set_meta` — AI 스위치(`:637` `ai_switch_on`)
-- `OPS#LIMIT`: `core.py:529` `bump_counter`, `:541` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
-- 관리자 화면이 모아 읽기: `admin.py:127` `overview`
+- `OPS#CONFIG`: `core.py:638` `get_meta`, `:642` `set_meta` — AI 스위치(`:625` `ai_switch_on`)
+- `OPS#LIMIT`: `core.py:517` `bump_counter`, `:529` `hit_limit` — "1분에 600번" 같은 제한을 함수 여러 개가 함께 세도록 DB 에 셈
+- 관리자 화면이 모아 읽기: `admin.py:125` `overview`
 
 ---
 
@@ -127,7 +125,7 @@
 
 | 비유 | 파일 | 한 줄 |
 |---|---|---|
-| 안내 데스크 | `lambda_function.py` | 용건(경로)을 보고 창구로 보내요 |
+| 안내 데스크 | `lambda/functions/jojo_*.py` (함수마다 하나) | 이 함수가 받는 용건(경로)만 모아 창구로 보내요. 어느 함수로 갈지는 화면(`src/lib/api-routes.ts`)이 경로 앞부분으로 골라요 |
 | 창구 | `auth` `topics` `practice` `inspect_code` `review` `tutor_chat` `study` `admin` | 맡은 업무 처리. 파일 맨 아래 `ROUTES` 표가 "이 창구가 받는 용건" |
 | 공용 도구 서랍 | `core.py` · `ai.py` · `code_store.py` | core: 요청 읽기·응답, 학습자, DB, 요청 수 제한 / ai: AI 부르기·예산·사용량 / code_store: 읽을 코드 저장·꺼내기 |
 | 예비 서류 | `samples.py`, `samples_js.py` | AI 를 못 쓸 때 대신 줄 예시 코드 |
@@ -135,26 +133,24 @@
 ### 2-2. 요청 하나의 길 (모든 기능 공통)
 
 ```
-화면 src/lib/api.ts  ──fetch──▶  함수 URL  ──▶  lambda_function.lambda_handler
+화면 src/lib/api.ts  ──fetch──▶  그 경로를 맡은 함수의 URL (예: /review → jojo_review)  ──▶  lambda/functions/jojo_review.py 의 lambda_handler
 ```
 
 1. **화면이 보냄**: `src/lib/api.ts` 의 `apiPost("/review", {...})` → 헤더 `x-session-id` 에 학습자(또는 로그인 토큰)
-2. **경로 표**: `lambda_function.py:47` `ROUTES` — 기능 파일마다 있는 `ROUTES` 를 하나로 합쳐요
+2. **경로 표**: 함수의 입구(예: `lambda/functions/jojo_review.py`)가 그 함수의 기능 파일 `ROUTES` 만 합쳐요
    ```python
-   ROUTES = {"GET /health": health}
-   for feature in (auth, topics, practice, inspect_code, review, tutor_chat, study, admin, experiment):
-       ROUTES.update(need(feature, "ROUTES"))
-   APP = make_app(ROUTES, guards={"/admin": admin.require_admin})
+   ROUTES = {**HEALTH, **review.ROUTES, **tutor_chat.ROUTES}      # jojo_review
+   APP = make_app(ROUTES)                                          # jojo_admin 은 make_app(ROUTES, guards={"/admin": admin.require_admin})
    ```
    `make_app` (`core.py:269` `make_app`) 이 이 표를 **Powertools 경로 처리기**(`LambdaFunctionUrlResolver`)에 올려요. CORS(허용한 화면 주소만)·사전 요청(OPTIONS)·없는 경로(404)는 Powertools 가 처리해요
-   배포된 **함수 6개**는 입구가 따로예요: `lambda/functions/jojo_review.py` 처럼 자기 기능 파일의 `ROUTES` 만 합쳐 `make_app` 에 올려요 (묶는 파일은 `lambda/functions.json`). 위의 `lambda_function.py` 는 모든 기능을 합친 입구라 예전 함수 `jojo_api_py` 와 내 컴퓨터(`npm run api`)가 써요
-3. **입구** `lambda_function.py:55` `lambda_handler` → `core.handle` (`core.py:336` `handle`)
+   함수마다 묶는 파일은 `lambda/functions.json`. 내 컴퓨터(`npm run api`)는 6개 입구를 주소 하나에서 함께 띄우고 화면처럼 경로 앞부분으로 골라요 (`scripts/local_lambdas.py`)
+3. **입구** `lambda_handler` → `core.handle` (`core.py:336` `handle`)
    1. 콘솔 테스트 이벤트(`{"path": …, "method": …}`)도 함수 URL 이벤트 모양으로 (`to_url_event`)
    2. 로그 이름표: 경로·요청 id·처음 실행인지 → 이 요청의 모든 로그 줄에 붙어요
    3. `APP.resolve(event)` → 경로에 맞는 처리 함수
 4. **처리 함수 감싸기** (`core.py:291` `_route_handler`): 모든 경로가 같은 순서로
    1. `read_request` — 경로·헤더·본문(JSON)·IP 꺼내기 (본문을 읽을 수 없으면 400, 너무 크면 413)
-   2. `/admin` 이면 `admin.require_admin` (`admin.py:36` `require_admin`) 으로 관리자 코드 확인, 아니면 IP 당 1분 요청 수 (`hit_limit`, 넘으면 429)
+   2. `/admin` 이면 `admin.require_admin` (`admin.py:34` `require_admin`) 으로 관리자 코드 확인, 아니면 IP 당 1분 요청 수 (`hit_limit`, 넘으면 429)
    3. 처리 함수 실행 — `ApiError(400, "메시지")` 를 던지면 그 상태 코드와 한국어 메시지로, 예상 못 한 오류는 스택 전체를 로그에 남기고 500 "잠시 문제가 생겼어요"
    4. 요청 로그 한 줄 (상태·걸린 시간·학습자 id 앞 8자리 — 본문·코드·메모는 남기지 않음)
 5. **응답** `reply` (`core.py:259` `reply`): JSON + `x-session-id` (학습자 id 를 화면에 알려 줌). CORS 헤더는 Powertools 가 붙여요
@@ -163,7 +159,7 @@
 > 응답 모양 만들기는 `_route_handler` 가 대신해서, 기능 파일은 "일"만 해요.
 > 요청 본문은 경로마다 Pydantic 모양(`core.Body` 를 이은 `PracticeIn`·`ReviewIn` …)으로 받아요: `read_body(req, PracticeIn)` — 형식이 틀리면 400 ("3" 은 숫자가 아니에요)
 
-### 2-3. AI 를 부르는 단 하나의 길 — `ask_ai` (`ai.py:115`)
+### 2-3. AI 를 부르는 단 하나의 길 — `ask_ai` (`ai.py:120`)
 
 AI 를 쓰는 기능은 전부 이 함수 하나로 불러요. 그래서 비용·안전 장치를 한곳에서 지켜요.
 
@@ -195,7 +191,7 @@ r = ask_ai("code_generation", system, prompt, CodeAnswer, max_tokens=OUTPUT_TOKE
 #### ① 연습 코드 받기 — `POST /practice` → `practice.py:250` `start_practice`
 ```
 1. 요청 값 확인 (level 1~4, topic 50자, language, focus)      PracticeIn · read_body
-   get_user(req)                                           core.py:584
+   get_user(req)                                           core.py:572
 2. make_code()                                                practice.py:331
    ├ 예시 코드 미리 골라 두기 pick_sample                       practice.py:631
    ├ AI 를 못 쓰면 → 예시 코드                                  ai_allowed
@@ -232,7 +228,7 @@ r = ask_ai("code_generation", system, prompt, CodeAnswer, max_tokens=OUTPUT_TOKE
 
 #### ③ AI 튜터 — `POST /tutor` → `tutor_chat.py:58` `ask_tutor`
 - 마지막 첨삭의 항목 하나 + 지금까지 대화(`REVIEW#<시각>#CHAT#<항목>`)를 `history` 로 넘겨 `ask_ai("tutor_chat", ..., history=turns)`
-- 시스템 지시문 `tutor_chat.py:21`: 정답 대신 볼 줄·질문으로 이끌기, 코드 대신 짜 주지 않기
+- 시스템 지시문 `tutor_chat.py:23`: 정답 대신 볼 줄·질문으로 이끌기, 코드 대신 짜 주지 않기
 - 10번 제한, AI 못 쓰면 `rule_answer` (코멘트 → 다시 볼 줄 → 모범 설명 순서로 조금씩)
 
 #### ④ 내 공부 — `GET /study` → `study.py:27` `overview` (AI 없음)
@@ -286,7 +282,7 @@ DynamoDB 콘솔 → 테이블 `jojo_table` → **표 항목 탐색(Explore table
 4. `pk` = `OPS#STATS` → 오늘 날짜의 `practices`·`reviews` 숫자가 늘어난 것 확인
 
 ### 3-2. 콘솔에서 Lambda 시험하기
-Lambda 함수(예: `jojo_practice`, 함수를 나누기 전에는 `jojo_api_py`) → **테스트** 탭 → 이벤트에 붙여넣고 테스트
+Lambda 함수(예: `jojo_practice`) → **테스트** 탭 → 이벤트에 붙여넣고 테스트 (그 함수가 맡은 경로만 — 다른 경로는 404)
 ```json
 {"path": "/health", "method": "GET"}
 {"path": "/topic/random", "method": "GET"}
@@ -303,7 +299,7 @@ npm run smoke    # 모든 API 를 순서대로 불러 보는 점검 — scripts/
 ```
 
 ### 3-4. 추천 공부 순서 (하루 30분씩)
-1. `lambda_function.py` 전체 (66줄) — 입구와 경로 표
+1. `lambda/functions/jojo_review.py` (20줄) — 입구와 경로 표, 그리고 `lambda/functions.json` — 함수마다 무엇이 들어가는지
 2. `core.py` 3·4번 구역 — 요청·응답, DB 도구 7개
 3. `core.py` 6번 구역 `get_user` — 학습자가 어떻게 생기고 이어지는지
 4. `practice.py` `start_practice` → `make_code` — 가장 중요한 흐름 (단계 주석만 먼저)

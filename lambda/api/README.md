@@ -1,11 +1,10 @@
 # api — 코드 리딩 노트 API (Python)
 
 공통 조각과 기능 파일이 모두 이 폴더에 한 벌씩 있어요. 기능별 함수 6개의 입구는 [`../functions/`](../functions), 함수마다 묶을 파일은 [`../functions.json`](../functions.json) 이 정해요 (구조 기준: [`docs/LAMBDA_STRUCTURE.md`](../../docs/LAMBDA_STRUCTURE.md)).
-여기의 `lambda_function.py` 는 모든 기능을 함께 담은 입구예요 — 예전 함수 `jojo_api_py` 와 내 컴퓨터(`npm run api`)가 써요.
+내 컴퓨터(`npm run api`)는 함수 6개의 입구를 주소 하나에서 함께 띄워요.
 
 | 파일 | 하는 일 | 경로 |
 |---|---|---|
-| `lambda_function.py` | **모든 기능을 담은 입구** (예전 함수 `jojo_api_py` · `npm run api`): 기능 파일의 경로 표를 합침, 관리자 코드 확인 | 전부 |
 | `core.py` | 공통 조각 (모든 함수): 설정, 요청·응답(Powertools 경로·CORS·JSON 로그, 요청 본문 모양), 연결 확인, DynamoDB, 요청 수 제한, 학습자, 설정 값·AI 끄기 스위치, 하루 사용 수, id | `GET /health` |
 | `ai.py` | 공통 조각 (AI 를 쓰는 함수): Bedrock 호출(`ask_ai`), 월 예산, 사용량 기록, AI 답의 모양(Pydantic `AiAnswer`) | |
 | `code_store.py` | 공통 조각: 읽을 코드 저장·꺼내기, 화면용 모양(`public_code`), ※ 정리, 개념 추정 | |
@@ -16,7 +15,7 @@
 | `tutor_chat.py` | 첨삭 뒤 AI 튜터 대화: 메모별 첨삭 하나에 대해 묻고 답하기(10번까지), 대화 저장 | `POST /tutor` |
 | `study.py` | 내 공부 (AI 없음): 첨삭 기록 → 난이도 추천 · 개념별 약점 지도 · 내 설명 노트 | `GET /study` |
 | `auth.py` | Google 로그인 (선택, 환경 변수 `GOOGLE_*`): 로그인 토큰 발급, 익명 기록을 계정으로 옮기기 | `GET /me`, `/auth/...` |
-| `admin.py` | 관리자 화면 (`x-admin-token` 필요): AI 사용량·비용·AI 끄기·관리자 코드·예전 데이터 옮기기 | `/admin/...` |
+| `admin.py` | 관리자 화면 (`x-admin-token` 필요): AI 사용량·비용·AI 끄기·관리자 코드 | `/admin/...` |
 | `experiment.py` | 논문 실험 (`x-admin-token` 필요): 문항 하나를 만들고 단계 기록 (`docs/EXPERIMENT.md`) | `POST /admin/experiment` |
 | `samples.py` | AI 를 쓸 수 없을 때의 예시 코드(Python, 난이도마다 2개)와 랜덤 주제 목록 | |
 | `samples_js.py` | JavaScript 예시 코드 (난이도마다 1~2개, `samples.py` 가 합침) | |
