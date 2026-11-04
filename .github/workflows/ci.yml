@@ -1,4 +1,4 @@
-# 자동 검사 (push · PR 마다): 타입 · 테스트(TS + Python) · 예시 코드 실행 검증 · Lambda 전체 흐름 · 정적 빌드 · 함수 zip 묶기
+# 자동 검사 (push · PR 마다): 타입 · 테스트(TS + Python) · 예시 코드 실행 검증 · Lambda 전체 흐름 · 정적 빌드
 name: CI
 
 on:
@@ -28,5 +28,3 @@ jobs:
       - name: Lambda 전체 흐름 (로컬 DynamoDB 흉내 서버 + 목업 AI)
         run: npm run smoke
       - run: npm run build
-      - name: Lambda 함수 zip 묶기 (Python 3.14 · arm64 용 라이브러리를 받을 수 있는지)
-        run: npm run package

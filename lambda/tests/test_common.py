@@ -1,4 +1,4 @@
-"""공통 조각 core·ai·code_store: 숫자 변환·AI 답의 모양(Pydantic)·요청 본문·경로 처리(Powertools)·비용·읽을 코드 정리"""
+"""공통 조각 core·ai: 숫자 변환·AI 답의 모양(Pydantic)·요청 본문·경로 처리(Powertools)·비용·화면용 코드·시간순 id·보관 기간"""
 import json
 import unittest
 import unittest.mock
@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from helpers import ai, code_store, core
+from helpers import ai, core
 
 
 class DynamoNumbers(unittest.TestCase):
@@ -111,7 +111,7 @@ class RequestBody(unittest.TestCase):
 
 
 class Router(unittest.TestCase):
-    """core.make_app · core.handle (Powertools 경로). 관리자처럼 확인 함수가 있는 경로는 요청 수 제한(DynamoDB)을 거치지 않아 여기서 시험한다"""
+    """core.make_app · core.handle (Powertools 경로). 요청 수 제한(DynamoDB)은 늘 통과로 바꿔 둔다"""
 
     @classmethod
     def setUpClass(cls):
@@ -126,7 +126,13 @@ class Router(unittest.TestCase):
 
         routes = {"GET /x/ok": ok, "POST /x/ok": ok, "GET /x/boom": boom, "GET /x/refuse": refuse,
                   "GET /x/go": lambda req: {"_redirect": "https://example.com/"}}
-        cls.app = core.make_app(routes, guards={"/x": lambda req: None})
+        cls.app = core.make_app(routes)
+        cls.saved = core.hit_limit
+        core.hit_limit = lambda *a: True
+
+    @classmethod
+    def tearDownClass(cls):
+        core.hit_limit = cls.saved
 
     def call(self, event):
         res = core.handle(self.app, event, None)
@@ -159,40 +165,62 @@ class Router(unittest.TestCase):
         self.assertEqual(headers["access-control-expose-headers"], "x-session-id")
 
 
-    def test_build_messages_starts_with_user_and_merges(self):
-        msgs = ai.build_messages([{"role": "assistant", "text": "앞"}, {"role": "user", "text": "질문1"}, {"role": "user", "text": "질문2"}], "이번")
-        self.assertEqual([m["role"] for m in msgs], ["user"])
-        self.assertIn("질문2", msgs[0]["content"][0]["text"])
-        self.assertTrue(msgs[0]["content"][0]["text"].endswith("이번"))
-
-
 class Cost(unittest.TestCase):
     def test_model_names_and_price(self):
         self.assertEqual(ai.normalize_model("us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
         self.assertEqual(ai.normalize_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
-        cost = ai.estimate_cost([{"model": "us.anthropic.claude-haiku-4-5-20251001-v1:0", "input": 1_000_000, "output": 100_000, "cacheRead": 0}])
-        self.assertAlmostEqual(cost, 1.5)
+        self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 100_000), 1.5)
 
 
 class CodeItems(unittest.TestCase):
-    CODE = "\n".join(f"line{i}" for i in range(1, 21))
-
-    def test_clean_marks_sorts_clamps_and_drops_overlaps(self):
-        marks = code_store.clean_marks(self.CODE, [{"start": 10, "end": 30, "why": "b"}, {"start": 2, "end": 4, "why": "a"},
-                                               {"start": 3, "end": 6, "why": "겹침"}, {"start": 0, "end": 1}])
-        self.assertEqual([(m["id"], m["start"], m["end"]) for m in marks], [("m1", 1, 1), ("m2", 2, 4), ("m3", 10, 20)])
-
-    def test_public_code_hides_model_explanation(self):
-        item = {"codeId": "x", "source": "practice", "language": "python", "level": 2, "code": self.CODE, "regenCount": 2,
-                "marks": [{"id": "m1", "start": 1, "end": 2, "why": "w", "explanation": "모범 설명", "keywords": ["k"]}]}
-        pub = code_store.public_code(item)
-        self.assertEqual(pub["marks"], [{"id": "m1", "start": 1, "end": 2}])
+    def test_public_code_hides_review_record(self):
+        item = {"codeId": "x", "language": "python", "level": 2, "code": "a = 1\nprint(a)", "title": "t", "topic": "주제",
+                "units": [{"id": "u1", "start": 1, "end": 2, "key": True, "explanation": "모범 설명", "keywords": ["k"], "steps": ["1번 줄 a=1"]},
+                          {"id": "u2", "start": 2, "end": 2, "key": False, "explanation": "다른 설명"}]}
+        pub = core.public_code(item)
+        self.assertEqual(pub["marks"], [{"id": "u1", "start": 1, "end": 2}])   # 설명할 곳(key)만, 줄 범위만
         self.assertNotIn("모범 설명", str(pub))
-        self.assertEqual(pub["regenLeft"], core.REGEN_LIMIT - 2)
-        self.assertEqual(pub["levelName"], "초급")
+        self.assertNotIn("1번 줄 a=1", str(pub))
+        self.assertEqual(pub["levelName"], "중급")
+        self.assertEqual(core.public_code({**item, "level": 4})["levelName"], "고급")   # 예전 판(4단계) 코드도 열림
 
-    def test_day_key_is_korea_time(self):
-        self.assertEqual(core.day_key(1_700_000_000_000), "2023-11-15")
+
+class TimeOrderedId(unittest.TestCase):
+    def test_new_id_is_uuid7_sorted_by_time(self):
+        import re
+        import uuid
+        early, late = core.new_id(ms=1_700_000_000_000), core.new_id(ms=1_800_000_000_000)
+        for i in (early, late):
+            self.assertEqual(uuid.UUID(i).version, 7)
+            self.assertTrue(core.SESSION_ID.match(i))
+            self.assertTrue(re.fullmatch(r"[0-9a-f-]{36}", i))
+        self.assertLess(early, late)
+        self.assertNotEqual(core.new_id(ms=1), core.new_id(ms=1))
+
+
+class KeepTime(unittest.TestCase):
+    def test_anonymous_is_short_member_is_long(self):
+        self.assertEqual(core.keep_seconds({"member": False}, "user"), core.ANON_HOURS * 3600)
+        self.assertEqual(core.keep_seconds({"member": False}, "code"), core.ANON_CODE_HOURS * 3600)
+        self.assertEqual(core.keep_seconds({"member": True}, "code"), core.CODE_KEEP_DAYS * 86400)
+
+
+class Admin(unittest.TestCase):
+    def test_admin_token(self):
+        req = lambda token: {"headers": {"x-admin-token": token} if token else {}, "ip": "t"}
+        saved = core.hit_limit
+        core.hit_limit = lambda *a: True
+        try:
+            with unittest.mock.patch.dict("os.environ", {"ADMIN_TOKEN": "right-code"}):
+                self.assertTrue(core.is_admin(req("right-code")))
+                self.assertFalse(core.is_admin(req(None)))          # 보내지 않으면 일반 요청
+                with self.assertRaises(core.ApiError) as e:
+                    core.is_admin(req("wrong"))
+                self.assertEqual(e.exception.status, 403)
+            with unittest.mock.patch.dict("os.environ", {"ADMIN_TOKEN": ""}), self.assertRaises(core.ApiError):
+                core.is_admin(req("anything"))                      # 환경 변수가 없으면 아무 코드도 통과하지 않음
+        finally:
+            core.hit_limit = saved
 
 
 if __name__ == "__main__":

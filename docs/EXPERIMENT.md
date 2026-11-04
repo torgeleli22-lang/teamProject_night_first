@@ -1,114 +1,52 @@
-# 문항 생성·검증 실험 (논문 표 1)
+# 코드 생성·검증 실험
 
-> 무엇을, 몇 문항으로, 어떤 기준으로 판정하는지는 **`docs/EVALUATION_PROTOCOL.md`** 가 정해요 (실험 전에 고정). 이 문서는 실행 방법이에요.
+서비스와 똑같이 `POST /practice` 로 코드를 만들고, 관리자 코드(`x-admin-token`)로 **단계별 기록**을 함께 받아 모아요.
+기준은 [`docs/GENERATION_STANDARD.md`](GENERATION_STANDARD.md).
 
-연습 모드와 **같은 코드**(`practice.make_code`)로 문항을 만들면서 단계마다 결과를 기록합니다. 단계 기록은 Lambda 기능 파일 `lambda/api/experiment.py`(관리자 경로 `POST /admin/experiment`)가 하고, `scripts/experiment_generation.py` 가 이 경로를 40번 불러 결과를 모아 표 1 을 계산합니다. 서비스 코드는 바꾸지 않고 단계 함수(규칙 검사 · 교차 검토 · AI 호출)를 감싸서 기록만 하며, 실험이 아닌 요청에는 아무 영향이 없습니다.
+- 문항: 언어 2(Python·JavaScript) × 난이도 3(초급·중급·고급) × 반복 5 = **30문항** (기본값)
+- 비용: 문항당 몇 센트 (생성·검토 2번이 보통) → 30문항이면 1~3달러
 
-- 문항: 언어 2(Python · JavaScript) × 난이도 4 × 5회 = **40문항**. 주제는 서비스의 랜덤 주제 목록(고급은 알고리즘 주제)에서 고르고, `--seed` 가 같으면 같은 순서
-- 실험 문항은 저장하지 않아요 (학습자 기록과 섞이지 않게). AI 사용량은 관리자 화면 비용에 그대로 잡혀요
-- 실험 중에는 요청 수 한도(1시간 30번)만 건너뛰고, 월 예산 확인·AI 끄기는 서비스와 똑같이 동작
-- 실행 환경 = 서비스 환경: Lambda `jojo_admin`(Python 3.14 · arm64, 연습 모드의 `jojo_practice` 와 같은 `practice.py`) · 실행 역할의 Bedrock 권한 · 같은 모델(`MODEL_ID`)
-- 비용: Claude Haiku 4.5 로 40문항 약 **3~6달러** (문항마다 출제·실행 추적표·교차 검토 3번, 관리자 화면에서 남은 예산 확인) · 시간: 4개씩 동시에 **약 20~40분**
-
-## 결과 파일 (`experiment_out/<시각>/`)
-
-| 파일 | 내용 |
-|---|---|
-| `summary.md` | **표 1 값**, 참고 값(두 번째 시도 포함 비율·토큰), 언어·난이도별 표, 검출 사례, 항목 정의 |
-| `results.csv` | 문항별 한 줄 (엑셀에서 열기) — 시도별 규칙 검사·교차 검토 문제, 교정 수, 최종 origin, 시간, 토큰 |
-| `results.jsonl` | 모든 단계 기록 (코드·※ 지점·모범 설명 포함). 중간에 끊겨도 여기까지는 남음 |
-| `verify.md` | 무작위 AI 문항 10개: 코드 + **실제 실행 출력** + ※ 모범 설명. 연구진이 `일치/불일치` 표시 |
-| `verify_code/` | 그 10문항의 코드 파일 (직접 다시 실행해 볼 수 있음) |
-
-## 표 1 항목 정의
-
-| 항목 | 세는 방법 |
-|---|---|
-| 규칙 검사 재생성 판정 | 첫 생성 결과가 규칙 검사(ast 문법·정의 안 된 이름·금지 모듈/함수, JS 괄호·따옴표·금지 기능, 줄 수, ※ 줄 위치)에 걸린 문항 / 40 |
-| 교차 검토 재생성 판정 | 첫 생성이 규칙 검사는 통과했지만 교차 검토가 실행 오류·난이도 불일치를 찾은 문항 / 40 |
-| 교차 검토의 모범 설명 교정 | 최종 제공된 AI 문항에서 교체된 ※ 모범 설명 수 / 그 문항들의 ※ 지점 총수 (재생성으로 버려진 시도의 교정은 세지 않음) |
-| AI 문항 최종 제공 · 예시 코드 대체 | 최종 결과가 AI 문항(`origin: ai`) / 예시 코드(`origin: sample`)인 문항 / 40 (둘을 더하면 100%) |
-| 모범 설명 실행 확인 | `verify.md` 의 10문항 중 ※ 설명이 모두 실제 실행과 맞는 문항 수 (연구진 판정). Math.random·지금 시각을 쓴 코드는 실행마다 출력이 달라질 수 있어서, 값이 아니라 흐름이 맞는지로 판정 |
-| 문항당 평균 생성 시간 | 요청부터 최종 결과까지 (출제·검사·검토·재생성 포함), 평균과 중앙값 |
-| 문항당 비용 | 입력·출력 토큰 × Claude Haiku 4.5 단가 (입력 1달러·출력 5달러 / 100만 토큰), 평균 |
-| 부분 수정 | 부분 수정(`code_fix`)을 쓴 문항 수, 그중 고쳐서 넘어간 수 |
-| 출력 자동 비교 | AI 문항 코드를 실제로 실행(`run_code/`)해 추적표의 출력과 같은지. 줄바꿈·띄어쓰기만 다르면 같다고 봐요 (Math.random·시각을 쓰면 다를 수 있음) |
-| 학습자 등급별 (`--grade-pairs`) | 기초·전문가 각각의 AI 제공률·교차 검토 통과·출력 일치·비용·평균 호출 수 |
-
-## 실행하기
-
-### 0. Lambda 에 최신 코드 올리기
-실험 경로(`POST /admin/experiment`)는 **`jojo_admin`** 에 있어요. 최신 코드를 올려 두세요 (콘솔: `lambda/console/jojo_admin/` · CloudShell: `npm run deploy`, `docs/DEPLOY_LAMBDA.md`).
-제한 시간 10분은 `npm run deploy` 가 맞춰요 (중급·고급 코드는 한 번에 1~2분, 다시 만들면 두 배).
-아래 `<함수 URL>` 은 `jojo_admin` 의 함수 URL 이에요.
-
-### 1. AWS CloudShell 열기
-AWS 콘솔 → 리전 **서울(ap-northeast-2)** → 위쪽 막대의 **CloudShell** 아이콘(`>_`). (내 컴퓨터 터미널에서 해도 돼요 — Python 3.10 이상만 있으면 됨, boto3 불필요)
-CloudShell 의 기본 Python 은 3.9 라서 처음 한 번 `sudo dnf install -y python3.11` 로 설치하고 아래처럼 `python3.11` 로 실행해요.
-
-### 2. 저장소 받기 (이미 받았다면 최신으로)
+## 실행 (AWS CloudShell)
+1. `jojo_practice` 에 최신 코드를 붙여넣고, 환경 변수 `ADMIN_TOKEN` 을 넣어 둬요 (DEPLOY_LAMBDA.md 3)
+2. CloudShell (리전 서울):
 ```bash
-git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
-cd teamProject_night_first
-git pull
+cd ~/teamProject_night_first && git pull            # 처음이면: git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
+python3 scripts/experiment_generation.py --url https://<jojo_practice 함수 URL>
 ```
-
-### 3. 먼저 작게 시험 (8문항, 수십 센트)
-```bash
-python3.11 scripts/experiment_generation.py --url https://<함수 URL> --reps 1
-```
-`관리자 코드:` 가 나오면 입력하고 Enter (입력해도 화면에 보이지 않아요).
-
-### 4. 본 실험 (40문항)
-화면을 닫아도 계속 돌도록 관리자 코드를 환경 변수로 주고 `nohup` 으로 실행:
-```bash
-read -s -p "관리자 코드: " EXPERIMENT_ADMIN_CODE; export EXPERIMENT_ADMIN_CODE; echo
-nohup python3.11 scripts/experiment_generation.py --url https://<함수 URL> > exp.log 2>&1 &
-tail -f exp.log          # 진행 보기 (Ctrl+C 로 보기만 멈춤)
-```
-CloudShell 세션이 끝나 멈추면, 같은 폴더로 이어서 (이미 만든 문항은 건너뜀):
-```bash
-python3.11 scripts/experiment_generation.py --url https://<함수 URL> --resume experiment_out/<시각>
-```
-
-### 4-1. 등급별 비교 (10문항)
-같은 주제·난이도를 기초·전문가로 한 쌍씩 만들어 비교해요 (v1.3):
-```bash
-python3.11 scripts/experiment_generation.py --url https://<함수 URL> --grade-pairs 5
-```
-
-### 5. 결과 내려받기
-```bash
-cd experiment_out && zip -r ../experiment_result.zip . && cd ..
-```
-CloudShell 오른쪽 위 **작업(Actions) → 파일 다운로드** → `teamProject_night_first/experiment_result.zip`
-
-### 6. 모범 설명 실행 확인
-`verify.md` 를 열어 10문항의 ※ 설명을 실제 실행 출력과 비교해 `일치/불일치` 를 표시하고, 표 1 의 "모범 설명 실행 확인" 칸을 채웁니다. (코드는 `verify_code/` 에 있어 다시 실행해 볼 수 있어요)
-
-### 다른 방법: 이 컴퓨터에서 직접 (`--local`)
-Bedrock·DynamoDB 권한이 있는 AWS 계정이면 Lambda 없이 실행할 수 있어요 (Python 3.10 이상 + boto3).
-학교 계정의 CloudShell 사용자에게는 Bedrock 권한이 없어서 `AccessDeniedException` 이 나요 — 그때는 위의 `--url` 방식으로.
-```bash
-python3.11 -m pip install --user boto3
-python3.11 scripts/experiment_generation.py --local
-```
+관리자 코드를 물어보면 `ADMIN_TOKEN` 값을 넣어요 (화면에 보이지 않아요). CloudShell 기본 `python3` 로 돼요.
+- 오래 걸리면: `nohup python3 scripts/experiment_generation.py --url … > exp.log 2>&1 &` (관리자 코드는 `EXPERIMENT_ADMIN_CODE` 환경 변수로)
+- 끊겼으면: 같은 명령에 `--resume experiment_out/<시각>`
+- 결과 내려받기: CloudShell → 작업 → 파일 다운로드 → `teamProject_night_first/experiment_out/<시각>/summary.md`
 
 ## 옵션
-
 | 옵션 | 기본 | 뜻 |
 |---|---|---|
-| `--url` | — | Lambda 함수 URL — 이 Lambda 에서 만든다 (권장) |
-| `--local` | — | 이 컴퓨터에서 Lambda 코드를 직접 실행 (AWS 권한 필요) |
-| `--reps` | 5 | 언어·난이도마다 문항 수 (5 → 40문항) |
-| `--grade-pairs` | — | 등급별 비교: 같은 주제·언어·난이도를 기초·전문가로 N쌍 (5 → 10문항). `--reps` 대신 |
-| `--workers` | 4 | 동시에 만들 문항 수 (늘리면 빨라지지만 Bedrock 요청 한도에 걸릴 수 있음) |
+| `--url` | — | `jojo_practice` 함수 URL |
+| `--reps` | 5 | 언어·난이도마다 문항 수 (5 → 30문항) |
+| `--workers` | 4 | 동시에 만들 문항 수 |
 | `--seed` | 2026 | 주제 순서·확인 문항 고르기 |
-| `--verify` | 10 | 실행 확인할 AI 문항 수 |
+| `--verify` | 10 | verify.md 에 넣을 AI 문항 수 |
 | `--resume` | — | 이어서 할 결과 폴더 |
-| `--offline-db` | — | `--local` 과 함께: DynamoDB 없이 (예산 확인·사용량 기록 생략) — 스크립트 확인용 |
 
-관리자 코드는 `EXPERIMENT_ADMIN_CODE` 환경 변수로도 줄 수 있어요 (명령 줄에 직접 쓰지 마세요 — 기록에 남아요).
+내 컴퓨터(목업, 비용 없음): `ADMIN_TOKEN=x npm run api` 를 켜 두고 `EXPERIMENT_ADMIN_CODE=x python3 scripts/experiment_generation.py --url http://localhost:8787 --reps 1`
 
-비용 없이 스크립트만 확인: `AI_MODE=mock MOCK_DELAY_SEC=0 python3 scripts/experiment_generation.py --local --offline-db --reps 1`
-내 컴퓨터의 흉내 Lambda 로 확인: `npm run api` 를 켠 뒤 `EXPERIMENT_ADMIN_CODE=x python3 scripts/experiment_generation.py --url http://localhost:8787 --reps 1`
+## 결과 (`experiment_out/<시각>/`)
+| 파일 | 내용 |
+|---|---|
+| `summary.md` | 결과 표 + 언어·난이도별 표 |
+| `results.csv` · `results.jsonl` | 문항마다 단계 기록 (생성·규칙 검사·검토 판정·부분 수정·다시 만들기·AI 호출과 토큰) |
+| `verify.md` | 무작위 AI 문항: 코드 + 실제 실행 출력 + 검토 기록·모범 설명 — 연구진이 일치 여부 표시 |
+| `run_code/` | AI 문항 코드 파일 (직접 다시 실행해 볼 수 있음) |
+
+## 결과 표 항목
+| 항목 | 세는 방법 |
+|---|---|
+| AI 문항 최종 제공 | 최종 결과가 AI 코드(`origin: ai`)인 문항 / 전체 (나머지는 예시 코드) |
+| 첫 생성 그대로 통과 | 부분 수정·다시 만들기 없이 첫 생성이 끝까지 통과한 문항 |
+| 규칙 검사 1에 걸림 | 첫 생성이 문법 오류·정의 안 된 이름에 걸린 비율 |
+| 검토: 동작하지 않음 · 난이도 맞음 · 함수·반복문을 빠뜨림 | 첫 검토 답 기준 |
+| 부분 수정 · 다시 만든 문항 | 문항 수 |
+| AI 문항이 실제로 오류 없이 실행됨 | 이 컴퓨터에서 실제로 실행(15초 제한, 입력 없음) |
+| 검토 출력 = 실제 출력 | 두 번 실행해 출력이 같은 코드만 (랜덤·시각을 쓰면 빼요), 줄바꿈·띄어쓰기 차이는 같다고 봐요 |
+| 문항당 AI 호출 · 비용 · 시간 | 평균 (비용: 입력 1달러·출력 5달러 / 100만 토큰) |
+| 언어·난이도별의 '검토가 본 난이도' | 첫 검토의 종합 난이도 — 요청한 난이도와 얼마나 맞는지 |

@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "코드 리딩 노트",
-  description: "AI 가 짜 준 코드, 정말 읽을 수 있나요? 코드 옆에 메모로 흐름을 적으면 빨간펜으로 첨삭해 드려요.",
+  description: "AI 가 짜 준 코드, 정말 읽을 수 있나요? 코드 옆에 메모로 흐름을 적으면 빨간펜으로 채점해 드려요.",
 };
 
 export const viewport: Viewport = {
