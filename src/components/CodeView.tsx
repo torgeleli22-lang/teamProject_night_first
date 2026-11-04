@@ -25,7 +25,7 @@ export interface Range {
  * - highlights: 형광펜 범위 (오른쪽에 번호 ①②). 겹치면 더 진하게
  * - onLineDown·onLineEnter: 눌러서 끌어 범위 고르기 (읽기 화면)
  * - pending: 고르는 중인 범위 (옅게)
- * - from·to: 일부 줄만 보여 줄 때 (첨삭 결과)
+ * - from·to: 일부 줄만 보여 줄 때 (채점 결과)
  * - tint: 연분홍으로 칠할 줄 (다시 볼 곳)
  * - focus: 지금 보고 있는 범위 (형광펜보다 위에, 분홍 + 왼쪽 빨간 줄)
  * - language: 문법 색칠 언어 (기본 Python)

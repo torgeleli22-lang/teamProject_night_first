@@ -9,7 +9,7 @@ export function Page({ children, className = "" }: { children: React.ReactNode; 
   );
 }
 
-/** 단계 표시: 1장 · 주제 고르기 → 2장 · 메모 → 3장 · 첨삭 */
+/** 단계 표시: 1장 · 고르기 → 2장 · 메모 → 3장 · 채점 */
 export function Crumb({ children }: { children: React.ReactNode }) {
   return <p className="crumb">{children}</p>;
 }

@@ -15,20 +15,3 @@ test("화면 코드가 lambda/ 를 가져오지 않음", () => {
     if (!f.endsWith(path.join("lib", "api.ts"))) assert.ok(!/\bfetch\(/.test(text), `${f} 는 src/lib/api.ts 로만 서버를 불러요`);
   }
 });
-
-test("화면의 민감 정보 모양이 Lambda 와 같음", () => {
-  const py = fs.readFileSync("lambda/api/inspect_code.py", "utf8");
-  const ts = fs.readFileSync("src/lib/secrets.ts", "utf8");
-  for (const kind of ["AWS 액세스 키", "API 키", "GitHub 토큰", "Slack 토큰", "Google API 키", "비밀 값"]) {
-    assert.ok(py.includes(`"${kind}"`) && ts.includes(`"${kind}"`), kind);
-  }
-});
-
-test("개념 꼬리표가 Lambda 와 같음", () => {
-  const py = fs.readFileSync("lambda/api/core.py", "utf8");
-  const ts = fs.readFileSync("src/lib/api-types.ts", "utf8");
-  for (const [key, name] of [...py.matchAll(/"(\w+)": \{"name": "([^"]+)", "description"/g)].map((m) => [m[1], m[2]])) {
-    if (!["branch", "loop_update", "call_flow", "data_update", "class_state", "exception", "recursion", "algorithm"].includes(key)) continue;
-    assert.ok(ts.includes(`${key}: "${name}"`), `${key} → ${name}`);
-  }
-});

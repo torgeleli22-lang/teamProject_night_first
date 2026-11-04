@@ -1,39 +1,24 @@
 /**
- * Lambda(jojo_api)가 화면으로 돌려주는 JSON 의 모양 (lambda/api 의 Python 코드와 같게 유지한다).
- * ※ 꼭 설명할 곳의 모범 설명·핵심 표현은 읽는 동안(CodeItem)에는 오지 않고, 첨삭(ReviewResult) 뒤에만 온다.
+ * Lambda 가 화면으로 돌려주는 JSON 의 모양 (lambda/jojo_<함수> 의 Python 코드와 같게 유지한다).
+ * 채점 기준(검토 기록·모범 설명)은 읽는 동안(CodeItem)에는 오지 않고, 채점 결과(ReviewResult)에만 온다.
  */
 
-export type Level = 1 | 2 | 3 | 4;
-export const LEVEL_NAMES: Record<Level, string> = { 1: "입문", 2: "초급", 3: "중급", 4: "고급" };
+export type Level = 1 | 2 | 3;
+export const LEVEL_NAMES: Record<Level, string> = { 1: "초급", 2: "중급", 3: "고급" };
+/** 난이도 기준 (docs/GENERATION_STANDARD.md 2장 — 줄 수가 아니라 개념·구조·흐름으로) */
 export const LEVEL_DESCRIPTIONS: Record<Level, string> = {
-  1: "짧은 코드. 변수, 조건문, 반복문이 위에서 아래로 흘러가요.",
-  2: "함수 여러 개가 서로를 불러요. 리스트·딕셔너리(배열·객체)가 나와요.",
-  3: "60~100줄. 클래스, 재귀, 예외 처리처럼 흐름이 오가는 작은 프로그램이에요.",
-  4: "100~180줄 프로그램. 최단 경로·동적 계획법·정렬·탐색 같은 알고리즘과 자료구조를 따라가요.",
+  1: "변수·자료형·연산자 같은 기초 문법, 하나의 핵심 개념. 실행 순서와 결과가 쉽게 보여요.",
+  2: "조건문·반복문·함수를 함께 써요. 두 가지 이상의 개념이 이어지고, 매개변수와 반환값으로 값이 오가요.",
+  3: "중첩 반복·복합 조건, 함수·자료구조·클래스가 이어진 여러 단계의 흐름이에요.",
 };
 
-/** 연습 모드 언어 (core.LANGUAGES 와 같게). 내 코드 점검은 아직 Python 만 */
 export type Language = "python" | "javascript";
 export const LANGUAGE_NAMES: Record<Language, string> = { python: "Python", javascript: "JavaScript" };
 
-/** 개념 꼬리표 (core.CONCEPTS 와 같게): ※ 지점·메모 범위가 어떤 흐름을 읽는 곳인지 */
-export type Concept = "branch" | "loop_update" | "call_flow" | "data_update" | "class_state" | "exception" | "recursion" | "algorithm";
-export const CONCEPT_NAMES: Record<Concept, string> = {
-  branch: "조건 분기",
-  loop_update: "반복이 값을 바꾸는 곳",
-  call_flow: "함수가 함수를 부름",
-  data_update: "자료구조 다루기",
-  class_state: "객체 상태 바뀜",
-  exception: "예외 흐름",
-  recursion: "재귀·되돌아가기",
-  algorithm: "알고리즘 핵심",
-};
-
-// ───────────────────────── 로그인 (auth.py) ─────────────────────────
+// ───────────────────────── 로그인 (jojo_auth) ─────────────────────────
 
 /** GET /me */
 export interface Me {
-  /** 로그인한 학습자인지 */
   member: boolean;
   name: string | null;
   provider: "google" | null;
@@ -41,45 +26,18 @@ export interface Me {
   providers: { google: boolean };
 }
 
-// ───────────────────────── 연결 확인 (모든 함수, core.HEALTH) ─────────────────────────
+// ───────────────────────── 연습 코드 (jojo_practice, core.public_code) ─────────────────────────
 
-export interface Health {
-  ok: boolean;
-  mode: "live" | "mock" | "off";
-  ai: boolean;
-  languages: string[];
-  maxCodeLines: number;
-  regenLimit: number;
-}
-
-// ───────────────────────── 주제 (topics.py) ─────────────────────────
-
-export interface RandomTopic {
-  topic: string;
-}
-
-export type TopicVerdict = "ok" | "vague" | "too_big" | "inappropriate";
-
-export interface TopicCheck {
-  verdict: TopicVerdict;
-  /** ok 일 때 다듬은 주제 */
-  topic: string;
-  suggestions: string[];
-  message: string;
-}
-
-// ───────────────────────── 읽을 코드 (practice.py · inspect_code.py, common.public_code) ─────────────────────────
-
-/** ※ 꼭 설명할 곳 (줄 범위만) */
+/** 설명할 곳(※) — 줄 범위만 */
 export interface MarkRange {
   id: string;
   start: number;
   end: number;
 }
 
+/** POST /practice */
 export interface CodeItem {
   codeId: string;
-  source: "practice" | "inspect";
   language: Language;
   level: Level;
   levelName: string;
@@ -87,88 +45,17 @@ export interface CodeItem {
   title: string;
   code: string;
   marks: MarkRange[];
-  /** 같은 코드에서 '더 쉽게·더 어렵게'로 다시 만들 수 있는 남은 횟수 */
-  regenLeft: number;
   /** 예시 코드로 대신했을 때 등 안내 */
   note: string | null;
-  /** 내 코드 점검: 고른 함수 이름 */
-  functions?: string[] | null;
-  /** 내 코드 점검: AI 가 그 난이도로 본 이유 */
-  levelReason?: string | null;
-  /** '이 개념 집중 연습'으로 만든 코드의 집중 개념 */
-  focus?: Concept | null;
 }
-
-/** POST /inspect/start 의 응답 */
-export interface InspectStarted extends CodeItem {
-  masked: MaskedLine[];
-}
-
-export type AdjustReason = "too_long" | "unknown_concept" | "complex_flow";
-export const ADJUST_REASONS: Record<AdjustReason, string> = {
-  too_long: "코드가 너무 길어요",
-  unknown_concept: "모르는 개념이 있어요",
-  complex_flow: "흐름이 복잡해요",
-};
 
 /** GET /code?codeId= */
 export interface CodeItemWithReview {
   codeItem: CodeItem;
   review: ReviewResult | null;
-  /** 첨삭 항목 번호(문자열) → AI 튜터와 나눈 대화 */
-  chats?: Record<string, TutorChat>;
-  /** 첨삭 항목 번호(문자열) → 힌트를 보고 다시 써 본 기록 */
-  retries?: Record<string, RetryState>;
 }
 
-/** 힌트를 보고 다시 쓴 설명 하나와 그 판정 */
-export interface RetryAttempt {
-  text: string;
-  mark: "correct" | "partial" | "wrong";
-  comment: string;
-  lookAt: number[];
-  byAi: boolean;
-  at: number;
-}
-
-export interface RetryState {
-  attempts: RetryAttempt[];
-  /** 남은 횟수 (항목 하나에 3번) */
-  left: number;
-}
-
-/** POST /review/retry */
-export interface RetryReply extends RetryState {
-  item: number;
-}
-
-// ───────────────────────── 내 코드 점검 (inspect_code.py) ─────────────────────────
-
-export interface MaskedLine {
-  line: number;
-  kind: string;
-}
-
-export interface FoundFunction {
-  name: string;
-  signature: string;
-  start: number;
-  end: number;
-}
-
-/** POST /inspect (훑어보기, AI 없음) */
-export interface InspectLook {
-  language: "python";
-  languageName: string;
-  lines: number;
-  code: string;
-  masked: MaskedLine[];
-  functions: FoundFunction[];
-  levelGuess: Level;
-  levelGuessName: string;
-}
-
-// ───────────────────────── 첨삭 (review.py) ─────────────────────────
+// ───────────────────────── 채점 (jojo_review) ─────────────────────────
 
 export interface Memo {
   start: number;
@@ -178,26 +65,28 @@ export interface Memo {
   anchor?: number;
 }
 
-/** ○ correct 정확 · △ partial 부분 · ✕ wrong 오해 · ⬚ missing 누락(※ 지점에 메모 없음) */
+/** ○ correct 정확 · △ partial 부분 · ✕ wrong 오해 · ⬚ missing 빈칸(설명할 곳에 메모 없음) */
 export type MarkKind = "correct" | "partial" | "wrong" | "missing";
-export const MARK_NAMES: Record<MarkKind, string> = { correct: "정확", partial: "부분", wrong: "오해", missing: "누락" };
+export const MARK_NAMES: Record<MarkKind, string> = { correct: "정확", partial: "부분", wrong: "오해", missing: "빈칸" };
 
 export interface ReviewItem {
   kind: "memo" | "missing";
   start: number;
   end: number;
-  /** ※ 꼭 설명할 곳과 겹치는지 */
+  /** 설명할 곳(※)과 겹치는지 */
   marked: boolean;
   memo: string;
   mark: MarkKind;
   comment: string;
   lookAt: number[];
-  /** 모범 설명 ("모범 설명 보기") */
+  /** 모범 설명 */
   model: string;
-  /** 개념 꼬리표 */
-  concept?: Concept;
+  /** 검토 AI 가 실행하듯 따라간 기록 (넣은 값 · 바뀌는 과정 · 반복 횟수 · 멈춘 조건 · 결과) — 채점 기준 */
+  /** 예전 판의 채점 결과에는 없어요 */
+  trace?: string[];
 }
 
+/** POST /review */
 export interface ReviewResult {
   codeId: string;
   summary: string;
@@ -205,185 +94,4 @@ export interface ReviewResult {
   items: ReviewItem[];
   byAi: boolean;
   createdAt: number;
-}
-
-// ───────────────────────── 내 공부 (study.py, AI 없음) ─────────────────────────
-
-export interface LevelAdvice {
-  level: Level;
-  name: string;
-  codes: number;
-  correctRate: number;
-  advice: "up" | "down" | "stay" | "none";
-}
-
-export interface ConceptStat {
-  concept: Concept;
-  name: string;
-  description: string;
-  count: number;
-  /** 처음 판정에서 ○ 를 받은 비율 (0~1) */
-  correctRate: number;
-  /** 다시 써서 ○ 가 된 수 */
-  improved: number;
-  missing: number;
-}
-
-export interface ExplanationNote {
-  concept: Concept;
-  conceptName: string;
-  text: string;
-  /** 다시 써서 ○ 를 받은 설명인지 */
-  improved: boolean;
-  start: number;
-  end: number;
-  /** 그 범위의 코드 몇 줄 (연습 코드만) */
-  snippet: string | null;
-  title: string;
-  level: Level;
-  source: "practice" | "inspect";
-  /** 예전 기록에는 없음 (python) */
-  language?: Language;
-  codeId: string;
-  /** 원본 코드가 아직 남아 있어 다시 열 수 있는지 */
-  open: boolean;
-  at: number;
-}
-
-export interface StudyOverview {
-  summary: { codes: number; days: number; items: number; correctRate: number; improved: number };
-  levels: { current: Level; suggested: Level; advice: LevelAdvice["advice"]; message: string; byLevel: LevelAdvice[] };
-  concepts: { items: ConceptStat[]; weakest: Concept | null };
-  notes: ExplanationNote[];
-  recent: { codeId: string; source: "practice" | "inspect"; language?: Language; level: Level; title: string; counts: Record<MarkKind, number>; reviewedAt: number; open: boolean }[];
-}
-
-// ───────────────────────── AI 튜터 (tutor_chat.py) ─────────────────────────
-
-export interface TutorTurn {
-  role: "user" | "tutor";
-  text: string;
-  /** 튜터가 다시 보라고 한 줄 */
-  lookAt: number[];
-  at: number;
-}
-
-export interface TutorChat {
-  turns: TutorTurn[];
-  turnsLeft: number;
-}
-
-/** POST /tutor */
-export interface TutorReply extends TutorChat {
-  item: number;
-  byAi: boolean;
-}
-
-// ───────────────────────── 관리자 (admin.py) ─────────────────────────
-
-/** 이번 달 AI 사용량: 작업 × 모델 한 줄 */
-export interface UsageRow {
-  task: string;
-  taskName: string;
-  /** 지금 서비스가 쓰는 작업인지 (false 면 예전 서비스의 기록) */
-  current: boolean;
-  description: string;
-  model: string;
-  modelName: string;
-  mock: boolean;
-  calls: number;
-  successes: number;
-  failures: number;
-  input: number;
-  output: number;
-  cacheRead: number;
-  costUsd: number;
-  lastAt: number | null;
-  /** 마지막 실패 이유 (관리자가 읽을 말 — 원래 오류) */
-  lastError: string;
-  lastErrorAt: number | null;
-}
-
-/** AI 호출 하나 (최근 50개, 14일 보관). stage=check 는 AI 는 답했지만 서버 검사에서 걸린 것 */
-export interface AiLogRow {
-  at: number;
-  task: string;
-  taskName: string;
-  modelName: string;
-  ok: boolean;
-  stage: "ai" | "check";
-  input: number;
-  output: number;
-  ms: number;
-  error: string;
-}
-
-export interface DayCount {
-  day: string;
-  practices: number;
-  adjusts: number;
-  topicChecks: number;
-  inspections: number;
-  reviews: number;
-  retries: number;
-  tutorChats: number;
-}
-
-export interface AdminOverview {
-  mode: "live" | "mock" | "off";
-  aiSwitch: boolean;
-  model: string;
-  budget: { monthlyUsd: number; monthToDateUsd: number; realUsd: number; percent: number };
-  usage: UsageRow[];
-  recent: AiLogRow[];
-  days: DayCount[];
-  adminCode: { custom: boolean; recovery: boolean };
-}
-
-/** POST /admin/experiment (experiment.py) — 논문 실험: 문항 하나의 단계 기록. 화면은 쓰지 않고 scripts/experiment_generation.py 가 쓴다 */
-/** 문항의 검증 상태: AI 교차 검토까지 / 규칙 검사만 (검토 AI 를 못 씀) / 예시 코드 (npm run verify 가 실제로 실행해 확인) */
-export type Verification = "ai_reviewed" | "rule_checked" | "sample_verified";
-
-/** 실행 추적표 — 저장만 하고 화면에는 보내지 않는다 (CODE#<id> INFO 의 trace) */
-export interface CodeTrace {
-  flow: { line: number | null; event: string; detail: string; state: string }[];
-  output: string[];
-  marks: Record<string, { enter: string; exit: string; steps: string[]; branch: string; count: number | null }>;
-}
-
-/** 규칙 검사·교차 검토 기록 (CODE#<id> INFO 의 checks) */
-export interface CodeChecks {
-  reviewed: boolean;
-  traceAgree: Record<string, boolean | null>;
-  outputAgree: boolean | null;
-  unsupported?: Record<string, string[]>;
-}
-
-export interface ExperimentRecord {
-  no: number;
-  language: Language;
-  level: Level;
-  topic: string;
-  /** 시도마다: 규칙 검사 A 문제 · 규칙 검사 B 결과(※ id → 꼭 지킬 것·확인할 것) · 교차 검토 문제(검토를 안 했으면 null) · 교체된 모범 설명 수 */
-  attempts: {
-    lines: number; marks: number; rule_problems: string[]; explain_issues: Record<string, { hard: string[]; soft: string[] }> | null; final_hard: string[];
-    check_problems: string[] | null; check_ran: boolean; fixed: number; fixed_ids: string[];
-  }[];
-  origin: "ai" | "sample" | "error";
-  note: string | null;
-  title: string;
-  code: string;
-  marks: { id: string; start: number; end: number; concept: string | null; explanation: string; keywords: string[] }[];
-  /** 실행 추적표 (AI 가 한 줄씩 따라간 기록, 실제 실행 아님) — AI 문항만 */
-  trace?: CodeTrace | null;
-  /** 생성 쪽·검토 쪽 추적표 비교, 근거를 찾지 못한 숫자 */
-  checks?: CodeChecks | null;
-  verification?: Verification | null;
-  seconds: number;
-  tokens_in: number;
-  tokens_out: number;
-  ai_calls: { task: string; sec: number }[];
-  ai_errors: string[];
-  model: string;
-  aiMode: string;
 }

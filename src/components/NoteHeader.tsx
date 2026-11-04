@@ -6,12 +6,8 @@ import { useEffect, useState } from "react";
 import { loginUrl, logout, takeLoginFromUrl, useApi } from "@/lib/api";
 import type { Me } from "@/lib/api-types";
 
-/** 공책 위쪽: 제목(형광펜) + 오른쪽 위 로그인 + 인덱스 탭 (연습 모드 · 내 코드 점검 · 내 공부) */
-const TABS = [
-  { href: "/practice", label: "연습 모드", color: "bg-sticky-yellow", match: ["/practice", "/read", "/result"] },
-  { href: "/check", label: "내 코드 점검", color: "bg-sticky-mint", match: ["/check"] },
-  { href: "/study", label: "내 공부", color: "bg-sticky-pink", match: ["/study"] },
-];
+/** 공책 위쪽: 제목(형광펜) + 오른쪽 위 로그인 + 인덱스 탭 */
+const TABS = [{ href: "/practice", label: "연습", color: "bg-sticky-yellow", match: ["/practice", "/read", "/result"] }];
 
 export function NoteHeader() {
   const path = (usePathname() || "/").replace(/\/$/, "") || "/";
@@ -88,11 +84,11 @@ function LoginBox() {
       </button>
       {open && (
         <span className="sticky-note absolute right-0 top-8 z-50 flex w-56 flex-col gap-2 bg-sticky-yellow p-3">
-          <span className="hand text-pen-red">로그인하면 공부 기록이 남아요</span>
+          <span className="hand text-pen-red">로그인하면 받은 코드와 채점이 30일 동안 남아요</span>
           <a href={loginUrl("google")} className="btn-line justify-start py-1.5 text-xs">
             Google로 로그인
           </a>
-          <span className="text-[11px] text-ink-500">이름만 받아요. 지금 탭에서 한 공부도 계정으로 옮겨요.</span>
+          <span className="text-[11px] text-ink-500">이름만 받아요. 지금 탭에서 받은 코드도 계속 열 수 있어요.</span>
         </span>
       )}
     </span>

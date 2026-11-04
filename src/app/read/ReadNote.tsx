@@ -4,19 +4,18 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CodeView, type Range } from "@/components/CodeView";
-import { MakingCode } from "@/components/MakingCode";
 import { FullScreen } from "@/components/WideCode";
 import { useWideLayout, WideToggle } from "@/components/WideToggle";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
 import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
-import { ADJUST_REASONS, CONCEPT_NAMES, type AdjustReason, type Memo, type CodeItem, type CodeItemWithReview, type ReviewResult } from "@/lib/api-types";
+import { type Memo, type CodeItem, type CodeItemWithReview, type ReviewResult } from "@/lib/api-types";
 import { circled, loadMemos, overlaps, saveMemos } from "@/lib/memos";
 
 const MAX_MEMOS = 20;
 const MAX_MEMO_CHARS = 500;
 
-/** 03 · 메모하며 읽기: 줄을 눌러 형광펜 범위 → 포스트잇 메모 → 첨삭 받기 */
+/** 2장 · 메모하며 읽기: 줄을 눌러 형광펜 범위 → 포스트잇 메모 → 채점 받기 */
 export function ReadNote() {
   const id = useSearchParams().get("id") ?? "";
   const { data, error, reload } = useApi<CodeItemWithReview>(id ? `/code?codeId=${encodeURIComponent(id)}` : null);
@@ -41,7 +40,6 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
   /** 넓게 보기: 공책을 브라우저 너비만큼 (코드 칸이 넓어지고 메모 칸은 그대로) */
   const { wide: wideLayout, toggle: toggleWide } = useWideLayout();
   const wide = useWide();
-  const [dialog, setDialog] = useState<"easier" | "harder" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const total = codeItem.code.split("\n").length;
@@ -115,26 +113,12 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
     }
   }
 
-  async function adjust(direction: "easier" | "harder", reasons: AdjustReason[]) {
-    setDialog(null);
-    setBusy(direction);
-    setError(null);
-    try {
-      const next = await apiPost<CodeItem>("/practice/adjust", { codeId: codeItem.codeId, direction, reasons });
-      router.push(`/read/?id=${next.codeId}`);
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(null);
-    }
-  }
-
   const labels = useMemo(() => memos.map((_, i) => circled(i + 1)), [memos]);
-  const practice = codeItem.source === "practice";
 
   return (
     <Page>
       <Crumb>
-        1장 · {practice ? "주제 고르기" : "코드 가져오기"} → <b className="text-pen-red">2장 · 메모하며 읽기</b> → 3장 · 첨삭
+        1장 · 고르기 → <b className="text-pen-red">2장 · 메모하며 읽기</b> → 3장 · 채점
       </Crumb>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex flex-wrap items-center gap-3 text-2xl sm:text-3xl">
@@ -143,31 +127,13 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
           <LangTag language={codeItem.language} />
         </h1>
         <div className="flex flex-wrap items-center gap-2">
-          {practice && (
-            <>
-              <button type="button" className="btn-small" disabled={!!busy || codeItem.regenLeft <= 0} onClick={() => setDialog("easier")}>
-                ↓ 더 쉽게
-              </button>
-              <button
-                type="button"
-                className="btn-small"
-                disabled={!!busy || codeItem.regenLeft <= 0 || codeItem.level >= 4}
-                title={codeItem.level >= 4 ? "고급이 가장 어려운 단계예요" : undefined}
-                onClick={() => setDialog("harder")}
-              >
-                ↑ 더 어렵게
-              </button>
-            </>
-          )}
           <button type="button" className="btn-ink" disabled={!!busy} onClick={submit}>
-            첨삭 받기
+            채점 받기
           </button>
         </div>
       </div>
-      {codeItem.levelReason && <p className="hand mt-1 text-pen-red">{codeItem.levelReason}</p>}
-      {codeItem.focus && <p className="hand mt-1 text-pen-red">집중 연습: {CONCEPT_NAMES[codeItem.focus]} — 이 흐름이 나오는 곳을 특히 꼼꼼히 설명해 봐요.</p>}
+      {codeItem.topic && <p className="mt-1 text-xs text-ink-500">주제: {codeItem.topic}</p>}
       {codeItem.note && <p className="mt-1 text-xs text-ink-500">{codeItem.note}</p>}
-      {practice && codeItem.regenLeft <= 0 && <p className="mt-1 text-xs text-ink-500">이 코드에서 다시 만들기를 다 썼어요. 새 코드는 &lsquo;연습 모드&rsquo;에서 받아 주세요.</p>}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border border-dashed border-ink-300 bg-paper px-3 py-2 text-xs text-ink-700">
         <span>
@@ -175,7 +141,7 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
         </span>
         <span className="flex items-center gap-3">
           <span>
-            <b className="text-pen-red">※</b> 꼭 설명할 곳{" "}
+            <b className="text-pen-red">※</b> 설명할 곳{" "}
             <b>
               {covered} / {codeItem.marks.length}
             </b>{" "}
@@ -194,10 +160,7 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
       </div>
 
       {error && <ErrorNote message={error} />}
-      {busy === "review" && <Waiting text="빨간펜으로 메모를 첨삭하고 있어요…" />}
-      {(busy === "easier" || busy === "harder") && (
-        <MakingCode language={codeItem.language} advanced={(busy === "harder" ? codeItem.level + 1 : codeItem.level - 1) >= 3} what={busy === "easier" ? "더 쉬운" : "더 어려운"} />
-      )}
+      {busy === "review" && <Waiting text="빨간펜으로 메모를 채점하고 있어요…" />}
 
       <FullScreen
         on={full}
@@ -208,9 +171,9 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
             <span className="text-xs text-ink-700">
               <b className="text-pen-red">※</b> {covered} / {codeItem.marks.length} 메모함 · 내 메모 {memos.length}장
             </span>
-            {busy === "review" && <span className="hand text-pen-red">첨삭하고 있어요…</span>}
+            {busy === "review" && <span className="hand text-pen-red">채점하고 있어요…</span>}
             <button type="button" className="btn-ink py-1.5 text-sm" disabled={!!busy} onClick={submit}>
-              첨삭 받기
+              채점 받기
             </button>
             <button type="button" className="btn-small" disabled={!!draft} title={draft ? "쓰던 메모를 붙이거나 취소한 뒤 닫을 수 있어요" : undefined} onClick={() => setFull(false)}>
               작게 보기 (Esc)
@@ -285,59 +248,9 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
       </FullScreen>
 
       <p className="hand mt-5 text-pen-red">
-        {left > 0 ? `※ 꼭 설명할 곳이 ${left}곳 남았어요. 비워도 낼 수는 있어요.` : "※ 표시된 곳을 모두 메모했어요. 첨삭을 받아 볼까요?"}
+        {left > 0 ? `※ 설명할 곳이 ${left}곳 남았어요. 비워도 낼 수는 있어요.` : "※ 표시된 곳을 모두 메모했어요. 채점을 받아 볼까요?"}
       </p>
-
-      {dialog && <AdjustDialog direction={dialog} hasMemos={memos.length > 0} left={codeItem.regenLeft} onCancel={() => setDialog(null)} onConfirm={adjust} />}
     </Page>
-  );
-}
-
-/** 더 쉽게(이유 고르기) / 더 어렵게 — 메모가 사라진다는 경고 */
-function AdjustDialog({
-  direction,
-  hasMemos,
-  left,
-  onCancel,
-  onConfirm,
-}: {
-  direction: "easier" | "harder";
-  hasMemos: boolean;
-  left: number;
-  onCancel: () => void;
-  onConfirm: (d: "easier" | "harder", reasons: AdjustReason[]) => void;
-}) {
-  const [reasons, setReasons] = useState<AdjustReason[]>([]);
-  const toggle = (r: AdjustReason) => setReasons((cur) => (cur.includes(r) ? cur.filter((x) => x !== r) : [...cur, r]));
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/30 p-4" role="dialog" aria-modal="true" onClick={onCancel}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm">
-        <Sticky color={hasMemos ? "pink" : "yellow"} tape className="p-5">
-          <p className="hand text-2xl text-pen-red">{direction === "easier" ? "더 쉬운 코드로 바꿀까요?" : "더 어려운 코드로 바꿀까요?"}</p>
-          {hasMemos && <p className="mt-2 text-sm font-semibold text-pen-red">지금 붙인 메모는 새 코드로 옮겨지지 않고 사라져요.</p>}
-          {direction === "easier" && (
-            <fieldset className="mt-3 space-y-1.5 text-sm">
-              <legend className="mb-1 text-ink-700">어떤 점이 어려웠나요? (고르지 않아도 돼요)</legend>
-              {(Object.keys(ADJUST_REASONS) as AdjustReason[]).map((r) => (
-                <label key={r} className="flex items-center gap-2">
-                  <input type="checkbox" checked={reasons.includes(r)} onChange={() => toggle(r)} className="h-4 w-4 accent-ink-900" />
-                  {ADJUST_REASONS[r]}
-                </label>
-              ))}
-            </fieldset>
-          )}
-          <p className="mt-3 text-xs text-ink-500">같은 코드에서 다시 만들기는 {left}번 남았어요.</p>
-          <div className="mt-4 flex justify-end gap-3">
-            <button type="button" className="btn-small" onClick={onCancel}>
-              그대로 읽을게요
-            </button>
-            <button type="button" className="btn-ink py-1.5 text-xs" onClick={() => onConfirm(direction, reasons)}>
-              {direction === "easier" ? "더 쉽게 받기" : "더 어렵게 받기"}
-            </button>
-          </div>
-        </Sticky>
-      </div>
-    </div>
   );
 }
 
@@ -355,9 +268,6 @@ export function BackLinks() {
     <div className="mt-4 flex gap-3">
       <Link href="/practice" className="btn-ink">
         연습 문제 받기
-      </Link>
-      <Link href="/check" className="btn-line">
-        내 코드 가져오기
       </Link>
     </div>
   );

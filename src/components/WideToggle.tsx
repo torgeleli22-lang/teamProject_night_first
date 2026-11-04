@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 const KEY = "codereading.wide";
 
 /**
- * 넓게 보기: 공책을 브라우저 너비만큼 넓혀서 늘어난 너비를 코드 칸에 준다 (오른쪽 메모·첨삭 칸과 기능은 그대로).
+ * 넓게 보기: 공책을 브라우저 너비만큼 넓혀서 늘어난 너비를 코드 칸에 준다 (오른쪽 메모·채점 칸과 기능은 그대로).
  * <html data-wide="1"> 일 때 globals.css 의 .note-wrap 이 최대 너비(1440px)를 풀어 준다.
- * 고른 값은 이 브라우저에 기억하고, 이 버튼이 있는 화면(읽기·첨삭)에서만 넓어진다.
+ * 고른 값은 이 브라우저에 기억하고, 이 버튼이 있는 화면(읽기·채점)에서만 넓어진다.
  */
 export function useWideLayout() {
   const [wide, setWide] = useState(false);

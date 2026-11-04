@@ -5,15 +5,15 @@ import { baseFor, parseApiUrls } from "./api-routes";
 
 /**
  * 브라우저 → API(기능별 Lambda 함수 URL) 호출. 경로 앞부분으로 함수를 고른다 (api-routes.ts, docs/LAMBDA_STRUCTURE.md §8).
- * 함수마다 주소가 달라서 처음 부를 때 연결(HTTPS)을 하나씩 맺고, 그다음부터는 다시 쓴다.
+ * 함수(auth·practice·review)마다 주소가 달라서 처음 부를 때 연결(HTTPS)을 하나씩 맺고, 그다음부터는 다시 쓴다.
  * - 로그인 안 함: 학습자 id 를 sessionStorage 에 둔다 — 이 탭(창)을 닫으면 사라지고 다시 열면 새로 시작 (서버 기록도 하루 안에 지워짐)
  * - 로그인(Google): 로그인 토큰을 localStorage 에 둔다 — 브라우저를 닫아도 이어지고, 기록이 계정에 오래 남는다.
  *   둘 다 같은 x-session-id 헤더로 보낸다 (서버가 학습자 id 인지 로그인 토큰인지 구분).
- * - AI 판정·첨삭은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
+ * - 코드 만들기·채점은 모두 Lambda 에서 한다. 이 파일은 요청만 보낸다.
  * 주소는 화면을 빌드할 때 넣는다 (GitHub → Settings → Secrets and variables → Actions → Variables):
- *   API_URLS = {"auth": "https://…", "practice": "https://…", …} 함수별 주소 (npm run deploy -- setup 이 알려 줌)
+ *   API_URLS = {"auth": "https://…", "practice": "https://…", "review": "https://…"} 함수별 주소 (docs/DEPLOY_LAMBDA.md)
  *   (API_URLS 가 없으면 NEXT_PUBLIC_API_URL 주소 하나로 — 내 컴퓨터의 npm run api)
- * 내 컴퓨터에서는 npm run api 가 함수 6개를 http://localhost:8787 하나로 실행한다.
+ * 내 컴퓨터에서는 npm run api 가 함수 3개를 http://localhost:8787 하나로 실행한다.
  */
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787").replace(/\/$/, "");
 const API_URLS = parseApiUrls(process.env.NEXT_PUBLIC_API_URLS);

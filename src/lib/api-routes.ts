@@ -1,17 +1,14 @@
 /**
- * 경로 → Lambda 함수 (lambda/functions.json 의 paths 와 같게 — tests/api-routes.test.ts 가 확인해요).
- * 화면은 경로 앞부분으로 부를 함수를 골라요. 주소는 빌드할 때 NEXT_PUBLIC_API_URLS(JSON, GitHub 변수 API_URLS)로 받고,
- * 없으면 NEXT_PUBLIC_API_URL 하나로 모두 보내요 (내 컴퓨터: npm run api 가 함수 6개를 http://localhost:8787 하나로 띄워요).
+ * 경로 → Lambda 함수 (lambda/jojo_<함수> 폴더의 ROUTES 와 같게 — tests/api-routes.test.ts 가 확인해요).
+ * 주소는 빌드할 때 NEXT_PUBLIC_API_URLS(JSON, GitHub 변수 API_URLS)로 받고,
+ * 없으면 NEXT_PUBLIC_API_URL 하나로 모두 보내요 (내 컴퓨터: npm run api 가 함수 3개를 http://localhost:8787 하나로 띄워요).
  */
-export type ApiFunction = "auth" | "practice" | "inspect" | "review" | "study" | "admin";
+export type ApiFunction = "auth" | "practice" | "review";
 
 export const FUNCTION_PATHS: Record<ApiFunction, string[]> = {
   auth: ["/me", "/auth", "/health"],
-  practice: ["/practice", "/topic"],
-  inspect: ["/inspect"],
-  review: ["/review", "/tutor", "/code"],
-  study: ["/study"],
-  admin: ["/admin"],
+  practice: ["/practice"],
+  review: ["/review", "/code"],
 };
 
 /** 이 경로를 맡은 함수 (쿼리는 빼고 봐요) */

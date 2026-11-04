@@ -1,22 +1,25 @@
-/** 화면이 경로로 고르는 함수가 lambda/functions.json 의 paths 와 같은지 (경로 → 함수 표는 한 벌씩, 이 시험이 맞춰 줘요) */
+/** 화면이 경로로 고르는 함수가 lambda/jojo_<함수> 폴더의 ROUTES 와 같은지 */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { baseFor, FUNCTION_PATHS, functionFor, parseApiUrls } from "../src/lib/api-routes";
 
-type Fn = { key: string; paths: string[] };
-const spec = JSON.parse(fs.readFileSync(new URL("../lambda/functions.json", import.meta.url), "utf8")) as { functions: Fn[] };
-const functions = spec.functions;
+/** lambda/jojo_<key>/ 의 .py 에 적힌 "GET /경로" · "POST /경로" */
+function routesOf(key: string): string[] {
+  const dir = path.join("lambda", `jojo_${key}`);
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".py"))
+    .flatMap((f) => [...fs.readFileSync(path.join(dir, f), "utf8").matchAll(/"(?:GET|POST) (\/[\w/]*)"/g)].map((m) => m[1]));
+}
 
-test("경로 앞부분 → 함수가 functions.json 과 같음", () => {
-  assert.deepEqual(Object.fromEntries(functions.map((f) => [f.key, f.paths])), FUNCTION_PATHS);
-  for (const f of functions) {
-    for (const p of f.paths) {
-      assert.equal(functionFor(p), f.key, p);
-      assert.equal(functionFor(`${p}/x?y=1`), f.key, p);
-    }
+test("경로 → 함수가 Lambda 의 ROUTES 와 같음", () => {
+  for (const key of Object.keys(FUNCTION_PATHS)) {
+    const routes = routesOf(key);
+    assert.ok(routes.length > 0, key);
+    for (const p of routes) assert.equal(functionFor(p), key, p);
   }
-  assert.equal(functionFor("/review/retry"), "review");
   assert.equal(functionFor("/code?codeId=1"), "review");
   assert.equal(functionFor("/auth/start?provider=google"), "auth");
   assert.equal(functionFor("/reviews"), null); // 앞부분이 글자만 같은 것은 아님
