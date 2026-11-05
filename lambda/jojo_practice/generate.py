@@ -18,7 +18,7 @@ from pydantic import Field
 from ai import AiAnswer, AiUnavailable, ask_ai, recorder
 from core import (AI_LIMIT_MESSAGE, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
                   read_body, remember_topic, save_code)
-from levels import GENERATION_RULES, all_levels_text, factors_text, level_text
+from levels import GENERATION_RULES, TRACE_SIZE, all_levels_text, factors_text, level_text
 from rules import code_problems, flow_points, uncovered
 from samples import SAMPLES, TOPIC_POOL
 
@@ -32,6 +32,7 @@ GEN_TOKENS = {1: 2500, 2: 4000, 3: 7000}       # ① 생성 (코드)
 REVIEW_TOKENS = {1: 5000, 2: 8000, 3: 12000}   # ② 검토 (실행 기록 + 모범 설명)
 FIX_TOKENS = 3000                              # 부분 수정 (바꿀 줄만)
 MAX_KEYS = 5                                   # 설명할 곳(※) 최대 수
+RETRY_ERRORS = ("AccessDenied", "Throttling", "ServiceUnavailable", "ModelNotReady", "InternalServer")   # 검토만 1번 다시 물을 오류
 EXPLANATION_MAX = 300                          # 모범 설명 글자 수 상한
 MAX_TOPIC_CHARS = 50
 BAD_WORDS = ["해킹", "비밀번호 훔", "도박", "불법", "폭탄", "마약", "욕설"]
@@ -243,18 +244,20 @@ def make_code(level, language, topic, log=None):
         if problems:
             feedback = retry_note(code, problems)
             continue
-        # ② 검토 → 규칙 검사 2
+        # ② 검토 → 규칙 검사 2 (동작 · 손으로 따라갈 크기)
         review = review_code(code, level, language, sample, step)
-        if review and (not review["runnable"] or review["problems"]) and not used_fix and calls_left() >= 2:
-            used_fix = step["fixed"] = True   # 동작하지 않음 → 부분 수정 → 다시 검토
-            fixed = fix_code(code, review["problems"] or ["실제로 동작하지 않아요"], language)
+        issues = review_issues(review, level)
+        if issues and not used_fix and calls_left() >= 2:
+            used_fix = step["fixed"] = True   # 동작하지 않음·너무 큼 → 부분 수정 → 다시 검토
+            fixed = fix_code(code, issues, language)
             if fixed and not code_problems(fixed, language):
                 code, review = fixed, review_code(fixed, level, language, sample, step)
+                issues = review_issues(review, level)
         if review is None:
             feedback = ""   # 검토를 못 함 → 내보내지 않고 다시 만들기
             continue
-        if not review["runnable"] or review["problems"]:
-            feedback = retry_note(code, review["problems"] or ["실제로 동작하지 않아요"])
+        if issues:
+            feedback = retry_note(code, issues)
             continue
         if not review["level"]["match"]:
             feedback = retry_note(code, [f"요청한 난이도({LEVELS[level]['name']})와 맞지 않아요 (검토 판단: "
@@ -265,6 +268,29 @@ def make_code(level, language, topic, log=None):
     return from_sample(sample, "AI 가 만든 코드가 검증을 통과하지 못해 준비된 예시 코드를 드려요.")
 
 
+def review_issues(review, level):
+    """검토 답에서 고칠 것: 동작하지 않음(검토 AI 판정) + 손으로 따라가기에 너무 큼(검토 기록의 반복 횟수·출력 줄, levels.TRACE_SIZE)"""
+    if review is None:
+        return []
+    issues = list(review["problems"]) or ([] if review["runnable"] else ["실제로 동작하지 않아요"])
+    return issues + size_issues(review, level)
+
+
+def size_issues(review, level):
+    """손으로 따라갈 크기 (규칙 검사 2, AI 없음) — 넘으면 데이터 개수·반복 횟수를 줄이게"""
+    size, out = TRACE_SIZE[level], []
+    big = [u for u in review["units"] if isinstance(u.get("count"), int) and u["count"] > size["loop_max"]]
+    if big:
+        u = max(big, key=lambda u: u["count"])
+        out.append(f"{u['start']}번째 줄: 반복이 {u['count']}번이라 손으로 따라가기에 많아요 — 데이터 개수나 반복 횟수를 줄여 "
+                   f"반복문 하나가 {size['loop']}번 이하로 돌게 해 주세요")
+    lines = [x for x in "\n".join(str(o) for o in review.get("output") or []).split("\n") if x.strip()]
+    if len(lines) > size["output_max"]:
+        out.append(f"출력이 {len(lines)}줄이라 손으로 따라가기에 많아요 — 데이터 개수·단계 수를 줄이거나 같은 모양의 출력을 반복하지 않게 해서 "
+                   f"{size['output']}줄 이하로 해 주세요")
+    return out
+
+
 def review_code(code, level, language, sample=None, step=None):
     """② 검토 + 규칙 검사 2 → 정리한 검토 답 (못 하면 None). 함수·반복문이 빠졌으면 알려 주고 1번 더"""
     system = REVIEW_PROMPT.format(language=LANGUAGES[language], max_len=EXPLANATION_MAX, factors=factors_text(), levels=all_levels_text())
@@ -273,19 +299,25 @@ def review_code(code, level, language, sample=None, step=None):
     for _ in range(2):
         if calls_left() < 1:
             return None
-        try:
-            r = call_ai("code_review", system, prompt + hint, ReviewAnswer, max_tokens=REVIEW_TOKENS[level], model=REVIEW_MODEL_ID,
-                        mock=lambda: sample_review(sample, level) if sample and sample["code"] == code else sample_review(None, level, code))
-        except AiUnavailable as e:
-            logger.info("검토를 못 함", extra={"reason": str(e)})
-            if step is not None:
-                step["review"] = {"error": str(e)}
-            return None
+        r = None
+        for chance in range(2):   # 권한·일시적 한도 오류는 검토만 1번 다시 (추론 프로필이 다른 리전으로 보냈다가 막히는 경우 — 거절된 요청은 비용 없음)
+            try:
+                r = call_ai("code_review", system, prompt + hint, ReviewAnswer, max_tokens=REVIEW_TOKENS[level], model=REVIEW_MODEL_ID,
+                            mock=lambda: sample_review(sample, level) if sample and sample["code"] == code else sample_review(None, level, code))
+                break
+            except AiUnavailable as e:
+                again = chance == 0 and calls_left() >= 1 and any(k in str(e) for k in RETRY_ERRORS)
+                logger.info("검토를 다시 물음" if again else "검토를 못 함", extra={"reason": str(e)})
+                if not again:
+                    if step is not None:
+                        step["review"] = {"error": str(e)}
+                    return None
         units = clean_units(code, r["units"])
         missing = uncovered(points, units)
         if step is not None:
             step["review"] = {"runnable": r["runnable"], "problems": r["problems"], "level": r["level"],
-                              "missing": [f"{p['start']}번째 줄 {p['kind']}" for p in missing]}
+                              "missing": [f"{p['start']}번째 줄 {p['kind']}" for p in missing],
+                              "size": size_issues({**r, "units": units}, level), "outputLines": len([o for o in r["output"] if str(o).strip()])}
         if not missing:
             break
         hint = "\n\n(앞선 검토에서 빠진 곳이 있어요. 이 줄의 함수·반복문도 흐름 단위로 넣어 주세요: " + \

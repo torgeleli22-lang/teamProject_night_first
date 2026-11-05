@@ -1,6 +1,6 @@
 """
 예시 코드 검증 (npm run verify): lambda/jojo_practice/samples.py 의 코드를 실제로 실행해 보고 흐름 단위를 확인한다.
-- 실행: 오류 없이 끝나고 무언가를 출력해야 한다 (5초 제한, Python · JavaScript 는 node)
+- 실행: 오류 없이 끝나고 무언가를 출력해야 한다 (5초 제한, Python · JavaScript 는 node). 출력은 손으로 따라갈 크기 안 (levels.TRACE_SIZE)
 - 규칙 검사 1(문법)을 통과해야 한다
 - 흐름 단위: 코드 줄 범위 안, 빈 줄로 시작·끝나지 않음, 모범 설명(300자 이하)·핵심 표현(설명 안의 말)이 있음, 설명할 곳(key) 1곳 이상·서로 겹치지 않음
 - 언어 × 난이도마다 하나씩, 랜덤 주제는 겹치지 않고 50자 이하
@@ -16,6 +16,7 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "ap-northeast-2")
 
 from core import LANGUAGES, LEVELS  # noqa: E402
 from generate import EXPLANATION_MAX, MAX_TOPIC_CHARS  # noqa: E402
+from levels import TRACE_SIZE  # noqa: E402
 from rules import code_problems  # noqa: E402
 from samples import SAMPLES, TOPIC_POOL  # noqa: E402
 
@@ -38,6 +39,8 @@ for s in SAMPLES:
         bad("실행 오류\n" + run.stderr.strip())
     elif run and not run.stdout.strip():
         bad("출력이 없어요")
+    elif run and len([x for x in run.stdout.split("\n") if x.strip()]) > TRACE_SIZE[s["level"]]["output"]:
+        bad(f"출력이 {TRACE_SIZE[s['level']]['output']}줄을 넘어요 (손으로 따라갈 크기, docs/GENERATION_STANDARD.md 3.1)")
     # 2. 규칙 검사 1
     for p in code_problems(s["code"], language):
         bad(f"규칙 검사: {p}")

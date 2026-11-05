@@ -46,13 +46,24 @@ GENERATION_RULES = [
     "코드 길이는 난이도 기준이 아니다. 짧아도 논리가 복잡하면 높은 난이도, 길어도 단순한 반복이면 낮은 난이도다",
     "목적과 실행 흐름이 보이게 명확한 변수명과 일관된 구조를 쓴다. 난이도를 높이려고 일부러 읽기 어렵게 만들지 않는다",
     "실행 결과를 볼 수 있게 출력(Python 은 print, JavaScript 는 console.log)을 넣는다",
+    "손으로 따라갈 수 있는 크기로 만든다. 학습자가 종이에 값을 적어 가며 끝까지 따라갈 수 있게 데이터 개수·반복 횟수·출력 줄을 난이도의 한도 안으로 한다. "
+    "여러 단계를 거치는 시뮬레이션(시간·차례를 여러 번 돌리는 것)은 단계 수를 줄이고, 같은 모양의 출력을 반복해서 찍지 않는다",
 ]
+
+# 3.1장: 손으로 따라갈 크기. loop·output 은 생성 AI 에게 주는 기준, loop_max·output_max 는 검토 기록으로 확인하는 선(여유를 둔 값)
+TRACE_SIZE = {
+    1: {"loop": 5, "output": 10, "loop_max": 10, "output_max": 15},
+    2: {"loop": 8, "output": 20, "loop_max": 16, "output_max": 30},
+    3: {"loop": 10, "output": 30, "loop_max": 30, "output_max": 45},
+}
 
 
 def level_text(level):
     """한 난이도의 기준 (생성 프롬프트용)"""
-    g = LEVEL_GUIDE[level]
-    return f"{g['name']} (대상: {g['target']})\n" + "\n".join(f"- {r}" for r in g["rules"])
+    g, size = LEVEL_GUIDE[level], TRACE_SIZE[level]
+    nested = " (중첩이면 안쪽까지 합쳐 30번 이하)" if level == 3 else ""
+    return (f"{g['name']} (대상: {g['target']})\n" + "\n".join(f"- {r}" for r in g["rules"])
+            + f"\n- 손으로 따라갈 크기: 반복문 하나가 도는 횟수 {size['loop']}번 이하{nested}, 출력 {size['output']}줄 이하")
 
 
 def all_levels_text():

@@ -157,6 +157,31 @@ class Pipeline(unittest.TestCase):
         self.assertIn("1~5번 줄", self.prompts["code_review"][1])
         self.assertEqual(made["origin"], "ai")
 
+    def test_too_big_to_trace_is_shrunk_then_reviewed_again(self):
+        # v2.2: 검토 기록의 반복 횟수·출력 줄이 손으로 따라갈 크기(초급: 반복 10번·출력 15줄 초과)를 넘으면 줄이도록 부분 수정 → 다시 검토
+        big = review(units=[unit(1, 5, "function", key=True), unit(3, 4, "loop", count=12)])
+        big["output"] = [f"줄 {i}" for i in range(20)]
+        made = self.run_with([CODE], [big, review()], fixes=[[{"startNo": 7, "endNo": 7, "code": "items = [3000, 3500]"}]])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_fix", "code_review"]))
+        fix_prompt = self.prompts["code_fix"][0]
+        self.assertIn("반복이 12번이라", fix_prompt)
+        self.assertIn("출력이 20줄이라", fix_prompt)
+        self.assertEqual(self.log["attempts"][0]["review"]["size"], [])   # 다시 검토한 뒤에는 크기 문제 없음
+
+    def test_size_limits_follow_the_level(self):
+        loop = lambda n: {"units": generate.clean_units(CODE, [unit(3, 4, "loop", count=n)]), "output": []}
+        self.assertEqual(generate.size_issues(loop(9), 1), [])                # 기준(5번)을 살짝 넘어도 선(10번) 안이면 통과
+        self.assertEqual(len(generate.size_issues(loop(11), 1)), 1)           # 초급 10번 초과
+        self.assertEqual(generate.size_issues(loop(30), 3), [])               # 고급은 30번까지
+        self.assertEqual(generate.size_issues({"units": [], "output": ["x"] * 12}, 1), [])   # 출력 12줄 (선 15줄 안)
+        self.assertEqual(len(generate.size_issues({"units": [], "output": ["x"] * 46}, 3)), 1)
+        self.assertIn("반복문 하나가 도는 횟수 5번 이하", generate.level_text(1))   # 생성 AI 에게 주는 기준
+        self.assertIn("출력 30줄 이하", generate.level_text(3))
+
+    def test_review_access_denied_is_asked_once_more(self):
+        made = self.run_with([CODE], [generate.AiUnavailable("bedrock: AccessDeniedException"), review()])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_review"]))   # 코드를 다시 만들지 않음
+
     def test_review_failure_is_never_shipped(self):
         made = self.run_with([CODE, CODE], [generate.AiUnavailable("could not parse response: x")] * 2)
         self.assertEqual((made["origin"], self.calls), ("sample", ["code_generation", "code_review"] * 2))
