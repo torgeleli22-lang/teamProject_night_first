@@ -13,7 +13,8 @@
     "test:lambda": "node scripts/run-python.mjs -m unittest discover -s lambda/tests -q",
     "verify": "node scripts/run-python.mjs scripts/verify_samples.py",
     "smoke": "node scripts/smoke.mjs",
-    "layer": "node scripts/run-python.mjs --plain scripts/build_layer.py"
+    "layer": "node scripts/run-python.mjs --plain scripts/build_layer.py",
+    "deploy": "node scripts/run-python.mjs --plain scripts/deploy.py"
   },
   "dependencies": {
     "next": "^15.5.4",

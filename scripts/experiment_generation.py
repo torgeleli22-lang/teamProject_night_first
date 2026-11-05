@@ -55,14 +55,41 @@ def make(url, admin_code, item):
         if e.code in (403, 429):
             raise SystemExit(f"✗ 관리자 코드를 확인해 주세요 ({e.code}): {message}  — jojo_practice 의 환경 변수 ADMIN_TOKEN 과 같아야 해요")
         raise RuntimeError(f"#{item['no']} HTTP {e.code}: {message[:200]}")
-    except Exception as e:
-        raise RuntimeError(f"#{item['no']} 요청 실패: {e!r}")
+    except Exception as e:   # 오류 글에 관리자 코드가 섞여 나오지 않게 가린다
+        raise RuntimeError(f"#{item['no']} 요청 실패: {type(e).__name__}: {str(e).replace(admin_code, '***')[:200]}")
     if "debug" not in out:
         raise SystemExit("✗ 단계 기록(debug)이 없어요. --url 이 jojo_practice 의 함수 URL 인지, 최신 코드를 붙여넣었는지 확인해 주세요.")
     d = out["debug"]
     return {**item, "seconds": round(time.time() - started, 1), "origin": d["origin"], "title": out["title"], "code": out["code"],
             "attempts": d["attempts"], "calls": d["calls"], "units": d["units"], "output": d.get("output"), "levelCheck": d.get("levelCheck"),
             "note": out.get("note")}
+
+
+def read_admin_code():
+    """관리자 코드: 환경 변수 EXPERIMENT_ADMIN_CODE 또는 숨김 입력. 한글이 섞이면(한/영 키) 보내기 전에 멈춘다 — 값은 찍지 않는다"""
+    code = (os.environ.get("EXPERIMENT_ADMIN_CODE") or getpass.getpass("관리자 코드 (입력해도 화면에 보이지 않아요): ")).strip()
+    if not code:
+        sys.exit("✗ 관리자 코드를 입력해 주세요 (jojo_practice 의 환경 변수 ADMIN_TOKEN 값)")
+    if not code.isascii():
+        sys.exit("✗ 관리자 코드에 한글이 섞였어요. 한/영 키를 영문으로 바꾸고 다시 입력해 주세요 (입력한 값은 화면에 찍지 않아요)")
+    return code
+
+
+def preflight(url):
+    """만들기 전에 함수가 살아 있고 새 코드인지 확인 (GET /health — AI 를 부르지 않아 비용 없음)"""
+    try:
+        with urllib.request.urlopen(url.rstrip("/") + "/health", timeout=30) as res:
+            info = json.loads(res.read().decode())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")[:200]
+        sys.exit(f"✗ 함수가 응답하지 못했어요 (HTTP {e.code}: {body})\n"
+                 "  Lambda 콘솔 → jojo_practice → 테스트 탭 → 이벤트 {\"path\": \"/health\", \"method\": \"GET\"} 를 실행하면 오류 내용이 보여요.\n"
+                 "  대개 붙여넣은 파일이 빠졌거나(lambda_function·generate·levels·rules·samples + core·ai) 계층 jojo_libs 가 없을 때예요.")
+    except Exception as e:
+        sys.exit(f"✗ 함수 URL 에 연결하지 못했어요 ({type(e).__name__}). --url 이 jojo_practice 의 함수 URL 인지 확인해 주세요.")
+    if "maxCodeLines" in info or "regenLimit" in info:
+        sys.exit("✗ jojo_practice 에 예전 코드가 돌고 있어요. lambda/jojo_practice + lambda/shared 의 파일을 붙여넣고 Deploy 해 주세요 (docs/DEPLOY_LAMBDA.md 3).")
+    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')})", flush=True)
 
 
 def plan(reps, seed):
@@ -201,7 +228,8 @@ def main():
     ap.add_argument("--verify", type=int, default=10, help="verify.md 에 넣을 AI 문항 수")
     ap.add_argument("--resume", help="이어서 할 결과 폴더 (experiment_out/…)")
     args = ap.parse_args()
-    code = os.environ.get("EXPERIMENT_ADMIN_CODE") or getpass.getpass("관리자 코드 (입력해도 화면에 보이지 않아요): ")
+    preflight(args.url)
+    code = read_admin_code()
     out_dir = args.resume or os.path.join(ROOT, "experiment_out", datetime.now().strftime("%Y%m%d-%H%M%S"))
     os.makedirs(out_dir, exist_ok=True)
     jsonl = os.path.join(out_dir, "results.jsonl")

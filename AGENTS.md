@@ -3,7 +3,7 @@
 작업 전에 **`docs/PROJECT_BRIEF.md`** 를 먼저 읽으세요 (핵심 흐름 · 지켜야 할 것 · 구조 · 명령).
 기준 문서 두 개를 따르세요 (바꿀 때는 문서부터 고칩니다):
 - **`docs/GENERATION_STANDARD.md`** — 코드 생성·검증·채점 기준 (난이도 6요소 → 생성 AI → 규칙 검사 → 검토 AI(실행 추적·동작·난이도·모범 설명) → 실패 처리 → 검토 기록을 채점 기준으로)
-- **`docs/LAMBDA_STRUCTURE.md`** — Lambda 3개(`jojo_auth`·`jojo_practice`·`jojo_review`)의 폴더·규칙·DynamoDB 항목. 함수마다 폴더 하나(`lambda/jojo_*/`), 공통은 `lambda/shared/` 한 벌. 콘솔에는 함수 폴더 + shared 의 파일을 붙여넣어요 (`docs/DEPLOY_LAMBDA.md`)
+- **`docs/LAMBDA_STRUCTURE.md`** — Lambda 3개(`jojo_auth`·`jojo_practice`·`jojo_review`)의 폴더·규칙·DynamoDB 항목. 함수마다 폴더 하나(`lambda/jojo_*/`), 공통은 `lambda/shared/` 한 벌. 올릴 때는 CloudShell 에서 `npm run deploy` — 함수 폴더 + shared 를 zip 하나로 묶어 통째로 (`docs/DEPLOY_LAMBDA.md` 3)
 
 ## 반드시 지킬 것
 - 이 서비스는 "코드를 대신 작성해 주는 AI"가 아니라 "코드를 읽고 흐름을 설명하도록 가르치는 AI"다. 핵심 기능은 세 가지뿐: **로그인 · 코드 생성(검증한 코드만 제공) · 해설 채점**. 목적은 정답 값이 아니라 흐름 이해다.
@@ -27,6 +27,7 @@ npm test               # 단위 테스트 (TS + Python)
 npm run verify         # 예시 코드 실제 실행 + 흐름 단위 확인
 npm run build          # 정적 화면 빌드 (out/)
 npm run smoke          # Lambda 전체 흐름 점검 (Lambda 를 바꿨다면)
+npm run deploy         # CloudShell 에서 Lambda 3개 올리기 + /health 확인 (-- jojo_practice 처럼 하나만도)
 npm run layer          # 레이어 zip (라이브러리를 바꿀 때만)
 ```
 작업을 마치기 전에 위 네 가지(typecheck, test, verify, build)를 모두 통과시키세요. Lambda 를 바꿨다면 smoke 도.

@@ -1,7 +1,7 @@
 # 배포하기: GitHub Pages(화면) + Lambda 3개 + DynamoDB + Bedrock
 
 서버를 켜 두지 않는 구성이에요. 쓸 때만 Lambda 가 실행되고, 쓴 만큼만 요금이 나와요.
-Lambda 는 **콘솔에 코드를 붙여넣어** 올려요 (구조: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)).
+Lambda 는 CloudShell 에서 **`npm run deploy`** 로 올려요 (콘솔에 붙여넣어도 돼요) (구조: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)).
 
 ```
 브라우저 ──→ GitHub Pages (정적 화면)
@@ -25,6 +25,22 @@ Lambda 는 **콘솔에 코드를 붙여넣어** 올려요 (구조: [`docs/LAMBDA
 
 ## 3. 함수 3개
 
+### 코드 올리기 (기본: `npm run deploy`)
+AWS CloudShell (리전 서울)에서:
+```bash
+cd ~/teamProject_night_first && git pull     # 처음이면: git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
+npm run deploy                               # 함수 3개 모두 (하나만: npm run deploy -- jojo_practice)
+```
+함수마다 `lambda/<함수>/*.py` + `lambda/shared/*.py` 를 **폴더 없이 zip 하나로** 묶어 코드를 통째로 바꾸고, 반영을 기다린 뒤 함수 URL 의 `/health` 를 확인해요.
+같은 코드면 올리지 않아요. 환경 변수·설정은 건드리지 않아요. 결과 예:
+```
+jojo_auth: 코드 그대로 (올리지 않음) · /health ✓ (AI_MODE=live)
+jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, rules.py, samples.py, ai.py, core.py) · /health ✓ (AI_MODE=live)
+```
+`/health ✗` 이면 콘솔 테스트 탭(`{"path": "/health", "method": "GET"}`)에서 오류를 봐요. `AccessDenied` 면 콘솔에 붙여넣어요 (아래).
+
+### 함수 설정
+
 | 함수 | 붙여넣을 파일 | 제한 시간 · 메모리 | 이 함수에만 넣는 환경 변수 |
 |---|---|---|---|
 | `jojo_auth` | `lambda/jojo_auth/` 전부 + `lambda/shared/` 전부 | 15초 · 256MB | `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` |
@@ -34,7 +50,7 @@ Lambda 는 **콘솔에 코드를 붙여넣어** 올려요 (구조: [`docs/LAMBDA
 함수마다 (새로 만들 때): Lambda → 함수 생성 → Python 3.14 · arm64 · 실행 역할 SafeRole → 코드 탭에 위 파일을 **같은 이름으로** 만들어 붙여넣기 → **Deploy**
 → 구성 → 일반 구성(제한 시간·메모리) → 계층 추가 `jojo_libs` → 환경 변수 → 함수 URL(인증 없음, CORS 는 코드가 처리) → 핸들러 `lambda_function.lambda_handler`
 
-- 이미 있는 함수(`jojo_auth`·`jojo_practice`·`jojo_review`)는 **코드 탭에서 위 파일만 남기고 나머지 .py 는 지운 뒤** 붙여넣고 Deploy
+- 콘솔에 직접 붙여넣을 때는 **맨 위 폴더에(폴더 없이) 위 파일만** 두고 나머지 .py 는 지운 뒤 Deploy. `core.py`·`ai.py` 를 빠뜨리면 `No module named 'core'` 오류가 나요
 - 시험: 테스트 탭 → 이벤트 `{"path": "/health", "method": "GET"}` → body 에 `"ok": true`
 
 공통 환경 변수 (세 함수 모두 같게):
@@ -72,8 +88,8 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 | 바뀐 것 | 할 일 |
 |---|---|
 | 화면 | main 에 병합 → Pages 자동 배포 |
-| Lambda 코드 | main 에 병합 → 바뀐 파일을 그 함수 코드 탭에 다시 붙여넣고 Deploy. `lambda/shared/` 가 바뀌면 세 함수 모두 |
-| 예시 코드·랜덤 주제 | `lambda/jojo_practice/samples.py` → `npm run verify` 통과 → 병합 → `jojo_practice` 에 붙여넣기 |
+| Lambda 코드 | main 에 병합 → CloudShell 에서 `git pull && npm run deploy` |
+| 예시 코드·랜덤 주제 | `lambda/jojo_practice/samples.py` → `npm run verify` 통과 → 병합 → `npm run deploy -- jojo_practice` |
 | 라이브러리 | `lambda/requirements.txt` → `npm run layer` → 계층 새 버전 → 세 함수의 계층 버전 바꾸기 |
 | 설정 (예산 등) | 함수마다 구성 → 환경 변수 (다음 요청부터 반영) |
 | 급하게 AI 를 멈추기 | `jojo_practice`·`jojo_review` 의 `AI_MODE` 를 `off` (예시 코드·규칙 채점으로) |
