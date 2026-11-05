@@ -82,8 +82,10 @@ class Units(unittest.TestCase):
 class Pipeline(unittest.TestCase):
     """생성 1번 + 검토 1번이 기본. ask_ai 를 가짜로 바꿔 차례로 답을 준다"""
 
-    def run_with(self, codes, reviews, fixes=None, level=1):
-        codes, reviews, fixes = list(codes), list(reviews), list(fixes or [])
+    def run_with(self, codes, reviews, fixes=None, level=1, checks=None):
+        """checks: 확인 AI 가 차례로 돌려줄 답 (없으면 바로 앞 검토의 출력을 그대로 — 맞음)"""
+        codes, reviews, fixes, checks = list(codes), list(reviews), list(fixes or []), list(checks or [])
+        last = {}
         self.calls, self.prompts = [], {}
 
         self.models = {}
@@ -93,7 +95,10 @@ class Pipeline(unittest.TestCase):
             self.models.setdefault(task, kw.get("model"))
             self.prompts.setdefault(task, []).append(system + "\n" + prompt)
             answer = {"code_generation": lambda: {"title": "가격 합계", "code": codes.pop(0)}, "code_review": lambda: reviews.pop(0),
-                      "code_fix": lambda: {"edits": fixes.pop(0) if fixes else []}}[task]()
+                      "code_fix": lambda: {"edits": fixes.pop(0) if fixes else []},
+                      "trace_check": lambda: checks.pop(0) if checks else {"output": list(last["review"]["output"]), "counts": []}}[task]()
+            if task == "code_review" and isinstance(answer, dict):
+                last["review"] = answer
             if isinstance(answer, Exception):
                 raise answer
             return answer
@@ -107,7 +112,7 @@ class Pipeline(unittest.TestCase):
 
     def test_generate_then_review_saves_record_as_grading_standard(self):
         made = self.run_with([CODE], [review()])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "trace_check"]))
         loop = next(u for u in made["units"] if u["kind"] == "loop")
         self.assertEqual((loop["count"], loop["stop"], loop["steps"]), (3, "prices 를 다 돌면", ["4번 줄 total=3000"]))   # 검토의 실행 기록을 버리지 않음
         self.assertEqual(made["output"], ["합계: 11500"])
@@ -136,26 +141,88 @@ class Pipeline(unittest.TestCase):
     def test_syntax_error_is_fixed_in_place(self):
         broken = CODE.replace("total = total + price", "total = totl + price")
         made = self.run_with([broken], [review()], fixes=[[{"startNo": 4, "endNo": 4, "code": "        total = total + price"}]])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_fix", "code_review"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_fix", "code_review", "trace_check"]))
         self.assertNotIn("totl", made["code"])
 
     def test_not_runnable_is_fixed_then_reviewed_again(self):
         made = self.run_with([CODE], [review(runnable=False, problems=["4번째 줄: 문자열과 숫자를 더해요"]), review()],
                              fixes=[[{"startNo": 7, "endNo": 7, "code": "items = [3000, 3500, 5000]"}]])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_fix", "code_review"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_fix", "code_review", "trace_check"]))
         self.assertIn("문자열과 숫자", self.prompts["code_fix"][0])
 
     def test_level_mismatch_makes_it_again_with_advice(self):
         made = self.run_with([CODE, CODE], [review(match=False, overall=2, advice="함수를 빼고 반복 하나로"), review()])
-        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_generation", "code_review"]))
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_generation", "code_review", "trace_check"]))
         self.assertIn("함수를 빼고 반복 하나로", self.prompts["code_generation"][1])
         self.assertIn("검토 판단: 중급", self.prompts["code_generation"][1])
 
     def test_missing_loop_asks_review_once_more(self):
         made = self.run_with([CODE], [review(units=[unit(7, 8, key=True)]), review()])
-        self.assertEqual(self.calls, ["code_generation", "code_review", "code_review"])
+        self.assertEqual(self.calls, ["code_generation", "code_review", "code_review", "trace_check"])
         self.assertIn("1~5번 줄", self.prompts["code_review"][1])
         self.assertEqual(made["origin"], "ai")
+
+    def test_too_big_to_trace_is_shrunk_then_reviewed_again(self):
+        # v2.2: 검토 기록의 반복 횟수·출력 줄이 손으로 따라갈 크기(초급: 반복 10번·출력 15줄 초과)를 넘으면 줄이도록 부분 수정 → 다시 검토
+        big = review(units=[unit(1, 5, "function", key=True), unit(3, 4, "loop", count=12)])
+        big["output"] = [f"줄 {i}" for i in range(20)]
+        made = self.run_with([CODE], [big, review()], fixes=[[{"startNo": 7, "endNo": 7, "code": "items = [3000, 3500]"}]])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_fix", "code_review", "trace_check"]))
+        fix_prompt = self.prompts["code_fix"][0]
+        self.assertIn("반복이 12번이라", fix_prompt)
+        self.assertIn("출력이 20줄이라", fix_prompt)
+        self.assertEqual(self.log["attempts"][0]["review"]["size"], [])   # 다시 검토한 뒤에는 크기 문제 없음
+
+    def test_size_limits_follow_the_level(self):
+        loop = lambda n: {"units": generate.clean_units(CODE, [unit(3, 4, "loop", count=n)]), "output": []}
+        self.assertEqual(generate.size_issues(loop(9), 1), [])                # 기준(5번)을 살짝 넘어도 선(10번) 안이면 통과
+        self.assertEqual(len(generate.size_issues(loop(11), 1)), 1)           # 초급 10번 초과
+        self.assertEqual(generate.size_issues(loop(30), 3), [])               # 고급은 30번까지
+        self.assertEqual(generate.size_issues({"units": [], "output": ["x"] * 12}, 1), [])   # 출력 12줄 (선 15줄 안)
+        self.assertEqual(len(generate.size_issues({"units": [], "output": ["x"] * 46}, 3)), 1)
+        self.assertIn("반복문 하나가 도는 횟수 5번 이하", generate.level_text(1))   # 생성 AI 에게 주는 기준
+        self.assertIn("출력 30줄 이하", generate.level_text(3))
+
+    def test_review_access_denied_is_asked_once_more(self):
+        made = self.run_with([CODE], [generate.AiUnavailable("bedrock: AccessDeniedException"), review()])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "code_review", "trace_check"]))   # 코드를 다시 만들지 않음
+
+    def test_cross_check_agrees_ships(self):
+        made = self.run_with([CODE], [review()], checks=[{"output": ["합계:   11500"], "counts": [{"id": "u2", "count": 3}]}])
+        self.assertEqual(made["origin"], "ai")
+        self.assertTrue(self.log["attempts"][0]["check"]["agree"])                 # 띄어쓰기 차이는 같다고 봄
+        self.assertNotIn("11500", self.prompts["trace_check"][0].split("</code>")[1])   # 확인 AI 에게 검토 기록(값)을 주지 않음
+        self.assertIn("u2: 3~4번 줄 (loop)", self.prompts["trace_check"][0])
+
+    def test_cross_check_disagree_rereview_fixes_record(self):
+        wrong = review()
+        wrong["output"] = ["합계: 12000"]
+        made = self.run_with([CODE], [wrong, review()], checks=[{"output": ["합계: 11500"], "counts": []}])
+        self.assertEqual((made["origin"], self.calls), ("ai", ["code_generation", "code_review", "trace_check", "code_review"]))
+        self.assertEqual(made["output"], ["합계: 11500"])                            # 고친 검토 기록을 저장
+        self.assertIn("검토 '합계:12000' · 다른 검토자 '합계:11500'", self.prompts["code_review"][1])
+        check = self.log["attempts"][0]["check"]
+        self.assertEqual((check["agree"], check["rereview"], check["agreeAfter"]), (False, True, True))
+
+    def test_cross_check_still_disagree_is_not_shipped(self):
+        wrong = review()
+        wrong["output"] = ["합계: 12000"]
+        loop_wrong = review(units=[unit(1, 5, "function", key=True), unit(3, 4, "loop", count=4)])
+        made = self.run_with([CODE, CODE], [wrong, wrong, loop_wrong, loop_wrong],
+                             checks=[{"output": ["합계: 11500"], "counts": []}, {"output": ["합계: 11500"], "counts": [{"id": "u2", "count": 3}]}])
+        self.assertEqual(made["origin"], "sample")                                   # 두 번 다 맞지 않으면 내보내지 않음
+        self.assertIn("반복 횟수: 검토 4번 · 다른 검토자 3번", self.prompts["code_review"][3])
+        self.assertIn("두 AI 가 따로 따라간 실행 결과", self.prompts["code_generation"][1])
+        self.assertLessEqual(len(self.calls), generate.MAX_CALLS)
+
+    def test_cross_check_unavailable_is_not_shipped(self):
+        made = self.run_with([CODE, CODE], [review(), review()], checks=[generate.AiUnavailable("x"), generate.AiUnavailable("x")])
+        self.assertEqual(made["origin"], "sample")
+
+    def test_assumed_values_are_given_to_checker(self):
+        self.run_with([CODE], [review(units=[unit(1, 5, "function", key=True, inputs="prices=[3000, 4500] (가정: 랜덤)")])])
+        self.assertIn("가정 값 (그대로 써)", self.prompts["trace_check"][0])
+        self.assertIn("(가정: 랜덤)", self.prompts["trace_check"][0])
 
     def test_review_failure_is_never_shipped(self):
         made = self.run_with([CODE, CODE], [generate.AiUnavailable("could not parse response: x")] * 2)

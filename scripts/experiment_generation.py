@@ -15,6 +15,7 @@ Python 3.9 이상, 표준 라이브러리만 씀 (CloudShell 기본 python3 로 
 """
 import argparse
 import csv
+import difflib
 import getpass
 import json
 import os
@@ -137,6 +138,10 @@ def real_runs(rows, out_dir):
         guess = [x.strip() for x in "\n".join(r.get("output") or []).split("\n") if x.strip()]
         real = [x.strip() for x in first[1].split("\n") if x.strip()]
         r["outputMatch"] = (squash(real) == squash(guess)) if (r["runOk"] and r["deterministic"] and guess) else None
+        r["realLines"] = len(real)
+        # 줄 단위 일치율: 실제 출력 줄 중 검토가 같은 순서로 맞힌 비율 (한두 글자·한 줄 차이를 '틀림'과 구분)
+        r["lineMatch"] = (difflib.SequenceMatcher(None, [re.sub(r"\s+", "", x) for x in real], [re.sub(r"\s+", "", x) for x in guess]).ratio()
+                          if r["outputMatch"] is not None else None)
 
 
 # ───────────────────────── 3. 표 ─────────────────────────
@@ -161,6 +166,12 @@ def models_used(rows):
     return " · ".join(f"{task}={'/'.join(sorted(m))}" for task, m in sorted(seen.items()))
 
 
+def check_mark(r):
+    """확인 AI 와 맞춰 본 결과: ✓ 바로 맞음 · ↻ 검토를 고친 뒤 맞음 · ✗ 맞지 않음 · - 확인까지 못 감"""
+    c = next((a["check"] for a in reversed(r["attempts"]) if a.get("check")), None)
+    return "-" if not c else "✓" if c.get("agree") else "↻" if c.get("agreeAfter") else "✗"
+
+
 def first_review(r):
     return next((a["review"] for a in r["attempts"] if a.get("review") and "runnable" in a["review"]), None)
 
@@ -172,6 +183,7 @@ def table(rows):
     reviewed = [first_review(r) for r in rows if first_review(r)]
     ran = [r for r in ai if r.get("runOk") is not None]
     compared = [r for r in ai if r.get("outputMatch") is not None]
+    checks = [a["check"] for r in rows for a in r["attempts"] if a.get("check")]
     out = [
         ("문항 수", n),
         ("AI 문항 최종 제공", pct(len(ai), n)),
@@ -180,11 +192,17 @@ def table(rows):
         ("검토: 동작하지 않는다고 판정 (첫 검토)", pct(sum(1 for v in reviewed if not v["runnable"] or v["problems"]), len(reviewed))),
         ("검토: 요청한 난이도와 맞음 (첫 검토)", pct(sum(1 for v in reviewed if v["level"]["match"]), len(reviewed))),
         ("검토: 함수·반복문을 빠뜨림 (첫 검토)", pct(sum(1 for v in reviewed if v.get("missing")), len(reviewed))),
+        ("확인 AI 와 검토 기록이 바로 맞음 (확인한 시도 중)", pct(sum(1 for c in checks if c.get("agree")), len(checks))),
+        ("다르다가 검토를 고친 뒤 맞음", pct(sum(1 for c in checks if c.get("agreeAfter")), sum(1 for c in checks if c.get("rereview")))),
+        ("끝내 맞지 않아 내보내지 않은 시도", pct(sum(1 for c in checks if not c.get("agree") and not c.get("agreeAfter")), len(checks))),
+        ("손으로 따라가기에 너무 큼 (첫 검토 기록 — 반복 횟수·출력 줄)", pct(sum(1 for v in reviewed if v.get("size")), len(reviewed))),
         ("부분 수정을 쓴 문항", pct(sum(1 for r in rows if any(a["fixed"] for a in r["attempts"])), n)),
         ("다시 만든 문항", pct(sum(1 for r in rows if len(r["attempts"]) > 1), n)),
         ("예시 코드 대체", pct(n - len(ai), n)),
         ("AI 문항이 실제로 오류 없이 실행됨 (이 컴퓨터)", pct(sum(1 for r in ran if r["runOk"]), len(ran))),
         ("검토 출력 = 실제 출력 (출력이 매번 같은 코드만)", pct(sum(1 for r in compared if r["outputMatch"]), len(compared))),
+        ("검토 출력의 줄 단위 일치율 (평균)", f"{100 * statistics.mean(r['lineMatch'] for r in compared):.1f}%" if compared else "-"),
+        ("AI 문항의 실제 출력 줄 수 (평균 · 최대)", f"{statistics.mean(r['realLines'] for r in ran):.1f}줄 · {max(r['realLines'] for r in ran)}줄" if ran else "-"),
         ("문항당 AI 호출 (평균)", f"{statistics.mean(len(r['calls']) for r in rows):.1f}" if rows else "-"),
         ("문항당 AI 비용 (평균 · 합계)", f"${statistics.mean(cost(r) for r in rows):.4f} · ${sum(cost(r) for r in rows):.3f}" if rows else "-"),
         ("문항당 생성 시간 (평균 · 중앙값)", f"{statistics.mean(r['seconds'] for r in rows):.1f}초 · {statistics.median(r['seconds'] for r in rows):.1f}초" if rows else "-"),
@@ -273,7 +291,7 @@ def main():
                   f"호출 {len(r['calls'])} ${cost(r):.4f} 규칙 {'✗' if r['attempts'] and r['attempts'][0]['rule'] else '✓'} "
                   f"동작 {'-' if not v else ('✓' if v['runnable'] and not v['problems'] else '✗')} "
                   f"난이도 {'-' if not level else ('✓' if level['match'] else '✗ ' + LEVEL_NAMES.get(level['overall'], '?'))} "
-                  f"수정 {'✓' if any(a['fixed'] for a in r['attempts']) else '-'} 다시 {len(r['attempts']) - 1} · {r['topic']}", flush=True)
+                  f"확인 {check_mark(r)} 수정 {'✓' if any(a['fixed'] for a in r['attempts']) else '-'} 다시 {len(r['attempts']) - 1} · {r['topic']}", flush=True)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         list(pool.map(work, items))
@@ -283,13 +301,14 @@ def main():
     with open(os.path.join(out_dir, "results.csv"), "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(["no", "language", "level", "topic", "origin", "seconds", "attempts", "calls", "cost_usd", "rule_1", "runnable_1", "problems_1",
-                    "level_match_1", "level_judged_1", "fixed", "run_ok", "deterministic", "output_match", "note"])
+                    "level_match_1", "level_judged_1", "size_1", "fixed", "run_ok", "deterministic", "output_match", "line_match", "real_lines", "note"])
         for r in rows:
             v = first_review(r) or {}
             w.writerow([r["no"], r["language"], r["level"], r["topic"], r["origin"], r["seconds"], len(r["attempts"]), len(r["calls"]), f"{cost(r):.5f}",
                         " | ".join(r["attempts"][0]["rule"]) if r["attempts"] else "", v.get("runnable"), " | ".join(v.get("problems") or []),
-                        (v.get("level") or {}).get("match"), (v.get("level") or {}).get("overall"), any(a["fixed"] for a in r["attempts"]),
-                        r.get("runOk"), r.get("deterministic"), r.get("outputMatch"), r.get("note") or ""])
+                        (v.get("level") or {}).get("match"), (v.get("level") or {}).get("overall"), " | ".join(v.get("size") or []),
+                        any(a["fixed"] for a in r["attempts"]), r.get("runOk"), r.get("deterministic"), r.get("outputMatch"),
+                        "" if r.get("lineMatch") is None else f"{r['lineMatch']:.3f}", r.get("realLines", ""), r.get("note") or ""])
     picked = verify_sheet(rows, out_dir, args.verify, args.seed)
     tab = table(rows)
     md = ["# 코드 생성·검증 실험 결과", "", f"- 실행: {datetime.now():%Y-%m-%d %H:%M} · {args.url} · seed {args.seed}",
