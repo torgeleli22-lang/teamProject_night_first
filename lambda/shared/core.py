@@ -31,7 +31,8 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "jojo_table")            # 모든 데�
 TTL_ATTR = os.environ.get("TTL_ATTR", "jojo_ttl")                  # 테이블의 TTL(자동 삭제) 속성 이름
 DB_REGION = os.environ.get("DB_REGION", "ap-northeast-2")          # DynamoDB 가 있는 곳 (서울)
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")     # Bedrock 모델을 부르는 곳
-MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")        # 생성·부분 수정·채점: Claude Haiku 4.5
+REVIEW_MODEL_ID = os.environ.get("REVIEW_MODEL_ID", "us.openai.gpt-5.6-luna")                # 검토(교차 검증): 생성과 다른 회사의 모델 GPT-5.6 Luna
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 MOCK_DELAY_SEC = float(os.environ.get("MOCK_DELAY_SEC", "0.8"))    # 목업 응답을 기다리는 시간 (화면 확인용)
@@ -66,7 +67,12 @@ LIMITS = {
     "new_sessions_per_ip_hour": _num("RATE_LIMIT_NEW_SESSIONS_PER_HOUR", 120),  # IP 하나가 새로 만드는 학습자 (1시간)
 }
 MONTHLY_BUDGET_USD = _num("AI_MONTHLY_BUDGET_USD", 10)   # 한 달 AI 예산 (USD). 넘을 호출은 하지 않고 예시 코드·규칙 채점으로
-PRICE = {"claude-haiku-4-5": {"input": 1, "output": 5}}   # AI 가격 (USD / 100만 토큰)
+# AI 가격 (USD / 100만 토큰, Bedrock 온디맨드 기준 추정치 — 월 예산 계산용). 표에 없는 모델은 가장 비싼 값으로 셈
+PRICE = {
+    "claude-haiku-4-5": {"input": 1, "output": 5},
+    "claude-sonnet-4-5": {"input": 3, "output": 15},
+    # "gpt-5.6-luna": Bedrock 가격을 확인하면 넣기 (없는 동안은 위에서 가장 비싼 값으로 넉넉하게 계산)
+}
 
 
 def ai_enabled():
@@ -235,7 +241,8 @@ def _route_handler(app, fn):
 
 def health(req):
     """연결 확인 — 모든 함수에 있어요 (콘솔 테스트 이벤트: {"path": "/health", "method": "GET"})"""
-    return {"ok": True, "mode": AI_MODE, "ai": ai_enabled(), "languages": list(LANGUAGES)}
+    return {"ok": True, "mode": AI_MODE, "ai": ai_enabled(), "languages": list(LANGUAGES),
+            "models": {"generate": MODEL_ID, "review": REVIEW_MODEL_ID}}   # 모델 이름은 비밀이 아니에요 (환경 변수가 반영됐는지 확인용)
 
 
 HEALTH = {"GET /health": health}

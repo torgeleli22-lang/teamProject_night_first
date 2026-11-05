@@ -27,7 +27,7 @@
    ├─→ jojo_auth      로그인 (Google, 선택)
    ├─→ jojo_practice  코드 만들기 (생성 → 규칙 검사 → 검토)
    └─→ jojo_review    채점
-         Lambda (Python 3.14) ──→ DynamoDB jojo_table · Bedrock Claude Haiku 4.5
+         Lambda (Python 3.14) ──→ DynamoDB jojo_table · Bedrock (생성·채점 Claude Haiku 4.5 · 검토 GPT-5.6 Luna)
 ```
 
 | 문서 | 내용 |

@@ -35,10 +35,10 @@ def month_key(ms=None):
 
 
 def normalize_model(model):
-    """'us.anthropic.claude-haiku-4-5-20251001-v1:0' → 'claude-haiku-4-5' (가격표 이름)"""
+    """'us.anthropic.claude-haiku-4-5-20251001-v1:0' → 'claude-haiku-4-5' · 'us.openai.gpt-5.6-luna' → 'gpt-5.6-luna' (가격표 이름)"""
     model = re.sub(r"^mock:", "", model)
-    model = re.sub(r"^(?:[a-z]{2,6}\.)?anthropic\.", "", model)
-    return re.sub(r"-\d{8}(?:-v\d+(?::\d+)?)?$", "", model)
+    model = re.sub(r"^(?:[a-z]{2,6}\.)?(?:anthropic|amazon|meta|mistral|deepseek|openai|qwen)\.", "", model)
+    return re.sub(r"(?:-\d{8})?(?:-v\d+(?::\d+)?)?$", "", model)
 
 
 def cost_usd(model, inp, out):
@@ -56,7 +56,8 @@ def log_usage(task, model, inp, out, ok, error=None, sec=0.0):
     """AI 호출 한 번: 이번 달 합계에 더하고, 실험 중이면 기록에도 남긴다"""
     calls = getattr(recorder, "calls", None)
     if isinstance(calls, list):
-        calls.append({"task": task, "input": inp, "output": out, "sec": round(sec, 2), "ok": ok, "error": error})
+        calls.append({"task": task, "model": normalize_model(model), "input": inp, "output": out, "sec": round(sec, 2), "ok": ok, "error": error,
+                      "costUsd": round(cost_usd(model, inp, out), 6)})
     try:
         update_item(OPS_USAGE, f"{month_key()}#{task}#{model}", set_values={"task": task, "model": model, "lastAt": now_ms()},
                     add_values={"calls": 1, "input": inp, "output": out, "failures": 0 if ok else 1})
@@ -64,9 +65,9 @@ def log_usage(task, model, inp, out, ok, error=None, sec=0.0):
         logger.warning("AI 사용량 기록 실패", extra={"error": repr(e)})
 
 
-def check_budget(input_chars, max_tokens):
+def check_budget(model, input_chars, max_tokens):
     """이번 호출의 최대 비용까지 더해도 월 예산 안인지 (넘으면 AiUnavailable)"""
-    if month_cost_usd() + cost_usd(MODEL_ID, input_chars, max_tokens) > MONTHLY_BUDGET_USD:
+    if month_cost_usd() + cost_usd(model, input_chars, max_tokens) > MONTHLY_BUDGET_USD:
         raise AiUnavailable("monthly AI budget reached")
 
 
@@ -75,8 +76,10 @@ def check_budget(input_chars, max_tokens):
 # ─────────────────────────────────────────────────────────────
 
 
-def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None):
-    """AI 에게 정해진 모양(schema)의 답을 받는다. mock: AI_MODE=mock 일 때 대신 돌려줄 답을 만드는 함수 (같은 모양인지 검사)"""
+def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None):
+    """AI 에게 정해진 모양(schema)의 답을 받는다. mock: AI_MODE=mock 일 때 대신 돌려줄 답을 만드는 함수 (같은 모양인지 검사)
+    model: 이 작업에 쓸 Bedrock 모델 (비우면 MODEL_ID — 검토는 core.REVIEW_MODEL_ID)"""
+    model = model or MODEL_ID
     if not ai_enabled():
         raise AiUnavailable("AI is off")
     if AI_MODE == "mock":
@@ -86,18 +89,18 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None):
         result, issues = parse_answer(mock(), schema)
         if issues:   # 목업이 모양과 다르면 코드 실수 — 시험에서 바로 드러나게
             raise ValueError(f"mock for {task} does not fit {schema.__name__}: {issues[:3]}")
-        log_usage(task, f"mock:{MODEL_ID}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, True)
+        log_usage(task, f"mock:{model}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, True)
         return result
     # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
     try:
-        return _ask_live(task, system, prompt, schema, max_tokens)
+        return _ask_live(task, system, prompt, schema, max_tokens, model)
     except AiUnavailable as e:
         if not str(e).startswith("could not parse response:") or "결과(JSON)가 없음" in str(e):
             raise
         hint = (f"{prompt}\n\n(앞선 답의 형식이 맞지 않았어요: {str(e)[len('could not parse response: '):][:300]}. "
                 f"정해진 모든 칸을 최상위에 빠짐없이 채워 answer 로 다시 제출해 주세요.)")
         logger.info("AI 답 형식을 다시 물음", extra={"task": task, "reason": str(e)[:200]})
-        return _ask_live(task, system, hint, schema, max_tokens)
+        return _ask_live(task, system, hint, schema, max_tokens, model)
 
 
 def _shape(value):
@@ -107,32 +110,41 @@ def _shape(value):
     return type(value).__name__
 
 
-def _ask_live(task, system, prompt, schema, max_tokens):
-    """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록)"""
+MAX_OUTPUT = {"nova": 10000}   # 모델마다 한 번에 쓸 수 있는 출력 토큰 한도 (Claude·GPT 는 우리 값보다 커서 그대로)
+
+
+def max_output(model):
+    return next((n for key, n in MAX_OUTPUT.items() if key in model), 64000)
+
+
+def _ask_live(task, system, prompt, schema, max_tokens, model):
+    """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
-    check_budget(len(system) + len(prompt), max_tokens)
+    check_budget(model, len(system) + len(prompt), max_tokens)
     ok, usage, error = False, {}, None
     try:
+        tool = {"toolSpec": {"name": "answer", "inputSchema": {"json": tool_schema(schema)},
+                             "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다."}}
+        request = {"modelId": model, "system": [{"text": system}], "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                   "inferenceConfig": {"maxTokens": min(max_tokens, max_output(model))},
+                   "toolConfig": {"tools": [tool], "toolChoice": {"tool": {"name": "answer"}}}}
         try:
-            response = bedrock().converse(
-                modelId=MODEL_ID,
-                system=[{"text": system}],
-                messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={"maxTokens": max_tokens},
-                toolConfig={
-                    "tools": [{"toolSpec": {
-                        "name": "answer",
-                        "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다.",
-                        "inputSchema": {"json": tool_schema(schema)},
-                    }}],
-                    "toolChoice": {"tool": {"name": "answer"}},
-                },
-            )
+            try:
+                response = bedrock().converse(**request)
+            except Exception as e:
+                # 도구를 하나만 고르게 하는 옵션(toolChoice.tool)을 받지 않는 모델이면 '도구 중 하나로 답하기'(any)로 한 번 더 — 도구가 하나라 같은 뜻
+                if (getattr(e, "response", None) or {}).get("Error", {}).get("Code") != "ValidationException" or "tool" not in str(e).lower():
+                    raise
+                logger.info("toolChoice any 로 다시", extra={"model": model})
+                request["toolConfig"]["toolChoice"] = {"any": {}}
+                response = bedrock().converse(**request)
         except Exception as e:
             # AWS 가 거절한 요청(권한·모델·한도)은 비용이 없고, 연결이 끊긴 요청은 답을 만들었을 수 있어 최대 사용량으로 기록한다
             if not getattr(e, "response", None):
                 usage = {"inputTokens": len(system) + len(prompt), "outputTokens": max_tokens}
-            raise AiUnavailable(f"bedrock: {type(e).__name__}")
+            code = (getattr(e, "response", None) or {}).get("Error", {}).get("Code") or type(e).__name__
+            logger.warning("Bedrock 호출 실패", extra={"task": task, "model": model, "code": code, "error": str(e)[:300]})
+            raise AiUnavailable(f"bedrock: {code}")
         usage = response.get("usage", {})
         if response.get("stopReason") == "max_tokens":
             raise AiUnavailable("response was truncated")
@@ -149,7 +161,7 @@ def _ask_live(task, system, prompt, schema, max_tokens):
         error = str(e)
         raise
     finally:
-        log_usage(task, MODEL_ID, usage.get("inputTokens", 0), usage.get("outputTokens", 0), ok, error=error, sec=time.time() - started)
+        log_usage(task, model, usage.get("inputTokens", 0), usage.get("outputTokens", 0), ok, error=error, sec=time.time() - started)
 
 
 # ─────────────────────────────────────────────────────────────

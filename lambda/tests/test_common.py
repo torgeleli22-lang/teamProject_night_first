@@ -93,6 +93,25 @@ class AiRetry(unittest.TestCase):
         self.assertEqual(len(prompts), 2)
         self.assertIn("codeProblems", prompts[1])   # 빠진 칸을 알려 준다
 
+    def test_model_without_tool_choice_tool_is_asked_with_any(self):
+        """검토 모델이 toolChoice.tool 을 받지 않으면 any 로 한 번 더, 출력 한도는 모델에 맞게"""
+        from botocore.exceptions import ClientError
+        sent = []
+
+        class Client:
+            def converse(self, **kw):
+                sent.append((kw["modelId"], kw["toolConfig"]["toolChoice"], kw["inferenceConfig"]["maxTokens"]))
+                if "tool" in kw["toolConfig"]["toolChoice"]:
+                    raise ClientError({"Error": {"Code": "ValidationException", "Message": "This model doesn't support the toolConfig.toolChoice.tool field"}}, "Converse")
+                return {"stopReason": "tool_use", "usage": {"inputTokens": 1, "outputTokens": 1},
+                        "output": {"message": {"content": [{"toolUse": {"input": {"trace": {"name": "t"}, "codeProblems": []}}}]}}}
+        with unittest.mock.patch.object(ai, "AI_MODE", "live"), unittest.mock.patch.object(ai, "ai_enabled", lambda: True), \
+                unittest.mock.patch.object(ai, "check_budget", lambda *a: None), unittest.mock.patch.object(ai, "log_usage", lambda *a, **k: None), \
+                unittest.mock.patch.object(ai, "bedrock", lambda: Client()):
+            got = ai.ask_ai("code_review", "s", "질문", self.Check, max_tokens=12000, model="us.amazon.nova-pro-v1:0")
+        self.assertEqual(got["codeProblems"], [])
+        self.assertEqual(sent, [("us.amazon.nova-pro-v1:0", {"tool": {"name": "answer"}}, 10000), ("us.amazon.nova-pro-v1:0", {"any": {}}, 10000)])
+
 
 class RequestBody(unittest.TestCase):
     class In(core.Body):
@@ -170,6 +189,11 @@ class Cost(unittest.TestCase):
         self.assertEqual(ai.normalize_model("us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
         self.assertEqual(ai.normalize_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
         self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 100_000), 1.5)
+        self.assertEqual(ai.normalize_model("us.openai.gpt-5.6-luna"), "gpt-5.6-luna")
+        self.assertEqual(ai.normalize_model("us.anthropic.claude-sonnet-4-5-20250929-v1:0"), "claude-sonnet-4-5")
+        self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 3.0)   # 가격표에 없으면 가장 비싼 값으로
+        self.assertEqual(ai.max_output("us.amazon.nova-pro-v1:0"), 10000)
+        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.openai.gpt-5.6-luna"))   # 생성 Haiku · 검토 GPT-5.6 Luna
 
 
 class CodeItems(unittest.TestCase):
