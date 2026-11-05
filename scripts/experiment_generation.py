@@ -166,6 +166,12 @@ def models_used(rows):
     return " · ".join(f"{task}={'/'.join(sorted(m))}" for task, m in sorted(seen.items()))
 
 
+def check_mark(r):
+    """확인 AI 와 맞춰 본 결과: ✓ 바로 맞음 · ↻ 검토를 고친 뒤 맞음 · ✗ 맞지 않음 · - 확인까지 못 감"""
+    c = next((a["check"] for a in reversed(r["attempts"]) if a.get("check")), None)
+    return "-" if not c else "✓" if c.get("agree") else "↻" if c.get("agreeAfter") else "✗"
+
+
 def first_review(r):
     return next((a["review"] for a in r["attempts"] if a.get("review") and "runnable" in a["review"]), None)
 
@@ -177,6 +183,7 @@ def table(rows):
     reviewed = [first_review(r) for r in rows if first_review(r)]
     ran = [r for r in ai if r.get("runOk") is not None]
     compared = [r for r in ai if r.get("outputMatch") is not None]
+    checks = [a["check"] for r in rows for a in r["attempts"] if a.get("check")]
     out = [
         ("문항 수", n),
         ("AI 문항 최종 제공", pct(len(ai), n)),
@@ -185,6 +192,9 @@ def table(rows):
         ("검토: 동작하지 않는다고 판정 (첫 검토)", pct(sum(1 for v in reviewed if not v["runnable"] or v["problems"]), len(reviewed))),
         ("검토: 요청한 난이도와 맞음 (첫 검토)", pct(sum(1 for v in reviewed if v["level"]["match"]), len(reviewed))),
         ("검토: 함수·반복문을 빠뜨림 (첫 검토)", pct(sum(1 for v in reviewed if v.get("missing")), len(reviewed))),
+        ("확인 AI 와 검토 기록이 바로 맞음 (확인한 시도 중)", pct(sum(1 for c in checks if c.get("agree")), len(checks))),
+        ("다르다가 검토를 고친 뒤 맞음", pct(sum(1 for c in checks if c.get("agreeAfter")), sum(1 for c in checks if c.get("rereview")))),
+        ("끝내 맞지 않아 내보내지 않은 시도", pct(sum(1 for c in checks if not c.get("agree") and not c.get("agreeAfter")), len(checks))),
         ("손으로 따라가기에 너무 큼 (첫 검토 기록 — 반복 횟수·출력 줄)", pct(sum(1 for v in reviewed if v.get("size")), len(reviewed))),
         ("부분 수정을 쓴 문항", pct(sum(1 for r in rows if any(a["fixed"] for a in r["attempts"])), n)),
         ("다시 만든 문항", pct(sum(1 for r in rows if len(r["attempts"]) > 1), n)),
@@ -281,7 +291,7 @@ def main():
                   f"호출 {len(r['calls'])} ${cost(r):.4f} 규칙 {'✗' if r['attempts'] and r['attempts'][0]['rule'] else '✓'} "
                   f"동작 {'-' if not v else ('✓' if v['runnable'] and not v['problems'] else '✗')} "
                   f"난이도 {'-' if not level else ('✓' if level['match'] else '✗ ' + LEVEL_NAMES.get(level['overall'], '?'))} "
-                  f"수정 {'✓' if any(a['fixed'] for a in r['attempts']) else '-'} 다시 {len(r['attempts']) - 1} · {r['topic']}", flush=True)
+                  f"확인 {check_mark(r)} 수정 {'✓' if any(a['fixed'] for a in r['attempts']) else '-'} 다시 {len(r['attempts']) - 1} · {r['topic']}", flush=True)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         list(pool.map(work, items))
