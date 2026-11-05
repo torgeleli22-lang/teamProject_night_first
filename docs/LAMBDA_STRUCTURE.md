@@ -16,6 +16,7 @@ lambda/
     levels.py            난이도 6요소·난이도별 기준·생성 규칙 (프롬프트에 그대로)
     rules.py             규칙 검사 (문법·정의 안 된 이름·함수/반복문 위치) — AI 없음
     samples.py           예시 코드 (언어 × 난이도 6개) · 랜덤 주제
+    history.py           생성 기록 남기기 · 최근 기록으로 생성 지침 만들기 (AI 없음)
   jojo_review/      채점
     lambda_function.py
     grade.py             POST /review · GET /code — 기준은 검토 기록
@@ -40,6 +41,7 @@ lambda/
 | `CODE#<id>` | `INFO` | 연습 코드 + 설명할 곳 + **검토 기록(units: 넣은 값·과정·결과·횟수·멈춘 조건·모범 설명) = 채점 기준** + 출력 + 난이도 판정 | practice(저장) · review |
 | `CODE#<id>` | `REVIEW#<시각>` | 채점 결과 | review |
 | `LOGIN#<토큰>` · `ACCOUNT#google:<번호>` · `AUTH#<state>` | `USER` · `USER` · `STATE` | 로그인 | auth · 모두(토큰 확인) |
+| `GENLOG#<언어>#<난이도>` | `<시각>` | 생성 기록 (결과 · 시도별 분류 · 통과한 코드의 모양, 180일) — 다음 생성의 지침 | practice |
 | `OPS#USAGE` | `<월>#<작업>#<모델>` | AI 사용량 (월 예산) | practice · review |
 | `OPS#LIMIT` | `<종류>:<대상>#<칸>` | 요청 수 제한 | 모두 |
 

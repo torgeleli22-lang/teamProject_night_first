@@ -62,7 +62,7 @@ def make(url, admin_code, item):
         raise SystemExit("✗ 단계 기록(debug)이 없어요. --url 이 jojo_practice 의 함수 URL 인지, 최신 코드를 붙여넣었는지 확인해 주세요.")
     d = out["debug"]
     return {**item, "seconds": round(time.time() - started, 1), "origin": d["origin"], "title": out["title"], "code": out["code"],
-            "attempts": d["attempts"], "calls": d["calls"], "units": d["units"], "output": d.get("output"), "levelCheck": d.get("levelCheck"),
+            "attempts": d["attempts"], "hints": d.get("hints") or {}, "calls": d["calls"], "units": d["units"], "output": d.get("output"), "levelCheck": d.get("levelCheck"),
             "note": out.get("note")}
 
 
@@ -239,6 +239,7 @@ def table(rows):
         ("검토 출력 = 실제 출력 (출력이 매번 같은 코드만)", pct(sum(1 for r in compared if r["outputMatch"]), len(compared))),
         ("검토 출력의 줄 단위 일치율 (평균)", f"{100 * statistics.mean(r['lineMatch'] for r in compared):.1f}%" if compared else "-"),
         ("AI 문항의 실제 출력 줄 수 (평균 · 최대)", f"{statistics.mean(r['realLines'] for r in ran):.1f}줄 · {max(r['realLines'] for r in ran)}줄" if ran else "-"),
+        ("생성 기록 지침을 받은 문항 (HISTORY_HINTS)", pct(sum(1 for r in rows if r.get("hints")), n)),
         ("문항당 AI 호출 (평균)", f"{statistics.mean(len(r['calls']) for r in rows):.1f}" if rows else "-"),
         ("문항당 AI 비용 (평균 · 합계)", f"${statistics.mean(cost(r) for r in rows):.4f} · ${sum(cost(r) for r in rows):.3f}" if rows else "-"),
         ("문항당 생성 시간 (평균 · 중앙값)", f"{statistics.mean(r['seconds'] for r in rows):.1f}초 · {statistics.median(r['seconds'] for r in rows):.1f}초" if rows else "-"),

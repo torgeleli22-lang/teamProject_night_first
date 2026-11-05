@@ -18,6 +18,7 @@ from pydantic import Field
 from ai import AiAnswer, AiUnavailable, ask_ai, recorder
 from core import (AI_LIMIT_MESSAGE, CHECK_MODEL_ID, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
                   read_body, remember_topic, save_code)
+from history import history_hints, record_generation
 from levels import GENERATION_RULES, TRACE_SIZE, all_levels_text, factors_text, level_text
 from rules import code_problems, flow_points, uncovered
 from samples import SAMPLES, TOPIC_POOL
@@ -183,14 +184,15 @@ def start_practice(req):
     topic = clean_topic(body.topic) or random.choice([t for t in TOPIC_POOL if t not in user["recentTopics"]] or TOPIC_POOL)
     admin = is_admin(req)
 
-    # 2. 생성 → 검사 → 검토 (AI 요청 한도를 넘으면 예시 코드). 관리자면 단계별 기록을 남긴다
-    log = {"attempts": []} if admin else None
+    # 2. 생성 → 검사 → 검토 → 확인 (AI 요청 한도를 넘으면 예시 코드). 단계 기록은 생성 기록(GENLOG#)에, 관리자면 응답에도
+    log = {"attempts": []}
     recorder.calls = [] if admin else None
     try:
         if not admin and not ai_allowed(req):
             made = from_sample(pick_sample(body.level, body.language, topic), AI_LIMIT_MESSAGE)
         else:
             made = make_code(body.level, body.language, topic, log)
+            record_generation(body.language, body.level, topic, made, log, calls=calls_used(), experiment=admin)
     finally:
         calls, recorder.calls = recorder.calls, None
 
@@ -228,6 +230,10 @@ def call_ai(task, *args, **kwargs):
     return ask_ai(task, *args, **kwargs)
 
 
+def calls_used():
+    return getattr(_spent, "n", 0)
+
+
 def calls_left():
     return MAX_CALLS - getattr(_spent, "n", 0)
 
@@ -237,6 +243,9 @@ def make_code(level, language, topic, log=None):
     sample = pick_sample(level, language, topic)
     _spent.n = 0
     feedback, used_fix = "", False
+    hints, used = history_hints(language, level)   # 같은 언어·난이도의 최근 생성 기록 → 지침 (8장)
+    if log is not None:
+        log["hints"] = used
     for attempt in range(ATTEMPTS):
         if calls_left() < 2:
             break
@@ -247,10 +256,12 @@ def make_code(level, language, topic, log=None):
         try:
             r = call_ai("code_generation", GEN_PROMPT.format(language=LANGUAGES[language], level=level_text(level),
                                                              rules="\n".join(f"{i}. {t}" for i, t in enumerate(GENERATION_RULES, 1))),
-                        f"주제: {topic}\n언어: {LANGUAGES[language]}\n난이도: {LEVELS[level]['name']}" + (f"\n\n{feedback}" if feedback else ""),
+                        f"주제: {topic}\n언어: {LANGUAGES[language]}\n난이도: {LEVELS[level]['name']}" + (f"\n\n{hints}" if hints else "")
+                        + (f"\n\n{feedback}" if feedback else ""),
                         CodeAnswer, max_tokens=GEN_TOKENS[level], mock=lambda: {"title": sample["title"], "code": sample["code"]})
         except AiUnavailable as e:
             logger.info("AI 대신 예시 코드", extra={"reason": str(e)})
+            step["genError"] = str(e)
             return from_sample(sample, "지금은 AI 대신 준비된 예시 코드를 드려요.")
         title, code = r["title"].strip()[:40] or topic, strip_fence(r["code"])
         # 규칙 검사 1 → 걸리면 부분 수정 1번
