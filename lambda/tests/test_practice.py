@@ -215,6 +215,26 @@ class Pipeline(unittest.TestCase):
         self.assertIn("두 AI 가 따로 따라간 실행 결과", self.prompts["code_generation"][1])
         self.assertLessEqual(len(self.calls), generate.MAX_CALLS)
 
+    def test_display_differences_are_not_disagreement(self):
+        # v2.4: 따옴표·괄호·띄어쓰기·4.0=4 는 같은 값으로 (실험에서 리스트 표시 차이로 버린 문항이 있었음)
+        a = {"output": ["현재 대기줄: ['이영희', '박민준']", "평균: 4.0점"], "units": []}
+        b = {"output": ["현재 대기줄: 이영희,박민준", "평균: 4점"], "counts": []}
+        self.assertEqual(generate.trace_diff(a, b), [])
+        self.assertTrue(generate.trace_diff({"output": ["1위: 데이터과학"], "units": []}, {"output": ["1위: 파이썬"], "counts": []}))
+
+    def test_count_means_total_in_both_prompts(self):
+        total = "프로그램 전체에서 실제로 돈 횟수의 합"
+        self.assertIn(total, generate.REVIEW_PROMPT)
+        self.assertIn(total, generate.CHECK_PROMPT)
+
+    def test_disagreement_keeps_code_and_both_outputs_for_judging(self):
+        wrong = review()
+        wrong["output"] = ["합계: 12000"]
+        self.run_with([CODE, CODE], [wrong, wrong, review()], checks=[{"output": ["합계: 11500"], "counts": []}])
+        check = self.log["attempts"][0]["check"]
+        self.assertEqual((check["code"], check["reviewOutput"], check["checkOutput"], check["reviewOutputAfter"]),
+                         (CODE, ["합계: 12000"], ["합계: 11500"], ["합계: 12000"]))
+
     def test_cross_check_unavailable_is_not_shipped(self):
         made = self.run_with([CODE, CODE], [review(), review()], checks=[generate.AiUnavailable("x"), generate.AiUnavailable("x")])
         self.assertEqual(made["origin"], "sample")
