@@ -1,7 +1,7 @@
 # 배포하기: GitHub Pages(화면) + Lambda 3개 + DynamoDB + Bedrock
 
 서버를 켜 두지 않는 구성이에요. 쓸 때만 Lambda 가 실행되고, 쓴 만큼만 요금이 나와요.
-Lambda 는 **CloudShell 명령 한 번(zip)** 으로 올려요 (콘솔에 붙여넣어도 돼요) (구조: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)).
+Lambda 는 CloudShell 에서 **`npm run deploy`** 로 올려요 (콘솔에 붙여넣어도 돼요) (구조: [`docs/LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md)).
 
 ```
 브라우저 ──→ GitHub Pages (정적 화면)
@@ -25,16 +25,19 @@ Lambda 는 **CloudShell 명령 한 번(zip)** 으로 올려요 (콘솔에 붙여
 
 ## 3. 함수 3개
 
-### 코드 올리기 (기본: CloudShell 명령 한 번)
-함수 폴더와 `lambda/shared/` 를 zip 하나로 묶어 **통째로** 바꿔요. 파일이 빠지거나 예전 파일과 섞이지 않아요 (2026-11-05 확인: 이 계정에서 됨).
+### 코드 올리기 (기본: `npm run deploy`)
+AWS CloudShell (리전 서울)에서:
 ```bash
-cd ~/teamProject_night_first && git pull
-for f in jojo_auth jojo_practice jojo_review; do
-  rm -f /tmp/$f.zip && (cd lambda && zip -qj /tmp/$f.zip $f/*.py shared/*.py) \
-  && aws lambda update-function-code --function-name $f --zip-file fileb:///tmp/$f.zip --query '[FunctionName, LastModified]' --output text
-done
+cd ~/teamProject_night_first && git pull     # 처음이면: git clone https://github.com/torgeleli22-lang/teamProject_night_first.git
+npm run deploy                               # 함수 3개 모두 (하나만: npm run deploy -- jojo_practice)
 ```
-올린 뒤 확인: `curl -s <함수 URL>/health` → `{"ok": true, ...}`. `Internal Server Error` 이면 콘솔 테스트 탭에서 오류를 봐요 (예: `No module named 'core'` → 파일이 빠짐).
+함수마다 `lambda/<함수>/*.py` + `lambda/shared/*.py` 를 **폴더 없이 zip 하나로** 묶어 코드를 통째로 바꾸고, 반영을 기다린 뒤 함수 URL 의 `/health` 를 확인해요.
+같은 코드면 올리지 않아요. 환경 변수·설정은 건드리지 않아요. 결과 예:
+```
+jojo_auth: 코드 그대로 (올리지 않음) · /health ✓ (AI_MODE=live)
+jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, rules.py, samples.py, ai.py, core.py) · /health ✓ (AI_MODE=live)
+```
+`/health ✗` 이면 콘솔 테스트 탭(`{"path": "/health", "method": "GET"}`)에서 오류를 봐요. `AccessDenied` 면 콘솔에 붙여넣어요 (아래).
 
 ### 함수 설정
 
@@ -85,8 +88,8 @@ GitHub 저장소 → Settings → Secrets and variables → Actions → **Variab
 | 바뀐 것 | 할 일 |
 |---|---|
 | 화면 | main 에 병합 → Pages 자동 배포 |
-| Lambda 코드 | main 에 병합 → CloudShell 에서 위 3번의 zip 명령 (세 함수를 한 번에) → `/health` 확인 |
-| 예시 코드·랜덤 주제 | `lambda/jojo_practice/samples.py` → `npm run verify` 통과 → 병합 → zip 명령 |
+| Lambda 코드 | main 에 병합 → CloudShell 에서 `git pull && npm run deploy` |
+| 예시 코드·랜덤 주제 | `lambda/jojo_practice/samples.py` → `npm run verify` 통과 → 병합 → `npm run deploy -- jojo_practice` |
 | 라이브러리 | `lambda/requirements.txt` → `npm run layer` → 계층 새 버전 → 세 함수의 계층 버전 바꾸기 |
 | 설정 (예산 등) | 함수마다 구성 → 환경 변수 (다음 요청부터 반영) |
 | 급하게 AI 를 멈추기 | `jojo_practice`·`jojo_review` 의 `AI_MODE` 를 `off` (예시 코드·규칙 채점으로) |
