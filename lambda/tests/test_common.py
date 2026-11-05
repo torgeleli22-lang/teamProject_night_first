@@ -93,44 +93,8 @@ class AiRetry(unittest.TestCase):
         self.assertEqual(len(prompts), 2)
         self.assertIn("codeProblems", prompts[1])   # 빠진 칸을 알려 준다
 
-    def test_openai_review_model(self):
-        """REVIEW_MODEL_ID=openai:<이름>: OpenAI Chat Completions 로, 'answer' 함수를 꼭 쓰게, 키는 헤더로만"""
-        import io
-        sent = []
-
-        def fake_urlopen(req, timeout=0):
-            sent.append((req.full_url, req.get_header("Authorization"), json.loads(req.data.decode())))
-            body = {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [{"function": {"name": "answer",
-                    "arguments": json.dumps({"trace": {"name": "t"}, "codeProblems": ["3번째 줄: 0 으로 나눔"]})}}]}}],
-                    "usage": {"prompt_tokens": 100, "completion_tokens": 20}}
-            return io.BytesIO(json.dumps(body).encode())
-        logged = []
-
-        class Res(io.BytesIO):
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-        with unittest.mock.patch.object(ai, "AI_MODE", "live"), unittest.mock.patch.object(ai, "ai_enabled", lambda: True), \
-                unittest.mock.patch.object(ai, "check_budget", lambda *a: None), \
-                unittest.mock.patch.object(ai, "log_usage", lambda *a, **k: logged.append(a)), \
-                unittest.mock.patch.dict("os.environ", {"OPENAI_API_KEY": "test-key", "OPENAI_PRICE_PER_M": "2,8"}), \
-                unittest.mock.patch.object(ai.urllib.request, "urlopen", lambda req, timeout=0: Res(fake_urlopen(req).getvalue())):
-            got = ai.ask_ai("code_review", "검토 지시", "코드", self.Check, max_tokens=8000, model="openai:test-model")
-            self.assertAlmostEqual(ai.cost_usd("openai:test-model", 1_000_000, 1_000_000), 10.0)   # 환경 변수 가격
-        self.assertEqual(got["codeProblems"], ["3번째 줄: 0 으로 나눔"])
-        url, auth, body = sent[0]
-        self.assertEqual((url, auth, body["model"], body["max_completion_tokens"]), (ai.OPENAI_URL, "Bearer test-key", "test-model", 8000))
-        self.assertEqual(body["tool_choice"], {"type": "function", "function": {"name": "answer"}})
-        self.assertEqual([m["role"] for m in body["messages"]], ["system", "user"])
-        self.assertEqual(logged[0][:5], ("code_review", "openai:test-model", 100, 20, True))
-        with unittest.mock.patch.dict("os.environ", {"OPENAI_API_KEY": ""}), unittest.mock.patch.object(ai, "AI_MODE", "live"), \
-                unittest.mock.patch.object(ai, "ai_enabled", lambda: True), self.assertRaises(ai.AiUnavailable):
-            ai.ask_ai("code_review", "s", "p", self.Check, model="openai:test-model")   # 키가 없으면 검토 못 함 → 내보내지 않음
-
     def test_model_without_tool_choice_tool_is_asked_with_any(self):
-        """검토를 다른 모델(예: Nova)로 바꿨을 때: toolChoice.tool 을 받지 않으면 any 로 한 번 더, 출력 한도는 모델에 맞게"""
+        """검토 모델이 toolChoice.tool 을 받지 않으면 any 로 한 번 더, 출력 한도는 모델에 맞게"""
         from botocore.exceptions import ClientError
         sent = []
 
@@ -225,10 +189,11 @@ class Cost(unittest.TestCase):
         self.assertEqual(ai.normalize_model("us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
         self.assertEqual(ai.normalize_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
         self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 100_000), 1.5)
-        self.assertEqual(ai.normalize_model("us.amazon.nova-pro-v1:0"), "nova-pro")
+        self.assertEqual(ai.normalize_model("us.openai.gpt-5.6-luna"), "gpt-5.6-luna")
         self.assertEqual(ai.normalize_model("us.anthropic.claude-sonnet-4-5-20250929-v1:0"), "claude-sonnet-4-5")
-        self.assertAlmostEqual(ai.cost_usd("us.amazon.nova-pro-v1:0", 1_000_000, 1_000_000), 4.0)
+        self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 3.0)   # 가격표에 없으면 가장 비싼 값으로
         self.assertEqual(ai.max_output("us.amazon.nova-pro-v1:0"), 10000)
+        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.openai.gpt-5.6-luna"))   # 생성 Haiku · 검토 GPT-5.6 Luna
 
 
 class CodeItems(unittest.TestCase):

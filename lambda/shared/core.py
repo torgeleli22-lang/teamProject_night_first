@@ -31,9 +31,8 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "jojo_table")            # 모든 데�
 TTL_ATTR = os.environ.get("TTL_ATTR", "jojo_ttl")                  # 테이블의 TTL(자동 삭제) 속성 이름
 DB_REGION = os.environ.get("DB_REGION", "ap-northeast-2")          # DynamoDB 가 있는 곳 (서울)
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")     # Bedrock 모델을 부르는 곳
-MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")   # 생성·부분 수정·채점
-REVIEW_MODEL_ID = os.environ.get("REVIEW_MODEL_ID", "").strip() or MODEL_ID              # 검토(교차 검증) — 비우면 MODEL_ID 와 같은 모델.
-#                 Bedrock 모델 ID, 또는 'openai:<모델 이름>' (OpenAI API, 키는 OPENAI_API_KEY · 가격은 OPENAI_PRICE_PER_M="입력,출력")
+MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")        # 생성·부분 수정·채점: Claude Haiku 4.5
+REVIEW_MODEL_ID = os.environ.get("REVIEW_MODEL_ID", "us.openai.gpt-5.6-luna")                # 검토(교차 검증): 생성과 다른 회사의 모델 GPT-5.6 Luna
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 MOCK_DELAY_SEC = float(os.environ.get("MOCK_DELAY_SEC", "0.8"))    # 목업 응답을 기다리는 시간 (화면 확인용)
@@ -72,8 +71,7 @@ MONTHLY_BUDGET_USD = _num("AI_MONTHLY_BUDGET_USD", 10)   # 한 달 AI 예산 (US
 PRICE = {
     "claude-haiku-4-5": {"input": 1, "output": 5},
     "claude-sonnet-4-5": {"input": 3, "output": 15},
-    "nova-pro": {"input": 0.8, "output": 3.2},
-    "nova-lite": {"input": 0.06, "output": 0.24},
+    # "gpt-5.6-luna": Bedrock 가격을 확인하면 넣기 (없는 동안은 위에서 가장 비싼 값으로 넉넉하게 계산)
 }
 
 

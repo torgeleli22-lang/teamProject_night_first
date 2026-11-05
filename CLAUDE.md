@@ -15,7 +15,7 @@
 - DynamoDB 항목 모양을 바꾸면 읽는 기능 파일과 `src/lib/api-types.ts` 를 함께 바꾸고 `npm run smoke` 로 확인한다.
 - 예시 코드(`lambda/jojo_practice/samples.py`)를 바꾸면 `npm run verify` 를 통과시킨다 (실제 실행).
 - 화면 문구는 한국어 존댓말("~해요"), 초보자 눈높이. 디자인은 공부 노트(줄 공책·여백선·형광펜·포스트잇·빨간펜·도장·인덱스 탭), 그라데이션·둥근 카드·이모지·파란 버튼은 쓰지 않는다. ○△✕⬚ 는 늘 빨간펜 그림(`ui.tsx` 의 `PenMark`, 문장은 `MarkText`)으로.
-- AWS 는 Lambda 3개(실행 역할 SafeRole, VPC 없음, Python 3.14 arm64, 계층 `jojo_libs`) + DynamoDB `jojo_table` + Bedrock(us-east-1, Claude Haiku 4.5)만. 예외로 검토 AI 는 `REVIEW_MODEL_ID` 로 다른 모델(OpenAI API 포함, 키는 `jojo_practice` 의 `OPENAI_API_KEY`)을 쓸 수 있다. S3 등은 요청 없이 넣지 않는다. 학교 계정은 IAM 역할 만들기가 막혀 있다. 비밀 값은 코드·문서에 쓰지 않는다.
+- AWS 는 Lambda 3개(실행 역할 SafeRole, VPC 없음, Python 3.14 arm64, 계층 `jojo_libs`) + DynamoDB `jojo_table` + Bedrock(us-east-1: 생성·채점 Claude Haiku 4.5, 검토 GPT-5.6 Luna — `core.MODEL_ID`·`REVIEW_MODEL_ID`)만. S3 등은 요청 없이 넣지 않는다. 학교 계정은 IAM 역할 만들기가 막혀 있다. 비밀 값은 코드·문서에 쓰지 않는다.
 
 ## 명령
 ```bash

@@ -5,12 +5,9 @@ ask_ai(): Bedrock 을 한 번 부르고, 정해진 모양(AiAnswer)으로 답을
 AI 를 쓸 수 없으면(꺼짐·월 예산·형식 오류) AiUnavailable 을 던지고, 부른 쪽이 예시 코드·규칙 채점으로 대신해요.
 """
 import json
-import os
 import re
 import threading
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from functools import lru_cache
 from types import UnionType
@@ -38,23 +35,14 @@ def month_key(ms=None):
 
 
 def normalize_model(model):
-    """'us.anthropic.claude-haiku-4-5-20251001-v1:0' → 'claude-haiku-4-5' · 'us.amazon.nova-pro-v1:0' → 'nova-pro' · 'openai:<이름>' → '<이름>' (가격표 이름)"""
-    model = re.sub(r"^(?:mock:)?(?:openai:)?", "", model)
+    """'us.anthropic.claude-haiku-4-5-20251001-v1:0' → 'claude-haiku-4-5' · 'us.openai.gpt-5.6-luna' → 'gpt-5.6-luna' (가격표 이름)"""
+    model = re.sub(r"^mock:", "", model)
     model = re.sub(r"^(?:[a-z]{2,6}\.)?(?:anthropic|amazon|meta|mistral|deepseek|openai|qwen)\.", "", model)
     return re.sub(r"(?:-\d{8})?(?:-v\d+(?::\d+)?)?$", "", model)
 
 
-def openai_price():
-    """OpenAI 모델 가격 (환경 변수 OPENAI_PRICE_PER_M = "입력,출력" USD / 100만 토큰). 없으면 None → 가장 비싼 값으로 셈"""
-    try:
-        inp, out = (float(x) for x in os.environ.get("OPENAI_PRICE_PER_M", "").split(","))
-        return {"input": inp, "output": out}
-    except ValueError:
-        return None
-
-
 def cost_usd(model, inp, out):
-    p = (openai_price() if is_openai(model) else None) or PRICE.get(normalize_model(model)) or max(PRICE.values(), key=lambda x: x["output"])
+    p = PRICE.get(normalize_model(model)) or max(PRICE.values(), key=lambda x: x["output"])
     return (inp * p["input"] + out * p["output"]) / 1e6
 
 
@@ -90,7 +78,7 @@ def check_budget(model, input_chars, max_tokens):
 
 def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None):
     """AI 에게 정해진 모양(schema)의 답을 받는다. mock: AI_MODE=mock 일 때 대신 돌려줄 답을 만드는 함수 (같은 모양인지 검사)
-    model: 이 작업에 쓸 모델 (비우면 MODEL_ID — 검토는 core.REVIEW_MODEL_ID 로 다른 모델을 쓸 수 있어요)"""
+    model: 이 작업에 쓸 Bedrock 모델 (비우면 MODEL_ID — 검토는 core.REVIEW_MODEL_ID)"""
     model = model or MODEL_ID
     if not ai_enabled():
         raise AiUnavailable("AI is off")
@@ -103,7 +91,7 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None)
             raise ValueError(f"mock for {task} does not fit {schema.__name__}: {issues[:3]}")
         log_usage(task, f"mock:{model}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, True)
         return result
-    # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음). 'openai:' 로 시작하는 모델은 OpenAI API 로
+    # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
     try:
         return _ask_live(task, system, prompt, schema, max_tokens, model)
     except AiUnavailable as e:
@@ -122,21 +110,15 @@ def _shape(value):
     return type(value).__name__
 
 
-MAX_OUTPUT = {"nova": 10000}   # 모델마다 한 번에 쓸 수 있는 출력 토큰 한도 (Claude 는 우리 값보다 커서 그대로)
+MAX_OUTPUT = {"nova": 10000}   # 모델마다 한 번에 쓸 수 있는 출력 토큰 한도 (Claude·GPT 는 우리 값보다 커서 그대로)
 
 
 def max_output(model):
     return next((n for key, n in MAX_OUTPUT.items() if key in model), 64000)
 
 
-def is_openai(model):
-    return str(model).startswith(("openai:", "mock:openai:"))
-
-
 def _ask_live(task, system, prompt, schema, max_tokens, model):
-    """AI 를 한 번 부른다 (사용량은 부를 때마다 기록). Bedrock 또는 OpenAI"""
-    if is_openai(model):
-        return _ask_openai(task, system, prompt, schema, max_tokens, model)
+    """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
     check_budget(model, len(system) + len(prompt), max_tokens)
     ok, usage, error = False, {}, None
@@ -180,65 +162,6 @@ def _ask_live(task, system, prompt, schema, max_tokens, model):
         raise
     finally:
         log_usage(task, model, usage.get("inputTokens", 0), usage.get("outputTokens", 0), ok, error=error, sec=time.time() - started)
-
-
-OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-
-
-def _ask_openai(task, system, prompt, schema, max_tokens, model):
-    """OpenAI Chat Completions 를 한 번 부른다 (검토를 다른 회사 모델로 할 때 — REVIEW_MODEL_ID=openai:<모델 이름>).
-    'answer' 함수 하나를 주고 반드시 그 함수로 답하게 한다 (Bedrock 과 같은 방식). 키는 환경 변수 OPENAI_API_KEY (값은 로그에 남기지 않음)"""
-    started = time.time()
-    key = os.environ.get("OPENAI_API_KEY", "")
-    if not key:
-        raise AiUnavailable("openai: OPENAI_API_KEY 가 없어요")
-    name = model.split("openai:", 1)[1]
-    check_budget(model, len(system) + len(prompt), max_tokens)
-    body = {"model": name, "max_completion_tokens": max_tokens,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-            "tools": [{"type": "function", "function": {"name": "answer", "parameters": tool_schema(schema),
-                                                        "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다."}}],
-            "tool_choice": {"type": "function", "function": {"name": "answer"}}}
-    req = urllib.request.Request(OPENAI_URL, data=json.dumps(body, ensure_ascii=False).encode("utf-8"), method="POST",
-                                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
-    ok, usage, error = False, {}, None
-    try:
-        try:
-            with urllib.request.urlopen(req, timeout=300) as res:
-                data = json.loads(res.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            detail = ""
-            try:
-                detail = (json.loads(e.read().decode("utf-8")).get("error") or {}).get("message", "")[:300]
-            except ValueError:
-                pass
-            logger.warning("OpenAI 호출 실패", extra={"task": task, "model": name, "status": e.code, "error": detail})
-            raise AiUnavailable(f"openai: HTTP {e.code}")
-        except (urllib.error.URLError, TimeoutError) as e:
-            usage = {"prompt_tokens": len(system) + len(prompt), "completion_tokens": max_tokens}   # 답을 만들었을 수 있어 최대로 기록
-            raise AiUnavailable(f"openai: {type(e).__name__}")
-        usage = data.get("usage") or {}
-        choice = (data.get("choices") or [{}])[0]
-        if choice.get("finish_reason") == "length":
-            raise AiUnavailable("response was truncated")
-        calls = (choice.get("message") or {}).get("tool_calls") or []
-        if not calls:
-            raise AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")
-        try:
-            raw = json.loads(calls[0]["function"]["arguments"])
-        except (KeyError, ValueError):
-            raise AiUnavailable("could not parse response: 결과 JSON 을 읽지 못함")
-        value, issues = parse_answer(raw, schema)
-        if issues:
-            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3], "shape": _shape(raw)})
-            raise AiUnavailable("could not parse response: " + "; ".join(issues[:3]))
-        ok = True
-        return value
-    except AiUnavailable as e:
-        error = str(e)
-        raise
-    finally:
-        log_usage(task, model, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), ok, error=error, sec=time.time() - started)
 
 
 # ─────────────────────────────────────────────────────────────
