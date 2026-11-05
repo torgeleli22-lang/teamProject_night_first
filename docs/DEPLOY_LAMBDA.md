@@ -62,10 +62,26 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
 | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
 | `AI_MONTHLY_BUDGET_USD` | `10` |
-| 선택 | `MODEL_ID` · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
+| 선택 | `REVIEW_MODEL_ID` (검토만 다른 모델, `jojo_practice` 에만 — 아래) · `MODEL_ID` · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
 
 - `ADMIN_TOKEN`: 실험 스크립트가 단계별 기록을 받을 때 쓰는 관리자 코드. CloudShell `openssl rand -hex 24` 처럼 직접 정한 긴 값을 `jojo_practice` 에만
 - 제한 시간: 코드 만들기는 AI 를 보통 2번(생성·검토), 많으면 6번 불러서 고급은 1~3분 걸릴 수 있어 넉넉하게 10분
+
+### 검토 AI 를 다른 모델로 (교차 검증)
+`jojo_practice` → 구성 → 환경 변수 `REVIEW_MODEL_ID` 에 넣은 모델로 **검토만** 해요 (비우면 생성과 같은 Haiku 4.5).
+
+**OpenAI 모델** (`REVIEW_MODEL_ID=openai:<모델 이름>`) — Lambda 가 `api.openai.com` 을 직접 불러요 (VPC 없음이라 인터넷이 돼요)
+| 키 | 값 |
+|---|---|
+| `REVIEW_MODEL_ID` | `openai:` + OpenAI 의 API 모델 이름 그대로 (OpenAI 대시보드·문서의 모델 ID — 화면에 보이는 이름과 다를 수 있어요) |
+| `OPENAI_API_KEY` | OpenAI API 키 (**비밀 값** — `jojo_practice` 환경 변수에만, 채팅·GitHub 에 쓰지 않기) |
+| `OPENAI_PRICE_PER_M` | `입력,출력` 가격 (USD / 100만 토큰, 예: `1.25,10`) — 월 예산 계산용. 비우면 가장 비싼 값으로 계산해요 |
+
+- 확인: `curl -s <jojo_practice 함수 URL>/health` → `"models": {"generate": "…haiku…", "review": "openai:…"}` → 실험 `--reps 1`
+- 오류는 CloudWatch 의 `OpenAI 호출 실패` (status 401: 키, 404: 모델 이름, 429: 한도·결제)
+- 비용은 OpenAI 계정에 따로 나와요 (AWS 요금이 아님). 월 예산(`AI_MONTHLY_BUDGET_USD`)은 두 곳을 합쳐서 계산해요
+
+**다른 Bedrock 모델** (예: Amazon Nova Pro `us.amazon.nova-pro-v1:0`) — Bedrock 콘솔 → 모델 액세스에서 권한 확인 후 `REVIEW_MODEL_ID` 에 추론 프로필 ID
 
 ## 4. 화면에 연결
 GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables** → **`API_URLS`**

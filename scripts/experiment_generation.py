@@ -89,7 +89,8 @@ def preflight(url):
         sys.exit(f"✗ 함수 URL 에 연결하지 못했어요 ({type(e).__name__}). --url 이 jojo_practice 의 함수 URL 인지 확인해 주세요.")
     if "maxCodeLines" in info or "regenLimit" in info:
         sys.exit("✗ jojo_practice 에 예전 코드가 돌고 있어요. lambda/jojo_practice + lambda/shared 의 파일을 붙여넣고 Deploy 해 주세요 (docs/DEPLOY_LAMBDA.md 3).")
-    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')})", flush=True)
+    models = info.get("models") or {}
+    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')} · 생성 {models.get('generate', '?')} · 검토 {models.get('review', '?')})", flush=True)
 
 
 def plan(reps, seed):
@@ -146,7 +147,18 @@ def pct(n, d):
 
 
 def cost(r):
-    return sum(c["input"] for c in r["calls"]) / 1e6 * PRICE_PER_M["input"] + sum(c["output"] for c in r["calls"]) / 1e6 * PRICE_PER_M["output"]
+    """호출마다 Lambda 가 그 모델 값으로 셈한 비용 (예전 기록에 없으면 Haiku 값으로)"""
+    return sum(c["costUsd"] if "costUsd" in c else c["input"] / 1e6 * PRICE_PER_M["input"] + c["output"] / 1e6 * PRICE_PER_M["output"]
+               for c in r["calls"])
+
+
+def models_used(rows):
+    """작업별로 쓴 모델 (예: code_generation=claude-haiku-4-5, code_review=nova-pro)"""
+    seen = {}
+    for r in rows:
+        for c in r["calls"]:
+            seen.setdefault(c["task"], set()).add(c.get("model", "?"))
+    return " · ".join(f"{task}={'/'.join(sorted(m))}" for task, m in sorted(seen.items()))
 
 
 def first_review(r):
@@ -281,10 +293,10 @@ def main():
     picked = verify_sheet(rows, out_dir, args.verify, args.seed)
     tab = table(rows)
     md = ["# 코드 생성·검증 실험 결과", "", f"- 실행: {datetime.now():%Y-%m-%d %H:%M} · {args.url} · seed {args.seed}",
-          f"- 문항: 언어 2 × 난이도 3 × {args.reps}회 = {len(rows)}개", "", "| 항목 | 결과 |", "|---|---|", *[f"| {k} | {v} |" for k, v in tab], "",
+          f"- 문항: 언어 2 × 난이도 3 × {args.reps}회 = {len(rows)}개", f"- 모델: {models_used(rows)}", "", "| 항목 | 결과 |", "|---|---|", *[f"| {k} | {v} |" for k, v in tab], "",
           "## 언어·난이도별", "", *by_group(rows), "",
           f"- verify.md: 무작위 AI 문항 {picked}개 — 연구진이 실제 실행 출력과 검토 기록·모범 설명을 비교해 표시",
-          f"- 비용: 입력 {PRICE_PER_M['input']}달러 · 출력 {PRICE_PER_M['output']}달러 / 100만 토큰 (Claude Haiku 4.5)"]
+          "- 비용: 호출마다 그 모델의 가격으로 (Lambda 의 core.PRICE — Haiku 4.5 입력 1달러·출력 5달러 / 100만 토큰)"]
     with open(os.path.join(out_dir, "summary.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(md) + "\n")
     print("\n" + "\n".join(f"  {k}: {v}" for k, v in tab))

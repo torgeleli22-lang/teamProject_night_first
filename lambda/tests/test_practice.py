@@ -86,8 +86,11 @@ class Pipeline(unittest.TestCase):
         codes, reviews, fixes = list(codes), list(reviews), list(fixes or [])
         self.calls, self.prompts = [], {}
 
+        self.models = {}
+
         def fake(task, system, prompt, schema, **kw):
             self.calls.append(task)
+            self.models.setdefault(task, kw.get("model"))
             self.prompts.setdefault(task, []).append(system + "\n" + prompt)
             answer = {"code_generation": lambda: {"title": "가격 합계", "code": codes.pop(0)}, "code_review": lambda: reviews.pop(0),
                       "code_fix": lambda: {"edits": fixes.pop(0) if fixes else []}}[task]()
@@ -109,6 +112,16 @@ class Pipeline(unittest.TestCase):
         self.assertEqual((loop["count"], loop["stop"], loop["steps"]), (3, "prices 를 다 돌면", ["4번 줄 total=3000"]))   # 검토의 실행 기록을 버리지 않음
         self.assertEqual(made["output"], ["합계: 11500"])
         self.assertTrue(made["levelCheck"]["match"])
+
+    def test_review_uses_its_own_model(self):
+        saved = generate.REVIEW_MODEL_ID
+        generate.REVIEW_MODEL_ID = "us.amazon.nova-pro-v1:0"
+        try:
+            self.run_with([CODE], [review()])
+        finally:
+            generate.REVIEW_MODEL_ID = saved
+        self.assertEqual(self.models["code_review"], "us.amazon.nova-pro-v1:0")   # 검토만 다른 모델
+        self.assertIsNone(self.models["code_generation"])                        # 생성은 기본 모델(MODEL_ID)
 
     def test_prompts_carry_the_level_standard(self):
         self.run_with([CODE], [review()], level=2)

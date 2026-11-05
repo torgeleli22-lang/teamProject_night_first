@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import Field
 
 from ai import AiAnswer, AiUnavailable, ask_ai, recorder
-from core import (AI_LIMIT_MESSAGE, LANGUAGES, LEVELS, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
+from core import (AI_LIMIT_MESSAGE, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
                   read_body, remember_topic, save_code)
 from levels import GENERATION_RULES, all_levels_text, factors_text, level_text
 from rules import code_problems, flow_points, uncovered
@@ -274,7 +274,7 @@ def review_code(code, level, language, sample=None, step=None):
         if calls_left() < 1:
             return None
         try:
-            r = call_ai("code_review", system, prompt + hint, ReviewAnswer, max_tokens=REVIEW_TOKENS[level],
+            r = call_ai("code_review", system, prompt + hint, ReviewAnswer, max_tokens=REVIEW_TOKENS[level], model=REVIEW_MODEL_ID,
                         mock=lambda: sample_review(sample, level) if sample and sample["code"] == code else sample_review(None, level, code))
         except AiUnavailable as e:
             logger.info("검토를 못 함", extra={"reason": str(e)})
