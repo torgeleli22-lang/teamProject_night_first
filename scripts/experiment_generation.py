@@ -62,7 +62,7 @@ def make(url, admin_code, item):
         raise SystemExit("✗ 단계 기록(debug)이 없어요. --url 이 jojo_practice 의 함수 URL 인지, 최신 코드를 붙여넣었는지 확인해 주세요.")
     d = out["debug"]
     return {**item, "seconds": round(time.time() - started, 1), "origin": d["origin"], "title": out["title"], "code": out["code"],
-            "attempts": d["attempts"], "calls": d["calls"], "units": d["units"], "output": d.get("output"), "levelCheck": d.get("levelCheck"),
+            "attempts": d["attempts"], "hints": d.get("hints") or {}, "calls": d["calls"], "units": d["units"], "output": d.get("output"), "levelCheck": d.get("levelCheck"),
             "note": out.get("note")}
 
 
@@ -121,6 +121,33 @@ def run_code(code, language, path):
         return None, "", "15초 안에 끝나지 않음"
 
 
+def canon_lines(lines):
+    """비교용 출력 줄 — Lambda 의 generate.norm_lines 와 같은 규칙 (띄어쓰기·따옴표·괄호 무시, 4.0 = 4)"""
+    canon = lambda x: re.sub(r"(\d)\.0+(?!\d)", r"\1", re.sub(r"[\s'\"`\[\]]", "", x))
+    return [canon(x) for x in "\n".join(str(o) for o in lines or []).split("\n") if x.strip()]
+
+
+def judge_disputes(rows, out_dir):
+    """두 AI 가 달랐던 시도: 그 코드를 실제로 두 번 실행해 검토(Luna)·확인(Haiku) 중 누가 맞았는지 → 시도마다 c["judge"]
+    review(검토가 맞음) · check(확인이 맞음) · neither(둘 다 틀림) · both(표시 차이뿐) · unknown(실행마다 출력이 다르거나 실행 실패)"""
+    folder = os.path.join(out_dir, "run_disputes")
+    os.makedirs(folder, exist_ok=True)
+    for r in rows:
+        for i, a in enumerate(r["attempts"], 1):
+            c = a.get("check") or {}
+            if c.get("agree") or not c.get("code") or "checkOutput" not in c:
+                continue
+            path = os.path.join(folder, f"q{r['no']:02d}_try{i}.{'py' if r['language'] == 'python' else 'js'}")
+            first, second = run_code(c["code"], r["language"], path), run_code(c["code"], r["language"], path)
+            if first[0] != 0 or first != second:
+                c["judge"] = "unknown"
+                continue
+            real = canon_lines(first[1].split("\n"))
+            review_ok = canon_lines(c.get("reviewOutputAfter") or c["reviewOutput"]) == real
+            check_ok = canon_lines(c["checkOutput"]) == real
+            c["judge"] = "both" if review_ok and check_ok else "review" if review_ok else "check" if check_ok else "neither"
+
+
 def real_runs(rows, out_dir):
     """AI 문항을 두 번 실행: 오류 없이 끝나는지, 출력이 매번 같은지(같을 때만 검토 출력과 비교)"""
     folder = os.path.join(out_dir, "run_code")
@@ -166,6 +193,14 @@ def models_used(rows):
     return " · ".join(f"{task}={'/'.join(sorted(m))}" for task, m in sorted(seen.items()))
 
 
+def judged_text(checks):
+    j = [c["judge"] for c in checks if c.get("judge")]
+    if not j:
+        return "-"
+    names = {"review": "검토(Luna) 맞음", "check": "확인(Haiku) 맞음", "neither": "둘 다 틀림", "both": "표시 차이뿐", "unknown": "판정 불가"}
+    return " · ".join(f"{names[k]} {j.count(k)}" for k in names if j.count(k)) + f" (총 {len(j)})"
+
+
 def check_mark(r):
     """확인 AI 와 맞춰 본 결과: ✓ 바로 맞음 · ↻ 검토를 고친 뒤 맞음 · ✗ 맞지 않음 · - 확인까지 못 감"""
     c = next((a["check"] for a in reversed(r["attempts"]) if a.get("check")), None)
@@ -192,6 +227,7 @@ def table(rows):
         ("검토: 동작하지 않는다고 판정 (첫 검토)", pct(sum(1 for v in reviewed if not v["runnable"] or v["problems"]), len(reviewed))),
         ("검토: 요청한 난이도와 맞음 (첫 검토)", pct(sum(1 for v in reviewed if v["level"]["match"]), len(reviewed))),
         ("검토: 함수·반복문을 빠뜨림 (첫 검토)", pct(sum(1 for v in reviewed if v.get("missing")), len(reviewed))),
+        ("두 AI 가 달랐을 때 실제로 맞은 쪽 (실행으로 판정)", judged_text(checks)),
         ("확인 AI 와 검토 기록이 바로 맞음 (확인한 시도 중)", pct(sum(1 for c in checks if c.get("agree")), len(checks))),
         ("다르다가 검토를 고친 뒤 맞음", pct(sum(1 for c in checks if c.get("agreeAfter")), sum(1 for c in checks if c.get("rereview")))),
         ("끝내 맞지 않아 내보내지 않은 시도", pct(sum(1 for c in checks if not c.get("agree") and not c.get("agreeAfter")), len(checks))),
@@ -203,6 +239,7 @@ def table(rows):
         ("검토 출력 = 실제 출력 (출력이 매번 같은 코드만)", pct(sum(1 for r in compared if r["outputMatch"]), len(compared))),
         ("검토 출력의 줄 단위 일치율 (평균)", f"{100 * statistics.mean(r['lineMatch'] for r in compared):.1f}%" if compared else "-"),
         ("AI 문항의 실제 출력 줄 수 (평균 · 최대)", f"{statistics.mean(r['realLines'] for r in ran):.1f}줄 · {max(r['realLines'] for r in ran)}줄" if ran else "-"),
+        ("생성 기록 지침을 받은 문항 (HISTORY_HINTS)", pct(sum(1 for r in rows if r.get("hints")), n)),
         ("문항당 AI 호출 (평균)", f"{statistics.mean(len(r['calls']) for r in rows):.1f}" if rows else "-"),
         ("문항당 AI 비용 (평균 · 합계)", f"${statistics.mean(cost(r) for r in rows):.4f} · ${sum(cost(r) for r in rows):.3f}" if rows else "-"),
         ("문항당 생성 시간 (평균 · 중앙값)", f"{statistics.mean(r['seconds'] for r in rows):.1f}초 · {statistics.median(r['seconds'] for r in rows):.1f}초" if rows else "-"),
@@ -298,6 +335,7 @@ def main():
 
     rows = [done[k] for k in sorted(done)]
     real_runs(rows, out_dir)
+    judge_disputes(rows, out_dir)
     with open(os.path.join(out_dir, "results.csv"), "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(["no", "language", "level", "topic", "origin", "seconds", "attempts", "calls", "cost_usd", "rule_1", "runnable_1", "problems_1",

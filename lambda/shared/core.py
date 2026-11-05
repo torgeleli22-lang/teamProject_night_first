@@ -271,6 +271,7 @@ def handle(app, event, context):
 #      LOGIN#<토큰>               USER                 로그인 토큰 → 사용자
 #      ACCOUNT#google:<번호>      USER                 Google 계정 → 사용자
 #      AUTH#<state>               STATE                로그인 시작 기록 (10분)
+#      GENLOG#<언어>#<난이도>     <시각>               생성 기록 (성공·실패 · 시도별 분류 · 통과한 코드의 모양) — 다음 생성의 지침
 #      OPS#USAGE                  <월>#<작업>#<모델>   AI 사용량 (월 예산)
 #      OPS#LIMIT                  <종류>:<대상>#<칸>   요청 수 제한
 #    DynamoDB 는 숫자를 Decimal 로 주고받아서, 읽을 때 int/float 로, 쓸 때 Decimal 로 바꾼다
@@ -294,6 +295,10 @@ def login_pk(token):
 
 def account_pk(provider_and_number):
     return f"ACCOUNT#{provider_and_number}"
+
+
+def genlog_pk(language, level):
+    return f"GENLOG#{language}#{level}"
 
 
 def auth_pk(state):

@@ -5,6 +5,7 @@ import unittest.mock
 from helpers import FakeDb, core, request
 
 import generate
+import history
 import levels
 import rules
 import samples
@@ -102,13 +103,14 @@ class Pipeline(unittest.TestCase):
             if isinstance(answer, Exception):
                 raise answer
             return answer
-        saved = generate.ask_ai
+        saved, saved_hints = generate.ask_ai, generate.history_hints
         generate.ask_ai = fake
+        generate.history_hints = getattr(self, "hints", lambda language, level: ("", {}))   # 생성 기록 지침 (기본: 없음)
         try:
             self.log = {"attempts": []}
             return generate.make_code(level, "python", "카페 주문", self.log)
         finally:
-            generate.ask_ai = saved
+            generate.ask_ai, generate.history_hints = saved, saved_hints
 
     def test_generate_then_review_saves_record_as_grading_standard(self):
         made = self.run_with([CODE], [review()])
@@ -215,6 +217,26 @@ class Pipeline(unittest.TestCase):
         self.assertIn("두 AI 가 따로 따라간 실행 결과", self.prompts["code_generation"][1])
         self.assertLessEqual(len(self.calls), generate.MAX_CALLS)
 
+    def test_display_differences_are_not_disagreement(self):
+        # v2.4: 따옴표·괄호·띄어쓰기·4.0=4 는 같은 값으로 (실험에서 리스트 표시 차이로 버린 문항이 있었음)
+        a = {"output": ["현재 대기줄: ['이영희', '박민준']", "평균: 4.0점"], "units": []}
+        b = {"output": ["현재 대기줄: 이영희,박민준", "평균: 4점"], "counts": []}
+        self.assertEqual(generate.trace_diff(a, b), [])
+        self.assertTrue(generate.trace_diff({"output": ["1위: 데이터과학"], "units": []}, {"output": ["1위: 파이썬"], "counts": []}))
+
+    def test_count_means_total_in_both_prompts(self):
+        total = "프로그램 전체에서 실제로 돈 횟수의 합"
+        self.assertIn(total, generate.REVIEW_PROMPT)
+        self.assertIn(total, generate.CHECK_PROMPT)
+
+    def test_disagreement_keeps_code_and_both_outputs_for_judging(self):
+        wrong = review()
+        wrong["output"] = ["합계: 12000"]
+        self.run_with([CODE, CODE], [wrong, wrong, review()], checks=[{"output": ["합계: 11500"], "counts": []}])
+        check = self.log["attempts"][0]["check"]
+        self.assertEqual((check["code"], check["reviewOutput"], check["checkOutput"], check["reviewOutputAfter"]),
+                         (CODE, ["합계: 12000"], ["합계: 11500"], ["합계: 12000"]))
+
     def test_cross_check_unavailable_is_not_shipped(self):
         made = self.run_with([CODE, CODE], [review(), review()], checks=[generate.AiUnavailable("x"), generate.AiUnavailable("x")])
         self.assertEqual(made["origin"], "sample")
@@ -238,7 +260,7 @@ class Pipeline(unittest.TestCase):
 
 class Endpoint(unittest.TestCase):
     def test_saves_record_and_shows_only_ranges(self):
-        with FakeDb(generate) as db, unittest.mock.patch.object(generate, "make_code", lambda *a, **k: {
+        with FakeDb(generate, history) as db, unittest.mock.patch.object(generate, "make_code", lambda *a, **k: {
                 "title": "t", "code": CODE, "units": generate.pick_keys(generate.clean_units(CODE, review()["units"])), "output": ["합계: 11500"],
                 "levelCheck": review()["level"], "origin": "ai", "note": None}), unittest.mock.patch.object(generate, "ai_allowed", lambda req: True):
             out = generate.start_practice(request({"language": "python", "level": 1, "topic": ""}))
@@ -252,6 +274,62 @@ class Endpoint(unittest.TestCase):
         for topic in ("해킹 도구", "가" * 51):
             with self.assertRaises(core.ApiError):
                 generate.clean_topic(topic)
+
+
+class History(unittest.TestCase):
+    """생성 기록으로 배우기 (docs/GENERATION_STANDARD.md 8장)"""
+
+    def step(self, outcome):
+        review = {"runnable": True, "problems": [], "size": [], "level": {"match": True, "overall": 1}}
+        steps = {
+            "ok": {"rule": [], "review": review, "check": {"agree": True}},
+            "rule": {"rule": ["3번째 줄: 오타"], "ruleAfterFix": ["3번째 줄: 오타"], "review": None},
+            "level_up": {"rule": [], "review": {**review, "level": {"match": False, "overall": 2, "advice": "함수를 줄여"}}},
+            "disagree": {"rule": [], "review": review, "check": {"agree": False, "diff": ["출력 1번째 줄 다름"], "rereview": True, "agreeAfter": False}},
+            "too_big": {"rule": [], "review": {**review, "size": ["출력이 20줄이라"]}},
+            "review_error": {"rule": [], "review": {"error": "bedrock: AccessDeniedException"}},
+        }
+        return steps[outcome]
+
+    def test_attempt_outcome(self):
+        for outcome in ("ok", "rule", "level_up", "disagree", "too_big", "review_error"):
+            self.assertEqual(history.attempt_outcome(self.step(outcome), 1)[0], outcome)
+        self.assertEqual(history.attempt_outcome({"review": {"runnable": True, "problems": [], "size": [], "level": {"match": False, "overall": 1}}}, 2)[0],
+                         "level_down")
+
+    def test_record_and_hints(self):
+        made_ok = {"origin": "ai", "title": "t", "code": CODE, "units": generate.clean_units(CODE, review()["units"]), "output": ["합계: 11500"],
+                   "levelCheck": {"overall": 1}}
+        made_fail = {"origin": "sample", "title": "s"}
+        with FakeDb(history) as db, unittest.mock.patch.dict("os.environ", {"HISTORY_HINTS": "on"}):
+            self.assertEqual(history.history_hints("python", 1), ("", {}))                       # 기록이 없으면 지침 없음
+            for _ in range(4):
+                history.record_generation("python", 1, "카페", made_ok, {"attempts": [self.step("ok")]})
+            for _ in range(3):
+                history.record_generation("python", 1, "카페", made_fail, {"attempts": [self.step("level_up"), self.step("disagree")]})
+            history.record_generation("python", 1, "카페", made_fail, {"attempts": [self.step("review_error")]})
+            rows = [v for (pk, _), v in db.rows.items() if pk == "GENLOG#python#1"]
+            text, used = history.history_hints("python", 1)
+        self.assertEqual(len(rows), 8)
+        self.assertNotIn("code", rows[0])                                                    # 코드 원문은 저장하지 않음
+        shape = next(r["shape"] for r in rows if r["origin"] == "ai")
+        self.assertEqual((shape["functions"], shape["loops"], shape["outputLines"], shape["maxCount"]), (1, 1, 1, 3))
+        self.assertIn("어렵다고 판정된 경우가 잦았어요", text)
+        self.assertIn("두 AI 가 실행 결과를 서로 다르게", text)
+        self.assertIn("약 8줄 · 함수 1개 · 반복문 1개 · 출력 1줄", text)
+        self.assertNotIn("total_price", text)                                                 # 코드 원문은 지침에 넣지 않음 (다양성)
+        self.assertEqual((used["records"], set(used["frequent"])), (8, {"level_up", "disagree"}))   # AI 를 못 쓴 기록(review_error)은 이유로 쓰지 않음
+
+    def test_hints_off(self):
+        with unittest.mock.patch.dict("os.environ", {"HISTORY_HINTS": "off"}):
+            self.assertEqual(history.history_hints("python", 1), ("", {}))
+
+    def test_hints_go_into_generation_prompt(self):
+        pipe = Pipeline("test_generate_then_review_saves_record_as_grading_standard")
+        pipe.hints = lambda language, level: ("참고 — 최근 기록: 너무 큰 코드가 잦았어요", {"records": 9})
+        pipe.run_with([CODE], [review()])
+        self.assertIn("참고 — 최근 기록: 너무 큰 코드가 잦았어요", pipe.prompts["code_generation"][0])
+        self.assertEqual(pipe.log["hints"], {"records": 9})
 
 
 class Samples(unittest.TestCase):
