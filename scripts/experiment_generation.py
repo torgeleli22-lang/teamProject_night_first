@@ -91,7 +91,7 @@ def preflight(url):
     if "maxCodeLines" in info or "regenLimit" in info:
         sys.exit("✗ jojo_practice 에 예전 코드가 돌고 있어요. lambda/jojo_practice + lambda/shared 의 파일을 붙여넣고 Deploy 해 주세요 (docs/DEPLOY_LAMBDA.md 3).")
     models = info.get("models") or {}
-    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')} · 생성 {models.get('generate', '?')} · 검토 {models.get('review', '?')} · 검토 2 {models.get('check', '?')} (고급 {models.get('checkHigh', '?')}))", flush=True)
+    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')} · 생성 {models.get('generate', '?')} · 검토 {models.get('review', '?')} · 검토 2 {models.get('check', '?')} (중급·고급 {models.get('checkHigh', '?')}))", flush=True)
 
 
 def plan(reps, seed):
@@ -123,12 +123,13 @@ def run_code(code, language, path):
 
 def canon_lines(lines):
     """비교용 출력 줄 — Lambda 의 generate.norm_lines 와 같은 규칙 (띄어쓰기·따옴표·괄호 무시, 4.0 = 4)"""
-    canon = lambda x: re.sub(r"(\d)\.0+(?!\d)", r"\1", re.sub(r"[\s'\"`\[\]]", "", x))
+    long_dec = lambda x: re.sub(r"\d+\.\d{7,}", lambda m: f"{float(m.group()):.6f}".rstrip("0").rstrip("."), x)
+    canon = lambda x: re.sub(r"(\d)\.0+(?!\d)", r"\1", long_dec(re.sub(r"[\s'\"`\[\]]", "", x)))
     return [canon(x) for x in "\n".join(str(o) for o in lines or []).split("\n") if x.strip()]
 
 
 def judge_disputes(rows, out_dir):
-    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급·중급 Haiku / 고급 Luna · 생성 AI 예상 출력) 중 누가 맞았는지,
+    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Luna · 생성 AI 예상 출력) 중 누가 맞았는지,
     그리고 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
     folder = os.path.join(out_dir, "run_disputes")
     os.makedirs(folder, exist_ok=True)

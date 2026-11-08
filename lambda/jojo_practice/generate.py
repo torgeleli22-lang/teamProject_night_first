@@ -370,12 +370,12 @@ def review_code(code, level, language, sample=None, step=None, note=""):
 
 
 def check_model(level):
-    """검토 2 에 쓸 모델: 초급·중급은 Haiku(검토 1 과 다른 모델), 고급은 Luna 를 한 번 더 따로 (생성 기준 4.1 — 고급에서 Haiku 가 자주 놓침)"""
-    return CHECK_MODEL_ID_HIGH if level >= 3 else CHECK_MODEL_ID
+    """검토 2 에 쓸 모델: 초급은 Haiku(검토 1 과 다른 모델), 중급·고급은 Luna 를 한 번 더 따로 (생성 기준 4.1 — 계산이 얽히면 Haiku 가 자주 놓침)"""
+    return CHECK_MODEL_ID_HIGH if level >= 2 else CHECK_MODEL_ID
 
 
 def cross_check(code, level, language, review, expected=None, sample=None, step=None):
-    """③ 검토 2(초급·중급 Haiku · 고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → (제공해도 되나?, 쓸 검토 답) (4.1)
+    """③ 검토 2(초급 Haiku · 중급·고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → (제공해도 되나?, 쓸 검토 답) (4.1)
     검토 1 = 검토 2 → 제공 / 다르면 생성 AI 의 예상 출력까지 3개: 2:1 이면 2 쪽 출력 (검토 2 쪽이면 검토 1 이 그 출력으로 기록을 다시 씀)
     셋 다 다르거나 판정하지 못하면 (False, …) — 내보내지 않음"""
     info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}   # 실험에서 실제로 실행해 누가 맞았는지 셈 (관리자 기록에만)
@@ -425,10 +425,15 @@ def cross_check(code, level, language, review, expected=None, sample=None, step=
     return False, review
 
 
+def round_long_decimals(text):
+    """10.333333333333334 · 10.333333333333332 → 10.333333 (컴퓨터 실수 오차로 끝자리만 다른 것을 같게)"""
+    return re.sub(r"\d+\.\d{7,}", lambda m: f"{float(m.group()):.6f}".rstrip("0").rstrip("."), text)
+
+
 def norm_lines(lines):
     """비교용 출력 줄: 빈 줄은 버리고, 한 칸에 여러 줄이면 나누고, 표시만 다른 것을 지운다
-    (띄어쓰기 · 따옴표 · 괄호 — Python ['a', 'b'] 와 JavaScript a,b 를 같게 · 4.0 = 4)"""
-    canon = lambda x: re.sub(r"(\d)\.0+(?!\d)", r"\1", re.sub(r"[\s'\"`\[\]]", "", x))
+    (띄어쓰기 · 따옴표 · 괄호 — Python ['a', 'b'] 와 JavaScript a,b 를 같게 · 4.0 = 4 · 소수 7자리 넘으면 6자리로 반올림 — 실수 오차)"""
+    canon = lambda x: re.sub(r"(\d)\.0+(?!\d)", r"\1", round_long_decimals(re.sub(r"[\s'\"`\[\]]", "", x)))
     return [canon(x) for x in "\n".join(str(o) for o in lines or []).split("\n") if x.strip()]
 
 
