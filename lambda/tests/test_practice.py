@@ -153,6 +153,8 @@ class Pipeline(unittest.TestCase):
             self.assertIn(factor, rev)                                       # 검토는 6요소로 판단
         self.assertIn("매개변수에 값을 정해 넣고", rev)
         self.assertIn("요청한 난이도: 중급", rev)
+        self.assertIn("problems 는 코드의 문제만", rev)                     # 자기 기록 실수는 문제로 적지 않고 기록을 고침 (v2.9)
+        self.assertIn("그 기록을 바로 고쳐서 내", rev)
 
     def test_syntax_error_is_fixed_in_place(self):
         broken = CODE.replace("total = total + price", "total = totl + price")
