@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import Field
 
 from ai import AiAnswer, AiUnavailable, ask_ai, recorder
-from core import (AI_LIMIT_MESSAGE, CHECK_MODEL_ID, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
+from core import (AI_LIMIT_MESSAGE, CHECK_MODEL_ID, CHECK_MODEL_ID_HIGH, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
                   read_body, remember_topic, save_code)
 from history import history_hints, record_generation
 from levels import GENERATION_RULES, TRACE_SIZE, all_levels_text, factors_text, level_text
@@ -369,8 +369,13 @@ def review_code(code, level, language, sample=None, step=None, note=""):
     return {**r, "units": pick_keys(units)}
 
 
+def check_model(level):
+    """검토 2 에 쓸 모델: 초급·중급은 Haiku(검토 1 과 다른 모델), 고급은 Luna 를 한 번 더 따로 (생성 기준 4.1 — 고급에서 Haiku 가 자주 놓침)"""
+    return CHECK_MODEL_ID_HIGH if level >= 3 else CHECK_MODEL_ID
+
+
 def cross_check(code, level, language, review, expected=None, sample=None, step=None):
-    """③ 검토 2(Haiku)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → (제공해도 되나?, 쓸 검토 답) (4.1)
+    """③ 검토 2(초급·중급 Haiku · 고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → (제공해도 되나?, 쓸 검토 답) (4.1)
     검토 1 = 검토 2 → 제공 / 다르면 생성 AI 의 예상 출력까지 3개: 2:1 이면 2 쪽 출력 (검토 2 쪽이면 검토 1 이 그 출력으로 기록을 다시 씀)
     셋 다 다르거나 판정하지 못하면 (False, …) — 내보내지 않음"""
     info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}   # 실험에서 실제로 실행해 누가 맞았는지 셈 (관리자 기록에만)
@@ -385,9 +390,12 @@ def cross_check(code, level, language, review, expected=None, sample=None, step=
     ] if p)
     if calls_left() < 1:
         return False, review
+    model = check_model(level)
+    info["checkModel"] = model
     try:
-        check = call_ai("trace_check", CHECK_PROMPT.format(language=LANGUAGES[language]), prompt, CheckAnswer, max_tokens=CHECK_TOKENS[level],
-                        model=CHECK_MODEL_ID, mock=lambda: {"output": list(review["output"]),
+        check = call_ai("trace_check", CHECK_PROMPT.format(language=LANGUAGES[language]), prompt, CheckAnswer,
+                        max_tokens=REVIEW_TOKENS[level] if model == REVIEW_MODEL_ID else CHECK_TOKENS[level],   # Luna 는 생각하는 데도 토큰을 써서 검토 1 과 같은 한도
+                        model=model, mock=lambda: {"output": list(review["output"]),
                                                             "counts": [{"id": u["id"], "count": u.get("count")} for u in loops]})
     except AiUnavailable as e:
         logger.info("검토 2 를 못 함", extra={"reason": str(e)})

@@ -91,7 +91,7 @@ def preflight(url):
     if "maxCodeLines" in info or "regenLimit" in info:
         sys.exit("✗ jojo_practice 에 예전 코드가 돌고 있어요. lambda/jojo_practice + lambda/shared 의 파일을 붙여넣고 Deploy 해 주세요 (docs/DEPLOY_LAMBDA.md 3).")
     models = info.get("models") or {}
-    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')} · 생성 {models.get('generate', '?')} · 검토 {models.get('review', '?')})", flush=True)
+    print(f"✓ 함수 연결 확인 (AI_MODE={info.get('mode')} · 생성 {models.get('generate', '?')} · 검토 {models.get('review', '?')} · 검토 2 {models.get('check', '?')} (고급 {models.get('checkHigh', '?')}))", flush=True)
 
 
 def plan(reps, seed):
@@ -128,7 +128,7 @@ def canon_lines(lines):
 
 
 def judge_disputes(rows, out_dir):
-    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 Haiku · 생성 AI 예상 출력) 중 누가 맞았는지,
+    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급·중급 Haiku / 고급 Luna · 생성 AI 예상 출력) 중 누가 맞았는지,
     그리고 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
     folder = os.path.join(out_dir, "run_disputes")
     os.makedirs(folder, exist_ok=True)
@@ -201,7 +201,7 @@ def judged_text(checks):
     if not j and not unknown:
         return "-"
     voted = [x["vote"] for x in j if x["vote"] is not None]
-    return (f"검토 1(Luna) {sum(x['review'] for x in j)} · 검토 2(Haiku) {sum(x['check'] for x in j)} · 예상 출력 {sum(x['gen'] for x in j)} 맞음 / {len(j)}"
+    return (f"검토 1(Luna) {sum(x['review'] for x in j)} · 검토 2 {sum(x['check'] for x in j)} · 예상 출력 {sum(x['gen'] for x in j)} 맞음 / {len(j)}"
             + (f" · 2:1 로 정한 출력이 맞음 {sum(voted)}/{len(voted)}" if voted else "") + (f" · 판정 불가 {unknown}" if unknown else ""))
 
 

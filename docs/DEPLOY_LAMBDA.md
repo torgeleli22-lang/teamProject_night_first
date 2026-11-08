@@ -62,7 +62,7 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
 | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
 | `AI_MONTHLY_BUDGET_USD` | `10` |
-| 선택 | `HISTORY_HINTS` (`off` 면 생성 기록 지침을 쓰지 않음, 기본 켜짐) · `REVIEW_MODEL_ID` · `MODEL_ID` (아래 'AI 모델') · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
+| 선택 | `HISTORY_HINTS` (`off` 면 생성 기록 지침을 쓰지 않음, 기본 켜짐) · `REVIEW_MODEL_ID` · `CHECK_MODEL_ID` · `CHECK_MODEL_ID_HIGH` · `MODEL_ID` (아래 'AI 모델') · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
 
 - `ADMIN_TOKEN`: 실험 스크립트가 단계별 기록을 받을 때 쓰는 관리자 코드. CloudShell `openssl rand -hex 24` 처럼 직접 정한 긴 값을 `jojo_practice` 에만
 - 제한 시간: 코드 만들기는 AI 를 보통 2번(생성·검토), 많으면 6번 불러서 고급은 1~3분 걸릴 수 있어 넉넉하게 10분
@@ -72,7 +72,8 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 |---|---|---|
 | 생성 · 부분 수정 · 채점 | Claude Haiku 4.5 `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `MODEL_ID` |
 | 검토 (교차 검증) | **GPT-5.6 Luna** `us.openai.gpt-5.6-luna` | `REVIEW_MODEL_ID` (`jojo_practice`) |
-| 확인 (검토 기록과 맞춰 보기) | Claude Haiku 4.5 (검토와 다른 모델) | `CHECK_MODEL_ID` (비우면 `MODEL_ID`) |
+| 검토 2 (초급·중급) | Claude Haiku 4.5 (검토 1 과 다른 모델) | `CHECK_MODEL_ID` (비우면 `MODEL_ID`) |
+| 검토 2 (고급) | GPT-5.6 Luna 를 한 번 더 따로 | `CHECK_MODEL_ID_HIGH` (비우면 `REVIEW_MODEL_ID`) |
 
 - 두 모델 모두 Bedrock 콘솔(버지니아 북부) → **모델 액세스**에서 '액세스 권한 부여됨'이어야 해요. 키는 필요 없어요 (실행 역할 SafeRole 권한)
 - 다른 모델을 써 보기: `python3 scripts/check_review_model.py` 로 모델·추론 프로필 ID 를 찾고 `python3 scripts/check_review_model.py <ID>` 로 시험 → `REVIEW_MODEL_ID` 에 넣기

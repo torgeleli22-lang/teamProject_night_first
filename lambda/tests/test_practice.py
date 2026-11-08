@@ -132,6 +132,16 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(self.models["code_review"], "us.amazon.nova-pro-v1:0")   # 검토만 다른 모델
         self.assertIsNone(self.models["code_generation"])                        # 생성은 기본 모델(MODEL_ID)
 
+    def test_second_review_model_by_level(self):
+        """검토 2: 초급·중급은 Haiku(CHECK_MODEL_ID), 고급은 Luna 를 한 번 더 (CHECK_MODEL_ID_HIGH) — 생성 기준 4.1"""
+        self.run_with([CODE], [review()])
+        self.assertEqual(self.models["trace_check"], generate.CHECK_MODEL_ID)
+        self.assertEqual(self.log["attempts"][0]["check"]["checkModel"], generate.CHECK_MODEL_ID)
+        made = self.run_with([CODE], [review(overall=3)], level=3)
+        self.assertEqual((made["origin"], self.models["trace_check"]), ("ai", generate.CHECK_MODEL_ID_HIGH))
+        self.assertEqual(generate.CHECK_MODEL_ID_HIGH, generate.REVIEW_MODEL_ID)   # 기본값: 검토 1 과 같은 Luna 를 따로 한 번 더
+        self.assertEqual(generate.check_model(2), generate.CHECK_MODEL_ID)
+
     def test_prompts_carry_the_level_standard(self):
         self.run_with([CODE], [review()], level=2)
         gen, rev = self.prompts["code_generation"][0], self.prompts["code_review"][0]
