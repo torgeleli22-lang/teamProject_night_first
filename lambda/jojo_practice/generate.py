@@ -302,10 +302,9 @@ def make_code(level, language, topic, log=None):
             feedback = retry_note(code, [f"요청한 난이도({LEVELS[level]['name']})와 맞지 않아요 (검토 판단: "
                                          f"{LEVELS.get(review['level']['overall'], LEVELS[level])['name']}). {review['level']['advice']}"])
             continue
-        # ③ 검토 2 + 출력 판정 (4.1) — 검토 2개가 같거나, 예상 출력까지 2:1 일 때만 제공
-        verified, review = cross_check(code, level, language, review, expected, sample, step)
-        if not verified:
-            feedback = retry_note(code, ["코드를 따라간 실행 결과가 서로 달라(예상 출력·검토 2개) 출력을 하나로 정하지 못했어요 — "
+        # ③ 검토 2 + 출력 판정 (4.1) — 검토 2개의 출력이 같을 때만 제공 (다수결 없음)
+        if not cross_check(code, level, language, review, expected, step):
+            feedback = retry_note(code, ["코드를 따라간 두 검토의 실행 결과가 서로 달라 출력을 하나로 정하지 못했어요 — "
                                          "따라가기 쉽게, 결과가 하나로 분명히 정해지게 단계 수와 데이터 개수를 줄여 주세요"])
             continue
         return {"title": title, "code": code, "units": review["units"], "output": review["output"], "levelCheck": review["level"],
@@ -336,10 +335,10 @@ def size_issues(review, level):
     return out
 
 
-def review_code(code, level, language, sample=None, step=None, note=""):
-    """② 검토 + 규칙 검사 2 → 정리한 검토 답 (못 하면 None). 함수·반복문이 빠졌으면 알려 주고 1번 더. note: 다시 검토할 때 붙이는 말"""
+def review_code(code, level, language, sample=None, step=None):
+    """② 검토 + 규칙 검사 2 → 정리한 검토 답 (못 하면 None). 함수·반복문이 빠졌으면 알려 주고 1번 더"""
     system = REVIEW_PROMPT.format(language=LANGUAGES[language], max_len=EXPLANATION_MAX, factors=factors_text(), levels=all_levels_text())
-    prompt = f"요청한 난이도: {LEVELS[level]['name']}\n<code>\n{numbered(code)}\n</code>" + (f"\n\n{note}" if note else "")
+    prompt = f"요청한 난이도: {LEVELS[level]['name']}\n<code>\n{numbered(code)}\n</code>"
     points, hint = flow_points(code, language), ""
     for _ in range(2):
         if calls_left() < 1:
@@ -375,11 +374,11 @@ def check_model(level):
     return CHECK_MODEL_ID_HIGH if level >= 2 else CHECK_MODEL_ID
 
 
-def cross_check(code, level, language, review, expected=None, sample=None, step=None):
-    """③ 검토 2(초급 Haiku · 중급·고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → (제공해도 되나?, 쓸 검토 답) (4.1)
-    검토 1 = 검토 2 → 제공 / 다르면 생성 AI 의 예상 출력까지 3개: 2:1 이면 2 쪽 출력 (검토 2 쪽이면 검토 1 이 그 출력으로 기록을 다시 씀)
-    셋 다 다르거나 판정하지 못하면 (False, …) — 내보내지 않음"""
-    info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}   # 실험에서 실제로 실행해 누가 맞았는지 셈 (관리자 기록에만)
+def cross_check(code, level, language, review, expected=None, step=None):
+    """③ 검토 2(초급 Haiku · 중급·고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → 제공해도 되나? (4.1)
+    검토 1 = 검토 2 일 때만 True. 다르거나 판정하지 못하면 False — 다수결 없이 내보내지 않음.
+    expected(생성 AI 의 예상 출력)는 판정에 쓰지 않고 기록만 (실험에서 실제로 실행해 누가 맞았는지 셈 — 관리자 기록에만)"""
+    info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}
     if step is not None:
         step["check"] = info
     loops = [u for u in review["units"] if u["kind"] in ("loop", "recursion") or isinstance(u.get("count"), int)]
@@ -390,7 +389,7 @@ def cross_check(code, level, language, review, expected=None, sample=None, step=
         "값이 정해지지 않는 곳의 가정 값 (그대로 써):\n" + "\n".join(f"- {a}" for a in assumed) if assumed else "",
     ] if p)
     if calls_left() < 1:
-        return False, review
+        return False
     model = check_model(level)
     info["checkModel"] = model
     try:
@@ -401,29 +400,13 @@ def cross_check(code, level, language, review, expected=None, sample=None, step=
     except AiUnavailable as e:
         logger.info("검토 2 를 못 함", extra={"reason": str(e)})
         info["error"] = str(e)
-        return False, review
-    info.update(reviewOutput=list(review["output"]), checkOutput=list(check["output"]))
-    first, second, gen = norm_lines(review["output"]), norm_lines(check["output"]), norm_lines(expected) if expected else None
-    info["diff"] = output_diff(review["output"], check["output"])
-    if first == second:
+        return False
+    info.update(reviewOutput=list(review["output"]), checkOutput=list(check["output"]), diff=output_diff(review["output"], check["output"]))
+    if norm_lines(review["output"]) == norm_lines(check["output"]):
         info.update(vote="agree", passed=True)
-        return True, review
-    if gen is not None and gen == first:   # 2:1 — 검토 1(Luna) 쪽
-        info.update(vote="review", passed=True)
-        return True, review
-    if gen is not None and gen == second and calls_left() >= 1:   # 2:1 — 검토 2(Haiku) 쪽: 검토 1 이 그 출력으로 기록을 다시 씀
-        info["vote"] = "check"
-        note = ("(출력이 아래로 정해졌어요 — 다른 두 검토가 같은 출력을 냈어요. 코드를 처음부터 다시 따라가 이 출력이 나오는 과정으로 "
-                "실행 기록과 모범 설명 전체를 다시 써 주세요.)\n정해진 출력:\n" + "\n".join(f"  {x}" for x in check["output"]))
-        again = review_code(code, level, language, sample, note=note)
-        if again and not review_issues(again, level) and again["level"]["match"]:
-            info["reviewOutputAfter"] = list(again["output"])
-            if norm_lines(again["output"]) == second:
-                info["passed"] = True
-                return True, again
-        return False, review
-    info["vote"] = "none"   # 셋 다 다름 (또는 예상 출력이 없음)
-    return False, review
+        return True
+    info["vote"] = "disagree"   # 두 검토가 다름 → 내보내지 않음 (예상 출력으로 다수결하지 않음)
+    return False
 
 
 def round_long_decimals(text):
