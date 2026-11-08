@@ -38,6 +38,16 @@ LEVEL_GUIDE = {
     ]},
 }
 
+# 2.1장: 고급은 크기가 아니라 구조로 — 이 중 HIGH_STRUCTURE_MIN 가지 이상을 반드시, 크기(3.1)는 작게
+HIGH_STRUCTURE = [
+    "중첩 반복문 (바깥 반복 안에서 안쪽 반복이 도는 흐름, 데이터가 적어도 됨)",
+    "복합 조건식 (and·or 로 두 개 이상의 조건을 묶어 판단하거나, 여러 갈래로 나뉘는 분기)",
+    "함수 사이의 데이터 전달 (한 함수의 반환값을 다른 함수가 받아 이어서 처리 — 함수 2개 이상이 연결)",
+    "자료구조의 단계적 변환 (목록 → 딕셔너리·객체 → 정렬된 목록처럼 데이터 모양이 단계마다 바뀜)",
+    "클래스·재귀 (객체의 상태가 메서드로 바뀌는 흐름, 또는 끝나는 조건이 분명한 재귀)",
+]
+HIGH_STRUCTURE_MIN = 2
+
 # 3장: 생성 AI 에게 주는 규칙
 GENERATION_RULES = [
     "지정한 난이도를 가장 우선하는 기준으로 삼는다. 같은 주제라도 난이도에 따라 쓰는 문법, 코드 구조, 논리 복잡도를 다르게 한다",
@@ -62,7 +72,11 @@ def level_text(level):
     """한 난이도의 기준 (생성 프롬프트용)"""
     g, size = LEVEL_GUIDE[level], TRACE_SIZE[level]
     nested = " (중첩이면 안쪽까지 합쳐 30번 이하)" if level == 3 else ""
-    return (f"{g['name']} (대상: {g['target']})\n" + "\n".join(f"- {r}" for r in g["rules"])
+    structure = ""
+    if level == 3:
+        structure = (f"\n- 고급은 크기가 아니라 구조로: 아래 구조 중 {HIGH_STRUCTURE_MIN}가지 이상을 반드시 넣고, 데이터 개수·반복 횟수·출력 줄은 작게\n"
+                     + "\n".join(f"  · {s}" for s in HIGH_STRUCTURE))
+    return (f"{g['name']} (대상: {g['target']})\n" + "\n".join(f"- {r}" for r in g["rules"]) + structure
             + f"\n- 손으로 따라갈 크기: 반복문 하나가 도는 횟수 {size['loop']}번 이하{nested}, 출력 {size['output']}줄 이하")
 
 

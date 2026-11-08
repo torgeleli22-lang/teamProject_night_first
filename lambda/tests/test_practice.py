@@ -156,6 +156,17 @@ class Pipeline(unittest.TestCase):
         self.assertIn("problems 는 코드의 문제만", rev)                     # 자기 기록 실수는 문제로 적지 않고 기록을 고침 (v2.9)
         self.assertIn("그 기록을 바로 고쳐서 내", rev)
 
+    def test_high_level_asks_for_structure_not_size(self):
+        """고급: 구조 중 두 가지 이상을 반드시, 크기는 작게 (생성 기준 2.1) — 생성·검토 둘 다 같은 기준을 받음"""
+        self.run_with([CODE], [review(overall=3)], level=3)
+        gen, rev = self.prompts["code_generation"][0], self.prompts["code_review"][0]
+        for text in (gen, rev):
+            self.assertIn("고급은 크기가 아니라 구조로", text)
+            self.assertIn("중첩 반복문", text)
+            self.assertIn("함수 사이의 데이터 전달", text)
+        self.assertNotIn("고급은 크기가 아니라 구조로", levels.level_text(2))
+        self.assertEqual(generate.REVIEW_TOKENS[3], 32000)   # 고급 검토 답이 잘리지 않게
+
     def test_syntax_error_is_fixed_in_place(self):
         broken = CODE.replace("total = total + price", "total = totl + price")
         made = self.run_with([broken], [review()], fixes=[[{"startNo": 4, "endNo": 4, "code": "        total = total + price"}]])
@@ -235,6 +246,7 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(self.calls, ["code_generation", "code_review", "trace_check"] * 2)   # 두 번째 시도에서 두 검토가 같아 통과
         self.assertEqual((self.log["attempts"][0]["check"]["vote"], self.log["attempts"][0]["check"]["passed"]), ("disagree", False))
         self.assertIn("두 검토의 실행 결과가 서로 달라", self.prompts["code_generation"][1])
+        self.assertIn("구조는 그대로 두고", self.prompts["code_generation"][1])
 
     def test_disagree_is_not_shipped_even_if_expected_output_sides_with_second(self):
         # 검토 2 = 예상 출력 ≠ 검토 1 → 검토 1 에게 다시 쓰게 하지 않고 다시 만듦
