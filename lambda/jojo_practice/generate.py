@@ -31,7 +31,7 @@ ATTEMPTS = 2                                   # 처음 1번 + 난이도·동작
 MAX_CALLS = 8                                  # 문항 하나에 쓰는 AI 호출 한도 (보통 3번: 생성·검토·확인)
 GEN_TOKENS = {1: 3000, 2: 5000, 3: 8000}       # ① 생성 (코드 + 예상 출력)
 GEN_TEMPERATURE = 0.5                          # ① 생성 온도 (낮을수록 애매한 코드가 줄어요. 다양성은 랜덤 주제·생성 기록 지침으로)
-REVIEW_TOKENS = {1: 6000, 2: 10000, 3: 16000}  # ② 검토 (실행 기록 + 모범 설명 — 추론하는 모델은 생각도 이 안에서 써요)
+REVIEW_TOKENS = {1: 6000, 2: 10000, 3: 32000}  # ② 검토 (실행 기록 + 모범 설명 — 추론하는 모델은 생각도 이 안에서 써요. 고급은 16,000 에서 잘린 일이 있어 올림)
 CHECK_TOKENS = {1: 3000, 2: 5000, 3: 8000}     # ③ 확인 (출력·반복 횟수만)
 FIX_TOKENS = 3000                              # 부분 수정 (바꿀 줄만)
 MAX_KEYS = 5                                   # 설명할 곳(※) 최대 수
@@ -305,7 +305,7 @@ def make_code(level, language, topic, log=None):
         # ③ 검토 2 + 출력 판정 (4.1) — 검토 2개의 출력이 같을 때만 제공 (다수결 없음)
         if not cross_check(code, level, language, review, expected, step):
             feedback = retry_note(code, ["코드를 따라간 두 검토의 실행 결과가 서로 달라 출력을 하나로 정하지 못했어요 — "
-                                         "따라가기 쉽게, 결과가 하나로 분명히 정해지게 단계 수와 데이터 개수를 줄여 주세요"])
+                                         "따라가기 쉽게, 결과가 하나로 분명히 정해지게 단계 수와 데이터 개수를 줄여 주세요 (난이도에 맞는 구조는 그대로 두고)"])
             continue
         return {"title": title, "code": code, "units": review["units"], "output": review["output"], "levelCheck": review["level"],
                 "origin": "ai", "note": None}
