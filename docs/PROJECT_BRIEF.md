@@ -9,7 +9,7 @@
 ## 2. 핵심 흐름 (이것만 해요)
 | 단계 | 하는 일 | 어디서 |
 |---|---|---|
-| 1. 코드 만들기 | 학습자가 언어(Python·JavaScript)·난이도(초급·중급·고급)·주제(랜덤/직접)를 고름 → **생성 AI** 가 만들고 → **규칙 검사** → 생성 AI 가 **예상 출력**도 씀 → **검토 AI 두 개**(Luna · 초급·중급 Haiku / 고급은 Luna 한 번 더)가 따로 따라가 출력을 비교, 다르면 예상 출력까지 2:1 로 정함 (셋 다 다르면 다시 만들기) → 통과한 코드와 **정해진 출력**을 제공 | `jojo_practice` · [`GENERATION_STANDARD.md`](GENERATION_STANDARD.md) |
+| 1. 코드 만들기 | 학습자가 언어(Python·JavaScript)·난이도(초급·중급·고급)·주제(랜덤/직접)를 고름 → **생성 AI** 가 만들고 → **규칙 검사** → 생성 AI 가 **예상 출력**도 씀 → **검토 AI 두 개**(Luna · 초급 Haiku / 중급·고급은 Luna 한 번 더)가 따로 따라가 출력을 비교, 다르면 예상 출력까지 2:1 로 정함 (셋 다 다르면 다시 만들기) → 통과한 코드와 **정해진 출력**을 제공 | `jojo_practice` · [`GENERATION_STANDARD.md`](GENERATION_STANDARD.md) |
 | 2. 해설 쓰기 | 학습자가 줄 범위에 형광펜을 긋고 흐름을 포스트잇 메모로 적음. ※ 는 꼭 설명해 볼 곳 | 화면 `/read/` |
 | 3. 채점 | **검토 AI 의 실행 기록을 기준으로** 채점 AI 가 메모마다 ○ 정확 · △ 부분 · ✕ 오해, 설명할 곳이 비면 ⬚ 빈칸 (규칙). 정답 대신 다시 볼 곳을 짚음 | `jojo_review` |
 | (로그인) | Google 로그인(선택) — 받은 코드·채점이 30일 남음 | `jojo_auth` |
@@ -32,7 +32,7 @@
    ├─→ jojo_practice  POST /practice       코드 만들기 (생성 → 규칙 검사 → 검토)
    └─→ jojo_review    POST /review · GET /code   채점 · 다시 열기
          Lambda: Python 3.14 arm64 · 함수 URL · 계층 jojo_libs · 실행 역할 SafeRole
-         ──→ DynamoDB jojo_table (서울) · Bedrock (us-east-1): 생성·확인(초급·중급)·채점 Claude Haiku 4.5 · 검토·고급 확인 GPT-5.6 Luna
+         ──→ DynamoDB jojo_table (서울) · Bedrock (us-east-1): 생성·확인(초급)·채점 Claude Haiku 4.5 · 검토·중급·고급 확인 GPT-5.6 Luna
 ```
 - Lambda 폴더·규칙·DynamoDB 항목: [`LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md) · 올리기: [`DEPLOY_LAMBDA.md`](DEPLOY_LAMBDA.md) · 실험: [`EXPERIMENT.md`](EXPERIMENT.md)
 - 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 불러요 (`tests/boundaries.test.ts`). 응답 모양은 `src/lib/api-types.ts` 를 Lambda 와 같게

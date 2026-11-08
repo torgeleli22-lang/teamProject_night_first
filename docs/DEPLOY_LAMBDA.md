@@ -72,8 +72,8 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 |---|---|---|
 | 생성 · 부분 수정 · 채점 | Claude Haiku 4.5 `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `MODEL_ID` |
 | 검토 (교차 검증) | **GPT-5.6 Luna** `us.openai.gpt-5.6-luna` | `REVIEW_MODEL_ID` (`jojo_practice`) |
-| 검토 2 (초급·중급) | Claude Haiku 4.5 (검토 1 과 다른 모델) | `CHECK_MODEL_ID` (비우면 `MODEL_ID`) |
-| 검토 2 (고급) | GPT-5.6 Luna 를 한 번 더 따로 | `CHECK_MODEL_ID_HIGH` (비우면 `REVIEW_MODEL_ID`) |
+| 검토 2 (초급) | Claude Haiku 4.5 (검토 1 과 다른 모델) | `CHECK_MODEL_ID` (비우면 `MODEL_ID`) |
+| 검토 2 (중급·고급) | GPT-5.6 Luna 를 한 번 더 따로 | `CHECK_MODEL_ID_HIGH` (비우면 `REVIEW_MODEL_ID`) |
 
 - 두 모델 모두 Bedrock 콘솔(버지니아 북부) → **모델 액세스**에서 '액세스 권한 부여됨'이어야 해요. 키는 필요 없어요 (실행 역할 SafeRole 권한)
 - 다른 모델을 써 보기: `python3 scripts/check_review_model.py` 로 모델·추론 프로필 ID 를 찾고 `python3 scripts/check_review_model.py <ID>` 로 시험 → `REVIEW_MODEL_ID` 에 넣기
