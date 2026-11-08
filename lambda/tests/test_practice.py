@@ -46,6 +46,28 @@ class Rules(unittest.TestCase):
         self.assertEqual(rules.code_problems("", "python"), ["코드가 비어 있어요"])
         self.assertIn("너무 길어요", rules.code_problems("x = 1\n" * 301, "python")[0])
 
+    def test_names_defined_only_in_another_function(self):
+        """함수·내포마다 정의하지 않은 이름 (v3.2): 다른 함수에서만 만든 이름은 실행하면 NameError"""
+        bug = ("def a():\n    for room_id in range(3):\n        print(room_id)\n\n"
+               "def b(rooms):\n    return [r for r in rooms if r == room_id]\n\na()\nprint(b([1]))")
+        problems = rules.code_problems(bug, "python")
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith("6번째 줄: room_id"))      # 올바르게 쓴 3번 줄이 아니라 잘못 쓴 줄
+        ok = [
+            "def show():\n    print(TOTAL, helper(2))\n\ndef helper(x):\n    return x * 2\n\nTOTAL = 5\nshow()",   # 나중에 정의한 전역
+            "def outer(n):\n    base = 10\n    def inner(x):\n        return [base + x + k for k in range(n)]\n    return inner(1)\nprint(outer(2))",
+            "def setup():\n    global count\n    count = 3\ndef use():\n    return count + 1\nsetup()\nprint(use())",
+            "class Room:\n    LIMIT = 3\n    def __init__(self, name):\n        self.name = name\n        self.items = [i for i in range(Room.LIMIT)]\n"
+            "    def show(self):\n        print(self.name, len(self.items), __name__)\nRoom('A').show()",
+            "data = [('a', 2)]\nprint(sorted(data, key=lambda p: (p[1], p[0])))\nprint({k: v for k, v in data})",
+            "def f():\n    try:\n        return 1 / 0\n    except ZeroDivisionError as e:\n        return str(e)\nprint(f())",
+        ]
+        for code in ok:
+            self.assertEqual(rules.code_problems(code, "python"), [], code)
+        for sample in samples.SAMPLES:
+            if sample["language"] == "python":
+                self.assertEqual(rules.code_problems(sample["code"], "python"), [], sample["title"])
+
     def test_flow_points_and_coverage(self):
         points = rules.flow_points(CODE, "python")
         self.assertEqual([(p["kind"], p["start"], p["end"]) for p in points], [("function", 1, 5), ("loop", 3, 4)])
@@ -165,7 +187,7 @@ class Pipeline(unittest.TestCase):
             self.assertIn("중첩 반복문", text)
             self.assertIn("함수 사이의 데이터 전달", text)
         self.assertNotIn("고급은 크기가 아니라 구조로", levels.level_text(2))
-        self.assertEqual(generate.REVIEW_TOKENS[3], 32000)   # 고급 검토 답이 잘리지 않게
+        self.assertEqual(generate.REVIEW_TOKENS[3], 12000)   # 고급 검토: 정상 답(약 3,000)의 4배에서 끊음 (v3.2)
 
     def test_syntax_error_is_fixed_in_place(self):
         broken = CODE.replace("total = total + price", "total = totl + price")

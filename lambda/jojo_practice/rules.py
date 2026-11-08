@@ -1,19 +1,21 @@
 """
 규칙 검사 (AI 없음, docs/GENERATION_STANDARD.md 5장) — 코드를 실행하지 않고 문법만 읽어요.
 
-  code_problems(code, language)   규칙 검사 1: 문법 오류 · 빈 코드 · 너무 긴 코드 · (Python) 정의하지 않은 이름
+  code_problems(code, language)   규칙 검사 1: 문법 오류 · 빈 코드 · 너무 긴 코드 · (Python) 정의하지 않은 이름 (함수마다)
   flow_points(code, language)     코드의 함수·반복문 위치 → 규칙 검사 2 (검토 기록이 빠짐없이 다뤘는지)
 모듈·랜덤·시각·입력 같은 언어 기능은 금지하지 않아요.
 """
 import ast
 import builtins
 import re
+import symtable
 
 import tree_sitter_javascript
 from tree_sitter import Language, Parser
 
 MAX_LINES = 300   # 이보다 길면 손으로 따라가기 어려워서 다시 만든다 (난이도 기준이 아니라 안전 한도)
-_PY_BUILTINS = set(dir(builtins))
+_PY_BUILTINS = set(dir(builtins)) | {"__name__", "__file__", "__doc__", "__spec__", "__loader__", "__package__", "__builtins__"}
+_PY_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.ClassDef)
 _JS_PARSER = Parser(Language(tree_sitter_javascript.language()))
 _OPENER = {"}": "{", ")": "(", "]": "["}
 _JS_FUNCS = ("function_declaration", "generator_function_declaration", "method_definition")
@@ -38,7 +40,9 @@ def py_problems(code):
         tree = ast.parse(code)
     except SyntaxError as e:
         return [f"Python 문법 오류 ({e.lineno}번째 줄: {e.msg})"]
-    return undefined_names(tree)
+    found = undefined_names(tree)
+    seen = {p.split(": ", 1)[1].split(" ", 1)[0] for p in found}
+    return (found + [p for p in scope_undefined_names(code, tree) if p.split(": ", 1)[1].split(" ", 1)[0] not in seen])[:3]
 
 
 def undefined_names(tree):
@@ -73,6 +77,39 @@ def undefined_names(tree):
             unknown.setdefault(name, line)
     return [f"{line}번째 줄: {name} 은(는) 어디에도 정의하지 않은 이름이에요 (오타인지 확인)"
             for name, line in sorted(unknown.items(), key=lambda x: x[1])[:3]]
+
+
+def scope_undefined_names(code, tree):
+    """함수·리스트 내포마다: 그 안에서 읽는 이름이 자기·바깥 함수에도, 모듈에도, 내장 이름에도 없으면 (다른 함수에서만 만든 이름 → 실행하면 NameError).
+    Python 표준 symtable 로 이름이 어느 범위(scope)에 속하는지 본다. import * 를 쓰면 알 수 없어서 보지 않는다"""
+    if any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names) for n in ast.walk(tree)):
+        return []
+    try:
+        top = symtable.symtable(code, "<code>", "exec")
+    except (SyntaxError, ValueError):
+        return []
+    tables = []
+    def walk(t):
+        tables.append(t)
+        for child in t.get_children():
+            walk(child)
+    walk(top)
+    # 모듈(전역)에 있는 이름: 모듈에서 만든 것 + 어느 함수에서든 global 로 선언하고 만든 것
+    module = {s.get_name() for s in top.get_symbols() if s.is_assigned() or s.is_imported() or s.is_namespace()}
+    module |= {s.get_name() for t in tables[1:] for s in t.get_symbols() if s.is_declared_global() and s.is_assigned()}
+    scopes = [n for n in ast.walk(tree) if isinstance(n, _PY_SCOPES)]
+    lines = {}
+    for t in tables[1:]:
+        for s in t.get_symbols():
+            name = s.get_name()
+            if s.is_referenced() and s.is_global() and not s.is_declared_global() and name not in module and name not in _PY_BUILTINS:
+                # 그 범위(함수·내포) 안에서 이 이름을 읽는 첫 줄 — 다른 함수의 올바른 사용 줄이 아니라
+                uses = [n.lineno for scope in scopes if scope.lineno == t.get_lineno() for n in ast.walk(scope)
+                        if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Load)]
+                if uses:
+                    lines[name] = min(lines.get(name, min(uses)), min(uses))
+    return [f"{line}번째 줄: {name} 은(는) 이 함수 안에서도, 바깥에서도 정의하지 않은 이름이에요 (다른 함수에서만 만든 이름이면 실행할 때 오류)"
+            for name, line in sorted(lines.items(), key=lambda x: x[1])]
 
 
 # ───────────────────────── JavaScript (tree-sitter: Lambda 에 Node.js 가 없어서 문법 나무로 읽는다) ─────────────────────────
