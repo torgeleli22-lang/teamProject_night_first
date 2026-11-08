@@ -39,6 +39,8 @@ for s in SAMPLES:
         bad("실행 오류\n" + run.stderr.strip())
     elif run and not run.stdout.strip():
         bad("출력이 없어요")
+    elif run and [x for x in run.stdout.split("\n") if x.strip()] != s.get("output"):
+        bad("output(화면에 보여 줄 출력)이 실제 실행 출력과 달라요")
     elif run and len([x for x in run.stdout.split("\n") if x.strip()]) > TRACE_SIZE[s["level"]]["output"]:
         bad(f"출력이 {TRACE_SIZE[s['level']]['output']}줄을 넘어요 (손으로 따라갈 크기, docs/GENERATION_STANDARD.md 3.1)")
     # 2. 규칙 검사 1

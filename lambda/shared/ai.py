@@ -76,9 +76,9 @@ def check_budget(model, input_chars, max_tokens):
 # ─────────────────────────────────────────────────────────────
 
 
-def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None):
+def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None, temperature=None):
     """AI 에게 정해진 모양(schema)의 답을 받는다. mock: AI_MODE=mock 일 때 대신 돌려줄 답을 만드는 함수 (같은 모양인지 검사)
-    model: 이 작업에 쓸 Bedrock 모델 (비우면 MODEL_ID — 검토는 core.REVIEW_MODEL_ID)"""
+    model: 이 작업에 쓸 Bedrock 모델 (비우면 MODEL_ID — 검토는 core.REVIEW_MODEL_ID) · temperature: 비우면 모델 기본값"""
     model = model or MODEL_ID
     if not ai_enabled():
         raise AiUnavailable("AI is off")
@@ -93,14 +93,14 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None)
         return result
     # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
     try:
-        return _ask_live(task, system, prompt, schema, max_tokens, model)
+        return _ask_live(task, system, prompt, schema, max_tokens, model, temperature)
     except AiUnavailable as e:
         if not str(e).startswith("could not parse response:") or "결과(JSON)가 없음" in str(e):
             raise
         hint = (f"{prompt}\n\n(앞선 답의 형식이 맞지 않았어요: {str(e)[len('could not parse response: '):][:300]}. "
                 f"정해진 모든 칸을 최상위에 빠짐없이 채워 answer 로 다시 제출해 주세요.)")
         logger.info("AI 답 형식을 다시 물음", extra={"task": task, "reason": str(e)[:200]})
-        return _ask_live(task, system, hint, schema, max_tokens, model)
+        return _ask_live(task, system, hint, schema, max_tokens, model, temperature)
 
 
 def _shape(value):
@@ -117,7 +117,7 @@ def max_output(model):
     return next((n for key, n in MAX_OUTPUT.items() if key in model), 64000)
 
 
-def _ask_live(task, system, prompt, schema, max_tokens, model):
+def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None):
     """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
     check_budget(model, len(system) + len(prompt), max_tokens)
@@ -126,7 +126,7 @@ def _ask_live(task, system, prompt, schema, max_tokens, model):
         tool = {"toolSpec": {"name": "answer", "inputSchema": {"json": tool_schema(schema)},
                              "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다."}}
         request = {"modelId": model, "system": [{"text": system}], "messages": [{"role": "user", "content": [{"text": prompt}]}],
-                   "inferenceConfig": {"maxTokens": min(max_tokens, max_output(model))},
+                   "inferenceConfig": {"maxTokens": min(max_tokens, max_output(model)), **({"temperature": temperature} if temperature is not None else {})},
                    "toolConfig": {"tools": [tool], "toolChoice": {"tool": {"name": "answer"}}}}
         try:
             try:

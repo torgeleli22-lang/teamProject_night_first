@@ -128,14 +128,14 @@ def canon_lines(lines):
 
 
 def judge_disputes(rows, out_dir):
-    """두 AI 가 달랐던 시도: 그 코드를 실제로 두 번 실행해 검토(Luna)·확인(Haiku) 중 누가 맞았는지 → 시도마다 c["judge"]
-    review(검토가 맞음) · check(확인이 맞음) · neither(둘 다 틀림) · both(표시 차이뿐) · unknown(실행마다 출력이 다르거나 실행 실패)"""
+    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 Haiku · 생성 AI 예상 출력) 중 누가 맞았는지,
+    그리고 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
     folder = os.path.join(out_dir, "run_disputes")
     os.makedirs(folder, exist_ok=True)
     for r in rows:
         for i, a in enumerate(r["attempts"], 1):
             c = a.get("check") or {}
-            if c.get("agree") or not c.get("code") or "checkOutput" not in c:
+            if c.get("vote") in (None, "agree") or not c.get("code") or "checkOutput" not in c:
                 continue
             path = os.path.join(folder, f"q{r['no']:02d}_try{i}.{'py' if r['language'] == 'python' else 'js'}")
             first, second = run_code(c["code"], r["language"], path), run_code(c["code"], r["language"], path)
@@ -143,9 +143,10 @@ def judge_disputes(rows, out_dir):
                 c["judge"] = "unknown"
                 continue
             real = canon_lines(first[1].split("\n"))
-            review_ok = canon_lines(c.get("reviewOutputAfter") or c["reviewOutput"]) == real
-            check_ok = canon_lines(c["checkOutput"]) == real
-            c["judge"] = "both" if review_ok and check_ok else "review" if review_ok else "check" if check_ok else "neither"
+            ok = lambda lines: bool(lines) and canon_lines(lines) == real
+            chosen = {"review": c["reviewOutput"], "check": c["checkOutput"]}.get(c["vote"])
+            c["judge"] = {"review": ok(c["reviewOutput"]), "check": ok(c["checkOutput"]), "gen": ok(c.get("genOutput")),
+                          "vote": ok(chosen) if chosen else None}
 
 
 def real_runs(rows, out_dir):
@@ -194,17 +195,24 @@ def models_used(rows):
 
 
 def judged_text(checks):
-    j = [c["judge"] for c in checks if c.get("judge")]
-    if not j:
+    """검토 2개가 달랐을 때: 각 의견이 실제 실행과 맞은 횟수 · 2:1 로 정한 출력이 맞은 횟수"""
+    j = [c["judge"] for c in checks if isinstance(c.get("judge"), dict)]
+    unknown = sum(1 for c in checks if c.get("judge") == "unknown")
+    if not j and not unknown:
         return "-"
-    names = {"review": "검토(Luna) 맞음", "check": "확인(Haiku) 맞음", "neither": "둘 다 틀림", "both": "표시 차이뿐", "unknown": "판정 불가"}
-    return " · ".join(f"{names[k]} {j.count(k)}" for k in names if j.count(k)) + f" (총 {len(j)})"
+    voted = [x["vote"] for x in j if x["vote"] is not None]
+    return (f"검토 1(Luna) {sum(x['review'] for x in j)} · 검토 2(Haiku) {sum(x['check'] for x in j)} · 예상 출력 {sum(x['gen'] for x in j)} 맞음 / {len(j)}"
+            + (f" · 2:1 로 정한 출력이 맞음 {sum(voted)}/{len(voted)}" if voted else "") + (f" · 판정 불가 {unknown}" if unknown else ""))
 
 
 def check_mark(r):
-    """확인 AI 와 맞춰 본 결과: ✓ 바로 맞음 · ↻ 검토를 고친 뒤 맞음 · ✗ 맞지 않음 · - 확인까지 못 감"""
+    """출력 판정: ✓ 검토 2개가 같음 · ①2:1 검토 1 쪽 · ②2:1 검토 2 쪽(검토 1 이 다시 씀) · ✗ 셋 다 다름·판정 못함 · - 판정까지 못 감"""
     c = next((a["check"] for a in reversed(r["attempts"]) if a.get("check")), None)
-    return "-" if not c else "✓" if c.get("agree") else "↻" if c.get("agreeAfter") else "✗"
+    if not c:
+        return "-"
+    if not c.get("passed"):
+        return "✗"
+    return {"agree": "✓", "review": "①2:1", "check": "②2:1"}.get(c.get("vote"), "?")
 
 
 def first_review(r):
@@ -227,10 +235,11 @@ def table(rows):
         ("검토: 동작하지 않는다고 판정 (첫 검토)", pct(sum(1 for v in reviewed if not v["runnable"] or v["problems"]), len(reviewed))),
         ("검토: 요청한 난이도와 맞음 (첫 검토)", pct(sum(1 for v in reviewed if v["level"]["match"]), len(reviewed))),
         ("검토: 함수·반복문을 빠뜨림 (첫 검토)", pct(sum(1 for v in reviewed if v.get("missing")), len(reviewed))),
-        ("두 AI 가 달랐을 때 실제로 맞은 쪽 (실행으로 판정)", judged_text(checks)),
-        ("확인 AI 와 검토 기록이 바로 맞음 (확인한 시도 중)", pct(sum(1 for c in checks if c.get("agree")), len(checks))),
-        ("다르다가 검토를 고친 뒤 맞음", pct(sum(1 for c in checks if c.get("agreeAfter")), sum(1 for c in checks if c.get("rereview")))),
-        ("끝내 맞지 않아 내보내지 않은 시도", pct(sum(1 for c in checks if not c.get("agree") and not c.get("agreeAfter")), len(checks))),
+        ("출력 판정: 검토 2개가 같음 (판정한 시도 중)", pct(sum(1 for c in checks if c.get("vote") == "agree"), len(checks))),
+        ("출력 판정: 2:1 로 정해 제공 (검토 1 쪽 · 검토 2 쪽)", f"{sum(1 for c in checks if c.get('vote') == 'review' and c.get('passed'))} · "
+                                                     f"{sum(1 for c in checks if c.get('vote') == 'check' and c.get('passed'))}"),
+        ("출력 판정: 셋 다 다르거나 정하지 못해 버림", pct(sum(1 for c in checks if not c.get("passed")), len(checks))),
+        ("검토 2개가 달랐을 때 실제로 맞은 쪽 (실행으로 판정)", judged_text(checks)),
         ("손으로 따라가기에 너무 큼 (첫 검토 기록 — 반복 횟수·출력 줄)", pct(sum(1 for v in reviewed if v.get("size")), len(reviewed))),
         ("부분 수정을 쓴 문항", pct(sum(1 for r in rows if any(a["fixed"] for a in r["attempts"])), n)),
         ("다시 만든 문항", pct(sum(1 for r in rows if len(r["attempts"]) > 1), n)),

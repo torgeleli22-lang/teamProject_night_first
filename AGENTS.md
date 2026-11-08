@@ -9,7 +9,7 @@
 - 이 서비스는 "코드를 대신 작성해 주는 AI"가 아니라 "코드를 읽고 흐름을 설명하도록 가르치는 AI"다. 핵심 기능은 세 가지뿐: **로그인 · 코드 생성(검증한 코드만 제공) · 해설 채점**. 목적은 정답 값이 아니라 흐름 이해다.
 - AI 는 코드 생성·코드 검토·메모 채점에만 쓴다. 빈칸 판정·개수·문법 검사·랜덤 주제는 일반 코드로. AI 호출은 `lambda/shared/ai.py` 의 `ask_ai()` 로만 하고, 새 AI 작업에는 mock 응답과 AI 없이 쓰는 대체 경로(예시 코드·규칙 채점)를 함께 만든다.
 - 난이도는 줄 수·문법 개수가 아니라 6요소(`lambda/jojo_practice/levels.py`, 문서 1~3장)로. 언어 기능(모듈·랜덤·시각·입력)은 금지하지 않는다.
-- 검토를 거치지 않은 AI 코드, 검토 기록이 확인 AI 의 따로 따라간 결과와 맞지 않는 코드는 내보내지 않는다. 검토의 실행 기록(units)은 저장해 채점 기준으로 쓰고, 채점 전에는 화면으로 보내지 않는다 (읽는 동안은 `core.public_code` 만).
+- 검토를 거치지 않은 AI 코드, 출력 판정(검토 2개가 같거나 예상 출력까지 2:1)을 통과하지 못한 코드는 내보내지 않는다. 검토의 실행 기록(units)·모범 설명은 저장해 채점 기준으로 쓰고, 채점 전에는 화면으로 보내지 않는다 (읽는 동안은 `core.public_code` — 코드 · 설명할 곳 · 정해진 출력).
 - Lambda 코드: 처리 함수에 단계 번호 주석. 외부 라이브러리는 Powertools·Pydantic·tree-sitter 만 (`docs/LAMBDA_STRUCTURE.md`). 로그는 `core.logger` (JSON), `print` 쓰지 않기. 요청 본문은 `core.Body` 를 이은 모양 + `read_body`, AI 답은 `ai.AiAnswer` 를 이은 모양. 함수 폴더끼리 import 하지 않는다.
 - 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 부르며, 응답 모양은 `src/lib/api-types.ts` 에 Lambda 와 같게 유지한다. 경로를 더하면 `src/lib/api-routes.ts` 도.
 - DynamoDB 항목 모양을 바꾸면 읽는 기능 파일과 `src/lib/api-types.ts` 를 함께 바꾸고 `npm run smoke` 로 확인한다.
