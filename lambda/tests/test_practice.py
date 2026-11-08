@@ -228,45 +228,33 @@ class Pipeline(unittest.TestCase):
         self.assertEqual((temps["code_generation"], temps["code_review"]), (generate.GEN_TEMPERATURE, None))
         self.assertIn("expectedOutput", self.prompts["code_generation"][0])
 
-    def test_two_to_one_with_first_review(self):
-        # 검토 1(Luna) = 예상 출력 ≠ 검토 2(Haiku) → 2:1 로 검토 1 — 다시 쓰지 않고 제공
-        made = self.run_with([CODE], [review()], checks=[{"output": ["합계: 9999"], "counts": []}], expected=[["합계: 11500"]])
-        self.assertEqual((made["origin"], made["output"], self.calls), ("ai", ["합계: 11500"], ["code_generation", "code_review", "trace_check"]))
-        self.assertEqual(self.log["attempts"][0]["check"]["vote"], "review")
+    def test_disagree_is_not_shipped_even_if_expected_output_sides_with_first(self):
+        # 검토 1 = 예상 출력 ≠ 검토 2 → 다수결 없이 버리고 다시 만듦 (v3.0 — 검토 1 과 예상 출력이 같이 틀릴 수 있음)
+        made = self.run_with([CODE, CODE], [review(), review()], checks=[{"output": ["합계: 9999"], "counts": []}], expected=[["합계: 11500"], []])
+        self.assertEqual(made["origin"], "ai")
+        self.assertEqual(self.calls, ["code_generation", "code_review", "trace_check"] * 2)   # 두 번째 시도에서 두 검토가 같아 통과
+        self.assertEqual((self.log["attempts"][0]["check"]["vote"], self.log["attempts"][0]["check"]["passed"]), ("disagree", False))
+        self.assertIn("두 검토의 실행 결과가 서로 달라", self.prompts["code_generation"][1])
 
-    def test_two_to_one_with_second_review_rewrites_record(self):
-        # 검토 2 = 예상 출력 ≠ 검토 1 → 2:1 로 검토 2 의 출력 → 검토 1 이 그 출력으로 기록을 다시 씀
-        made = self.run_with([CODE], [self.out("합계: 12000"), review()], checks=[{"output": ["합계: 11500"], "counts": []}], expected=[["합계: 11500"]])
+    def test_disagree_is_not_shipped_even_if_expected_output_sides_with_second(self):
+        # 검토 2 = 예상 출력 ≠ 검토 1 → 검토 1 에게 다시 쓰게 하지 않고 다시 만듦
+        made = self.run_with([CODE, CODE], [self.out("합계: 12000"), review()], checks=[{"output": ["합계: 11500"], "counts": []}], expected=[["합계: 11500"], []])
         self.assertEqual((made["origin"], made["output"]), ("ai", ["합계: 11500"]))
-        self.assertEqual(self.calls, ["code_generation", "code_review", "trace_check", "code_review"])
-        self.assertIn("정해진 출력:\n  합계: 11500", self.prompts["code_review"][1])
-        check = self.log["attempts"][0]["check"]
-        self.assertEqual((check["vote"], check["passed"], check["reviewOutputAfter"]), ("check", True, ["합계: 11500"]))
+        self.assertEqual(self.calls, ["code_generation", "code_review", "trace_check"] * 2)
+        self.assertEqual(self.log["attempts"][0]["check"]["vote"], "disagree")
 
-    def test_two_to_one_second_review_but_rewrite_fails(self):
-        made = self.run_with([CODE, CODE], [self.out("합계: 12000"), self.out("합계: 12000"), review()],
-                             checks=[{"output": ["합계: 11500"], "counts": []}], expected=[["합계: 11500"], ["합계: 11500"]])
-        self.assertEqual(made["origin"], "ai")                                    # 첫 시도는 버리고 다시 만든 코드로
-        self.assertEqual(self.log["attempts"][0]["check"]["passed"], False)       # 다시 써도 정해진 출력과 다르면 내보내지 않음
-
-    def test_all_three_differ_makes_again_then_sample(self):
-        made = self.run_with([CODE, CODE], [self.out("합계: 1"), self.out("합계: 1")],
-                             checks=[{"output": ["합계: 2"], "counts": []}] * 2, expected=[["합계: 3"], ["합계: 3"]])
+    def test_disagree_twice_gives_sample(self):
+        made = self.run_with([CODE, CODE], [self.out("합계: 1"), self.out("합계: 1")], checks=[{"output": ["합계: 2"], "counts": []}] * 2, expected=[["합계: 1"], ["합계: 1"]])
         self.assertEqual(made["origin"], "sample")
-        self.assertEqual([a["check"]["vote"] for a in self.log["attempts"]], ["none", "none"])
-        self.assertIn("출력을 하나로 정하지 못했어요", self.prompts["code_generation"][1])
+        self.assertEqual([a["check"]["vote"] for a in self.log["attempts"]], ["disagree", "disagree"])
         self.assertLessEqual(len(self.calls), generate.MAX_CALLS)
-
-    def test_no_expected_output_and_disagree_is_not_shipped(self):
-        made = self.run_with([CODE, CODE], [self.out("합계: 1"), self.out("합계: 1")], checks=[{"output": ["합계: 2"], "counts": []}] * 2)
-        self.assertEqual(made["origin"], "sample")
 
     def test_fixed_code_drops_expected_output(self):
         broken = CODE.replace("total = total + price", "total = totl + price")
         made = self.run_with([broken, CODE], [self.out("합계: 1"), review()], fixes=[[{"startNo": 4, "endNo": 4, "code": "        total = total + price"}]],
                              checks=[{"output": ["합계: 2"], "counts": []}], expected=[["합계: 1"]])
-        self.assertEqual(self.log["attempts"][0]["check"]["genOutput"], [])      # 코드가 바뀌면 예상 출력은 쓰지 않음 → 2:1 안 됨
-        self.assertEqual(self.log["attempts"][0]["check"]["vote"], "none")
+        self.assertEqual(self.log["attempts"][0]["check"]["genOutput"], [])      # 코드가 바뀌면 예상 출력은 기록하지 않음
+        self.assertEqual(self.log["attempts"][0]["check"]["vote"], "disagree")
         self.assertEqual(made["origin"], "ai")                                    # 다시 만든 코드로
 
     def test_assumed_values_are_given_to_checker(self):
@@ -331,7 +319,7 @@ class History(unittest.TestCase):
             "ok": {"rule": [], "review": review, "check": {"vote": "agree", "passed": True}},
             "rule": {"rule": ["3번째 줄: 오타"], "ruleAfterFix": ["3번째 줄: 오타"], "review": None},
             "level_up": {"rule": [], "review": {**review, "level": {"match": False, "overall": 2, "advice": "함수를 줄여"}}},
-            "disagree": {"rule": [], "review": review, "check": {"vote": "none", "passed": False, "diff": ["출력 1번째 줄 다름"]}},
+            "disagree": {"rule": [], "review": review, "check": {"vote": "disagree", "passed": False, "diff": ["출력 1번째 줄 다름"]}},
             "too_big": {"rule": [], "review": {**review, "size": ["출력이 20줄이라"]}},
             "review_error": {"rule": [], "review": {"error": "bedrock: AccessDeniedException"}},
         }

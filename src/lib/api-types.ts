@@ -47,7 +47,7 @@ export interface CodeItem {
   marks: MarkRange[];
   /** 예시 코드로 대신했을 때 등 안내 */
   note: string | null;
-  /** 이 코드를 실행하면 나오는 출력 (검토 2개·예상 출력으로 정한 것, 예전 코드에는 없음) */
+  /** 이 코드를 실행하면 나오는 출력 (두 검토가 같다고 확인한 것, 예전 코드에는 없음) */
   output?: string[] | null;
 }
 

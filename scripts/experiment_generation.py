@@ -129,8 +129,8 @@ def canon_lines(lines):
 
 
 def judge_disputes(rows, out_dir):
-    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Luna · 생성 AI 예상 출력) 중 누가 맞았는지,
-    그리고 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
+    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Luna · 생성 AI 예상 출력 — 판정에는 안 씀) 중 누가 맞았는지,
+    그리고 (v2.9 까지) 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
     folder = os.path.join(out_dir, "run_disputes")
     os.makedirs(folder, exist_ok=True)
     for r in rows:
@@ -196,7 +196,7 @@ def models_used(rows):
 
 
 def judged_text(checks):
-    """검토 2개가 달랐을 때: 각 의견이 실제 실행과 맞은 횟수 · 2:1 로 정한 출력이 맞은 횟수"""
+    """검토 2개가 달랐을 때: 각 의견이 실제 실행과 맞은 횟수 (예상 출력은 판정에 쓰지 않지만 비교용) · 예전(v2.9 까지) 2:1 로 정한 출력이 맞은 횟수"""
     j = [c["judge"] for c in checks if isinstance(c.get("judge"), dict)]
     unknown = sum(1 for c in checks if c.get("judge") == "unknown")
     if not j and not unknown:
@@ -207,7 +207,7 @@ def judged_text(checks):
 
 
 def check_mark(r):
-    """출력 판정: ✓ 검토 2개가 같음 · ①2:1 검토 1 쪽 · ②2:1 검토 2 쪽(검토 1 이 다시 씀) · ✗ 셋 다 다름·판정 못함 · - 판정까지 못 감"""
+    """출력 판정: ✓ 검토 2개가 같음 · ✗ 달라서 버림·판정 못함 · - 판정까지 못 감 (①2:1 ②2:1 은 v2.9 까지의 기록)"""
     c = next((a["check"] for a in reversed(r["attempts"]) if a.get("check")), None)
     if not c:
         return "-"
@@ -237,9 +237,7 @@ def table(rows):
         ("검토: 요청한 난이도와 맞음 (첫 검토)", pct(sum(1 for v in reviewed if v["level"]["match"]), len(reviewed))),
         ("검토: 함수·반복문을 빠뜨림 (첫 검토)", pct(sum(1 for v in reviewed if v.get("missing")), len(reviewed))),
         ("출력 판정: 검토 2개가 같음 (판정한 시도 중)", pct(sum(1 for c in checks if c.get("vote") == "agree"), len(checks))),
-        ("출력 판정: 2:1 로 정해 제공 (검토 1 쪽 · 검토 2 쪽)", f"{sum(1 for c in checks if c.get('vote') == 'review' and c.get('passed'))} · "
-                                                     f"{sum(1 for c in checks if c.get('vote') == 'check' and c.get('passed'))}"),
-        ("출력 판정: 셋 다 다르거나 정하지 못해 버림", pct(sum(1 for c in checks if not c.get("passed")), len(checks))),
+        ("출력 판정: 검토 2개가 달라 버림 (다수결 없음)", pct(sum(1 for c in checks if not c.get("passed")), len(checks))),
         ("검토 2개가 달랐을 때 실제로 맞은 쪽 (실행으로 판정)", judged_text(checks)),
         ("손으로 따라가기에 너무 큼 (첫 검토 기록 — 반복 횟수·출력 줄)", pct(sum(1 for v in reviewed if v.get("size")), len(reviewed))),
         ("부분 수정을 쓴 문항", pct(sum(1 for r in rows if any(a["fixed"] for a in r["attempts"])), n)),
