@@ -6,7 +6,7 @@ import { useState } from "react";
 import { BackLinks } from "@/app/read/ReadNote";
 import { CodeView } from "@/components/CodeView";
 import { useWideLayout, WideToggle } from "@/components/WideToggle";
-import { Crumb, ErrorNote, LangTag, MarkText, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, LangTag, MarkText, OutputBox, Page, PenMark, Stamp, Sticky, Waiting } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { type Language, MARK_NAMES, type MarkKind, type CodeItem, type CodeItemWithReview, type ReviewItem, type ReviewResult } from "@/lib/api-types";
 import { circled } from "@/lib/memos";
@@ -87,6 +87,7 @@ function ResultBody({ codeItem, review }: { codeItem: CodeItem; review: ReviewRe
             labels={memoItems.map((_, i) => circled(i + 1))}
             focus={active}
           />
+          <OutputBox lines={codeItem.output} hint={false} />
         </aside>
 
         {/* 오른쪽: 메모별 채점 */}

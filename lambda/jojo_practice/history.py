@@ -60,8 +60,8 @@ def attempt_outcome(step, level):
         return "unavailable", ""
     if check.get("error"):
         return "check_error", check["error"]
-    if not check.get("agree") and not check.get("agreeAfter"):
-        return "disagree", (check.get("diffAfter") or check.get("diff") or [""])[0]
+    if not check.get("passed"):
+        return "disagree", (check.get("diff") or [""])[0]
     return "ok", ""
 
 

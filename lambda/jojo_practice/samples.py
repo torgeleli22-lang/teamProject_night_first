@@ -1,7 +1,7 @@
 """
 예시 코드 (samples.py) — AI 를 쓸 수 없거나 생성한 코드가 검증을 통과하지 못했을 때 대신 내는 코드예요.
 언어(Python·JavaScript) × 난이도(1 초급 · 2 중급 · 3 고급)마다 하나씩. 모양은 검토를 마친 AI 코드와 같아요:
-  units  흐름 단위 (줄 범위 · 종류 · 모범 설명 · 핵심 표현 · key: 학습자가 꼭 설명해 볼 곳)
+  output 실제 실행 출력 (npm run verify 가 확인) · units  흐름 단위 (줄 범위 · 종류 · 모범 설명 · 핵심 표현 · key: 학습자가 꼭 설명해 볼 곳)
 코드를 고치면 npm run verify 로 실제 실행해 확인하세요.
 """
 
@@ -9,6 +9,7 @@ SAMPLES = [
     {
         "id": 'sample-cafe', "language": 'python', "level": 1,
         "topic": '카페 주문', "title": '카페 주문 합계',
+        "output": ['10000원 이상 주문이라 1000원 할인해요', '결제할 금액: 9000'],
         "code": """# 카페 주문 합계 계산
 menu = {"아메리카노": 3000, "라떼": 3500, "케이크": 5000}
 order = ["아메리카노", "라떼", "라떼"]
@@ -32,6 +33,7 @@ print("결제할 금액:", total)""",
     {
         "id": 'sample-store', "language": 'python', "level": 2,
         "topic": '편의점 재고', "title": '편의점 재고 관리',
+        "output": ['컵라면: 판매 불가 (품절)', "발주 필요: ['바나나우유', '컵라면']"],
         "code": """# 편의점 재고 관리 프로그램
 inventory = {
     "삼각김밥": 12,
@@ -82,6 +84,7 @@ print("발주 필요:", restock_report())""",
     {
         "id": 'sample-bank', "language": 'python', "level": 3,
         "topic": '은행 계좌', "title": '은행 계좌 (클래스와 예외 처리)',
+        "output": ['완료: 하린 입금 12000원', '완료: 지수 → 민호 8000원', '실패: 민호님 잔액 부족 (필요 20000원, 잔액 13000원) / 7000원 모자라요', '실패: 서윤님 계좌가 없어요', '실패: 한 번에 50000원까지만 뺄 수 있어요', '실패: 입금액은 0보다 커야 해요', "성공 2 건 / 실패 4 건: ['출금', '이체', '출금', '입금']", "지수: 22000원, 기록 [('출금', 8000)]", "민호: 13000원, 기록 [('입금', 8000)]", "하린: 12000원, 기록 [('입금', 12000)]"],
         "code": """# 은행 계좌 (클래스와 예외 처리)
 class BankError(Exception):
     pass
@@ -195,6 +198,7 @@ for owner, account in bank.accounts.items():
     {
         "id": 'js-bus', "language": 'javascript', "level": 1,
         "topic": '버스 요금', "title": '버스 요금 계산',
+        "output": ['무료로 탄 사람: 2명', '모두 낸 요금: 3900원'],
         "code": """// 버스 요금 계산
 const riders = [7, 15, 34, 70, 22];
 let total = 0;
@@ -222,6 +226,7 @@ console.log(`모두 낸 요금: ${total}원`);""",
     {
         "id": 'js-cart', "language": 'javascript', "level": 2,
         "topic": '온라인 장바구니', "title": '온라인 장바구니 결제',
+        "output": ['상품 합계: 75900 배송비: 0', '결제할 금액: 75900', "만 원 이하 상품: [ '양말' ]"],
         "code": """// 온라인 장바구니 결제
 const cart = [
   { name: "운동화", price: 59000, qty: 1, category: "패션" },
@@ -269,6 +274,7 @@ console.log("만 원 이하 상품:", cheapItems(cart, 10000));""",
     {
         "id": 'js-point', "language": 'javascript', "level": 3,
         "topic": '포인트 카드', "title": '카페 포인트 카드 (등급과 예외)',
+        "output": ['민지: 225점 적립', '민지: 400점 적립, 실버 등급이 됐어요', '준호: 실패 (포인트가 0점뿐이에요)', '민지: 1400점 적립, 골드 등급이 됐어요', '준호: 실패 (결제 금액이 이상해요)', '준호: 실패 (모르는 요청: gift)', '민지 — 골드, 2025점, 결제 32500원', '준호 — 기본, 0점, 결제 0원', '실패 코드: NOT_ENOUGH, BAD_PRICE, UNKNOWN'],
         "code": """// 카페 포인트 카드 (클래스와 예외 처리)
 class PointError extends Error {
   constructor(message, code) {

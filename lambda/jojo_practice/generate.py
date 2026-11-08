@@ -29,7 +29,8 @@ from samples import SAMPLES, TOPIC_POOL
 
 ATTEMPTS = 2                                   # 처음 1번 + 난이도·동작 문제로 다시 만들기 1번
 MAX_CALLS = 8                                  # 문항 하나에 쓰는 AI 호출 한도 (보통 3번: 생성·검토·확인)
-GEN_TOKENS = {1: 2500, 2: 4000, 3: 7000}       # ① 생성 (코드)
+GEN_TOKENS = {1: 3000, 2: 5000, 3: 8000}       # ① 생성 (코드 + 예상 출력)
+GEN_TEMPERATURE = 0.5                          # ① 생성 온도 (낮을수록 애매한 코드가 줄어요. 다양성은 랜덤 주제·생성 기록 지침으로)
 REVIEW_TOKENS = {1: 6000, 2: 10000, 3: 16000}  # ② 검토 (실행 기록 + 모범 설명 — 추론하는 모델은 생각도 이 안에서 써요)
 CHECK_TOKENS = {1: 3000, 2: 5000, 3: 8000}     # ③ 확인 (출력·반복 횟수만)
 FIX_TOKENS = 3000                              # 부분 수정 (바꿀 줄만)
@@ -52,12 +53,16 @@ GEN_PROMPT = """너는 프로그래밍 학습자가 '코드를 읽고 흐름을 
 코드를 만들 때 지킬 규칙:
 {rules}
 
-title 은 20자 이내, code 는 코드 전체(마크다운 ``` 없이)."""
+title 은 20자 이내, code 는 코드 전체(마크다운 ``` 없이).
+expectedOutput: 다 만든 뒤 코드를 맨 위부터 실제로 실행하듯 따라가, 출력되는 줄을 순서대로 빠짐없이 (print · console.log 한 번이 한 줄).
+  만들려던 의도가 아니라 코드가 실제로 하는 대로 적어. 값이 정해지지 않는 곳(랜덤·시각·입력)은 값을 하나 정해 그대로 따라가."""
 
 
 class CodeAnswer(AiAnswer):
+    fill_empty = ("expectedOutput",)
     title: str = Field(description="코드 제목 (20자 이내)")
     code: str = Field(description="코드 전체")
+    expectedOutput: list[str] = Field(description="코드를 실행하면 출력되는 줄 (순서대로)")
 
 
 REVIEW_PROMPT = """너는 학습용 {language} 코드를 학습자에게 내보내기 전에 검토하는 검토자야. 코드를 실행하지 말고, 실제로 실행하듯 맨 위부터 따라가.
@@ -258,16 +263,20 @@ def make_code(level, language, topic, log=None):
                                                              rules="\n".join(f"{i}. {t}" for i, t in enumerate(GENERATION_RULES, 1))),
                         f"주제: {topic}\n언어: {LANGUAGES[language]}\n난이도: {LEVELS[level]['name']}" + (f"\n\n{hints}" if hints else "")
                         + (f"\n\n{feedback}" if feedback else ""),
-                        CodeAnswer, max_tokens=GEN_TOKENS[level], mock=lambda: {"title": sample["title"], "code": sample["code"]})
+                        CodeAnswer, max_tokens=GEN_TOKENS[level], temperature=GEN_TEMPERATURE,
+                        mock=lambda: {"title": sample["title"], "code": sample["code"], "expectedOutput": sample.get("output", [])})
         except AiUnavailable as e:
             logger.info("AI 대신 예시 코드", extra={"reason": str(e)})
             step["genError"] = str(e)
             return from_sample(sample, "지금은 AI 대신 준비된 예시 코드를 드려요.")
         title, code = r["title"].strip()[:40] or topic, strip_fence(r["code"])
+        expected = r.get("expectedOutput") or None   # 생성 AI 의 예상 출력 — 출력 판정의 세 번째 의견 (코드를 고치면 쓰지 않음)
         # 규칙 검사 1 → 걸리면 부분 수정 1번
         problems = step["rule"] = code_problems(code, language)
         if problems and not used_fix and calls_left() >= 2:
-            used_fix, code = True, fix_code(code, problems, language) or code
+            used_fix, fixed = True, fix_code(code, problems, language)
+            if fixed:
+                code, expected = fixed, None
             problems = step["ruleAfterFix"] = code_problems(code, language)
             step["fixed"] = True
         if problems:
@@ -280,7 +289,7 @@ def make_code(level, language, topic, log=None):
             used_fix = step["fixed"] = True   # 동작하지 않음·너무 큼 → 부분 수정 → 다시 검토
             fixed = fix_code(code, issues, language)
             if fixed and not code_problems(fixed, language):
-                code, review = fixed, review_code(fixed, level, language, sample, step)
+                code, expected, review = fixed, None, review_code(fixed, level, language, sample, step)
                 issues = review_issues(review, level)
         if review is None:
             feedback = ""   # 검토를 못 함 → 내보내지 않고 다시 만들기
@@ -292,11 +301,11 @@ def make_code(level, language, topic, log=None):
             feedback = retry_note(code, [f"요청한 난이도({LEVELS[level]['name']})와 맞지 않아요 (검토 판단: "
                                          f"{LEVELS.get(review['level']['overall'], LEVELS[level])['name']}). {review['level']['advice']}"])
             continue
-        # ③ 확인 AI 와 맞춰 보기 — 검토 기록(채점 기준)이 맞다고 확인될 때만 제공
-        verified, review = cross_check(code, level, language, review, sample, step)
+        # ③ 검토 2 + 출력 판정 (4.1) — 검토 2개가 같거나, 예상 출력까지 2:1 일 때만 제공
+        verified, review = cross_check(code, level, language, review, expected, sample, step)
         if not verified:
-            feedback = retry_note(code, ["두 AI 가 따로 따라간 실행 결과(출력·반복 횟수)가 서로 달라 채점 기준을 확인하지 못했어요 — "
-                                         "따라가기 쉽게 단계 수와 데이터 개수를 줄여 주세요"])
+            feedback = retry_note(code, ["코드를 따라간 실행 결과가 서로 달라(예상 출력·검토 2개) 출력을 하나로 정하지 못했어요 — "
+                                         "따라가기 쉽게, 결과가 하나로 분명히 정해지게 단계 수와 데이터 개수를 줄여 주세요"])
             continue
         return {"title": title, "code": code, "units": review["units"], "output": review["output"], "levelCheck": review["level"],
                 "origin": "ai", "note": None}
@@ -360,10 +369,11 @@ def review_code(code, level, language, sample=None, step=None, note=""):
     return {**r, "units": pick_keys(units)}
 
 
-def cross_check(code, level, language, review, sample=None, step=None):
-    """③ 확인 AI 가 검토 기록을 보지 않고 따로 따라가 출력·반복 횟수를 비교 → (맞음?, 쓸 검토 답).
-    다르면 다른 점을 알려 주고 검토를 1번 다시 → 다시 비교. 확인하지 못하면 (False, …) — 내보내지 않음"""
-    info = {"agree": False, "diff": [], "rereview": False, "code": code}   # code·두 출력: 실험에서 실제로 실행해 누가 맞았는지 셈 (관리자 기록에만)
+def cross_check(code, level, language, review, expected=None, sample=None, step=None):
+    """③ 검토 2(Haiku)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → (제공해도 되나?, 쓸 검토 답) (4.1)
+    검토 1 = 검토 2 → 제공 / 다르면 생성 AI 의 예상 출력까지 3개: 2:1 이면 2 쪽 출력 (검토 2 쪽이면 검토 1 이 그 출력으로 기록을 다시 씀)
+    셋 다 다르거나 판정하지 못하면 (False, …) — 내보내지 않음"""
+    info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}   # 실험에서 실제로 실행해 누가 맞았는지 셈 (관리자 기록에만)
     if step is not None:
         step["check"] = info
     loops = [u for u in review["units"] if u["kind"] in ("loop", "recursion") or isinstance(u.get("count"), int)]
@@ -380,25 +390,31 @@ def cross_check(code, level, language, review, sample=None, step=None):
                         model=CHECK_MODEL_ID, mock=lambda: {"output": list(review["output"]),
                                                             "counts": [{"id": u["id"], "count": u.get("count")} for u in loops]})
     except AiUnavailable as e:
-        logger.info("확인을 못 함", extra={"reason": str(e)})
+        logger.info("검토 2 를 못 함", extra={"reason": str(e)})
         info["error"] = str(e)
         return False, review
     info.update(reviewOutput=list(review["output"]), checkOutput=list(check["output"]))
-    info["diff"] = diffs = trace_diff(review, check)
-    info["agree"] = not diffs
-    if diffs and calls_left() >= 1:
-        info["rereview"] = True
-        note = ("(다른 검토자가 따로 따라간 결과와 아래가 달라요. 코드를 처음부터 다시 따라가 확인하고, 맞는 값으로 기록 전체를 다시 써 주세요. "
-                "다른 검토자도 틀릴 수 있으니 코드가 실제로 하는 대로 적어 주세요.)\n" + "\n".join(f"- {d}" for d in diffs))
+    first, second, gen = norm_lines(review["output"]), norm_lines(check["output"]), norm_lines(expected) if expected else None
+    info["diff"] = output_diff(review["output"], check["output"])
+    if first == second:
+        info.update(vote="agree", passed=True)
+        return True, review
+    if gen is not None and gen == first:   # 2:1 — 검토 1(Luna) 쪽
+        info.update(vote="review", passed=True)
+        return True, review
+    if gen is not None and gen == second and calls_left() >= 1:   # 2:1 — 검토 2(Haiku) 쪽: 검토 1 이 그 출력으로 기록을 다시 씀
+        info["vote"] = "check"
+        note = ("(출력이 아래로 정해졌어요 — 다른 두 검토가 같은 출력을 냈어요. 코드를 처음부터 다시 따라가 이 출력이 나오는 과정으로 "
+                "실행 기록과 모범 설명 전체를 다시 써 주세요.)\n정해진 출력:\n" + "\n".join(f"  {x}" for x in check["output"]))
         again = review_code(code, level, language, sample, note=note)
         if again and not review_issues(again, level) and again["level"]["match"]:
             info["reviewOutputAfter"] = list(again["output"])
-            info["diffAfter"] = after = trace_diff(again, check)
-            info["agreeAfter"] = not after
-            if not after:
+            if norm_lines(again["output"]) == second:
+                info["passed"] = True
                 return True, again
         return False, review
-    return not diffs, review
+    info["vote"] = "none"   # 셋 다 다름 (또는 예상 출력이 없음)
+    return False, review
 
 
 def norm_lines(lines):
@@ -408,22 +424,16 @@ def norm_lines(lines):
     return [canon(x) for x in "\n".join(str(o) for o in lines or []).split("\n") if x.strip()]
 
 
-def trace_diff(review, check):
-    """검토 기록과 확인 기록의 다른 점 (출력 줄 · 반복 횟수) — 없으면 빈 목록"""
-    diffs = []
-    a, b = norm_lines(review["output"]), norm_lines(check["output"])
+def output_diff(a_lines, b_lines, limit=5):
+    """두 출력의 다른 줄 (기록용 — 표시 차이는 무시)"""
+    a, b, out = norm_lines(a_lines), norm_lines(b_lines), []
     for i in range(max(len(a), len(b))):
         x, y = (a[i] if i < len(a) else "(없음)"), (b[i] if i < len(b) else "(없음)")
         if x != y:
-            diffs.append(f"출력 {i + 1}번째 줄: 검토 '{x[:60]}' · 다른 검토자 '{y[:60]}'")
-        if len(diffs) >= 5:
+            out.append(f"출력 {i + 1}번째 줄: 검토 1 '{x[:60]}' · 검토 2 '{y[:60]}'")
+        if len(out) >= limit:
             break
-    counts = {c["id"]: c.get("count") for c in check["counts"]}
-    for u in review["units"]:
-        theirs = counts.get(u["id"])
-        if isinstance(u.get("count"), int) and isinstance(theirs, int) and u["count"] != theirs:
-            diffs.append(f"{u['id']} ({u['start']}~{u['end']}번 줄) 반복 횟수: 검토 {u['count']}번 · 다른 검토자 {theirs}번")
-    return diffs
+    return out
 
 
 def clean_units(code, units):
@@ -521,7 +531,7 @@ def sample_units(sample):
 
 
 def from_sample(sample, note):
-    return {"title": sample["title"], "code": sample["code"], "units": sample_units(sample), "output": None, "levelCheck": None,
+    return {"title": sample["title"], "code": sample["code"], "units": sample_units(sample), "output": sample.get("output"), "levelCheck": None,
             "origin": "sample", "note": note}
 
 
@@ -537,5 +547,5 @@ def sample_review(sample, level, code=None):
         units = [{"kind": "block", "startNo": 1, "endNo": len(lines), "startLine": lines[0].strip(), "inputs": "", "steps": [], "result": "",
                   "count": None, "stop": "", "explanation": "(목업) 코드 전체의 흐름이에요.", "keywords": ["흐름"], "key": True}]
     factors = [{"factor": f, "level": level, "reason": "(목업)"} for f in ("syntax", "structure", "logic", "data", "flow", "linkage")]
-    return {"units": units, "output": [], "runnable": True, "problems": [],
+    return {"units": units, "output": list((sample or {}).get("output") or []), "runnable": True, "problems": [],
             "level": {"factors": factors, "overall": level, "match": True, "advice": ""}}

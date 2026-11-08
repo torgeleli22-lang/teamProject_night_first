@@ -552,10 +552,11 @@ def key_units(item):
 
 
 def public_code(item):
-    """화면으로 보낼 모양: 코드와 설명할 곳의 줄 범위만"""
+    """화면으로 보낼 모양: 코드 · 설명할 곳의 줄 범위 · 정해진 출력 (실행 기록·모범 설명은 채점 뒤에만)"""
     level = min(max(int(item.get("level") or 1), 1), 3)   # 예전 판(난이도 4단계)의 코드도 열리게
     return {"codeId": item["codeId"], "language": item.get("language") or "python", "level": level, "levelName": LEVELS[level]["name"],
             "topic": item.get("topic", ""), "title": item.get("title", ""), "code": item["code"], "note": item.get("note"),
+            "output": item.get("output") or None,   # 정해진 출력 (4.1) — 값을 맞히는 게 목적이 아니라 흐름 설명이 목적이라 보여 줘요
             "marks": [{"id": u["id"], "start": u["start"], "end": u["end"]} for u in key_units(item)]}
 
 

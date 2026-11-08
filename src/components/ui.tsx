@@ -109,3 +109,17 @@ export function ErrorNote({ message, onRetry }: { message: string; onRetry?: () 
     </Sticky>
   );
 }
+
+/** 실행 결과: 이 코드를 실행하면 나오는 출력 (공책에 붙인 출력 종이). 값을 맞히는 게 아니라 "왜 이렇게 나오는지"를 설명하게 */
+export function OutputBox({ lines, hint = true }: { lines?: string[] | null; hint?: boolean }) {
+  if (!lines || lines.length === 0) return null;
+  return (
+    <section className="mt-5 border border-ink-300 bg-paper" aria-label="실행 결과">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-ink-300 px-4 py-2">
+        <h2 className="text-base">실행 결과</h2>
+        {hint && <span className="hand text-pen-blue">결과가 왜 이렇게 나오는지, 흐름을 따라 설명해 봐요</span>}
+      </div>
+      <pre className="overflow-x-auto px-4 py-3 font-mono text-sm leading-relaxed text-ink-900">{lines.join("\n")}</pre>
+    </section>
+  );
+}

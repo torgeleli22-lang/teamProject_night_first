@@ -7,7 +7,7 @@ import { CodeView, type Range } from "@/components/CodeView";
 import { FullScreen } from "@/components/WideCode";
 import { useWideLayout, WideToggle } from "@/components/WideToggle";
 import { type Draft, DraftNote, MemoMargin } from "@/components/MemoMargin";
-import { Crumb, ErrorNote, LangTag, Page, Stamp, Sticky, Waiting } from "@/components/ui";
+import { Crumb, ErrorNote, LangTag, OutputBox, Page, Stamp, Sticky, Waiting } from "@/components/ui";
 import { apiPost, useApi } from "@/lib/api";
 import { type Memo, type CodeItem, type CodeItemWithReview, type ReviewResult } from "@/lib/api-types";
 import { circled, loadMemos, overlaps, saveMemos } from "@/lib/memos";
@@ -246,6 +246,8 @@ function Reader({ codeItem }: { codeItem: CodeItem }) {
         )}
       </div>
       </FullScreen>
+
+      <OutputBox lines={codeItem.output} />
 
       <p className="hand mt-5 text-pen-red">
         {left > 0 ? `※ 설명할 곳이 ${left}곳 남았어요. 비워도 낼 수는 있어요.` : "※ 표시된 곳을 모두 메모했어요. 채점을 받아 볼까요?"}
