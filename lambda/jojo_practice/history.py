@@ -1,7 +1,7 @@
 """
 생성 기록으로 배우기 (docs/GENERATION_STANDARD.md 8장) — AI 없음
 
-  record_generation(...)        코드를 하나 만들 때마다 성공·실패를 GENLOG#<언어>#<난이도> 에 한 줄 (180일, 코드 원문은 저장하지 않음)
+  record_generation(...)        코드를 하나 만들 때마다 성공·실패를 GENLOG#<언어>#<난이도> 에 한 줄 (180일, 코드 원문 대신 시도마다 코드 특징)
   history_hints(language, level) 같은 언어·난이도의 최근 기록 → 생성 AI 에게 덧붙일 지침 (자주 걸린 이유 · 통과한 코드의 모양)
 
 코드 원문을 지침에 넣지 않아 같은 코드가 반복되지 않게 한다. 환경 변수 HISTORY_HINTS=off 면 지침을 쓰지 않는다 (기록은 계속).
@@ -10,6 +10,7 @@ import os
 import statistics
 
 from core import LEVELS, TTL_ATTR, genlog_pk, logger, now_ms, pad, put_item, query_all, time_id, ttl_after
+from experience import code_features
 from rules import flow_points
 
 KEEP_DAYS = 180
@@ -77,7 +78,10 @@ def code_shape(made, language):
 def record_generation(language, level, topic, made, log, calls=0, experiment=False):
     """GENLOG#<언어>#<난이도> / <시각> 에 한 줄. 실패해도 학습을 막지 않는다"""
     try:
-        attempts = [dict(zip(("outcome", "detail"), (o, str(d)[:150]))) for o, d in (attempt_outcome(s, level) for s in log.get("attempts", []))]
+        attempts = []
+        for s in log.get("attempts", []):
+            o, d = attempt_outcome(s, level)
+            attempts.append({"outcome": o, "detail": str(d)[:150], **({"features": code_features(s["code"], language)} if s.get("code") else {})})
         item = {"pk": genlog_pk(language, level), "sk": pad(time_id()), "createdAt": now_ms(), "language": language, "level": level,
                 "topic": topic, "origin": made["origin"], "title": made.get("title", ""), "attempts": attempts, "calls": calls,
                 "hinted": bool(log.get("hints")), "experiment": experiment, TTL_ATTR: ttl_after(KEEP_DAYS * 86400)}

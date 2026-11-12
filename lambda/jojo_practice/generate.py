@@ -18,6 +18,7 @@ from pydantic import Field
 from ai import AiAnswer, AiUnavailable, ask_ai, recorder
 from core import (AI_LIMIT_MESSAGE, CHECK_MODEL_ID, CHECK_MODEL_ID_HIGH, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
                   read_body, remember_topic, save_code)
+from experience import record_cases, review_experiences
 from history import history_hints, record_generation
 from levels import GENERATION_RULES, TRACE_SIZE, all_levels_text, factors_text, level_text
 from rules import code_problems, flow_points, uncovered
@@ -85,6 +86,7 @@ REVIEW_PROMPT = """너는 학습용 {language} 코드를 학습자에게 내보�
 3. runnable — 실제로 동작하는 코드면 true. problems — 코드가 실행되지 않거나 잘못 동작하는 것만 "몇 번째 줄: 무엇이 왜" 로 (없으면 빈 배열).
    정의하지 않은 이름·속성, 맞지 않는 타입, 빈 목록에서 꺼내기, 0 으로 나누기, 범위를 벗어난 인덱스, 끝나지 않는 반복·재귀 같은 것.
    스타일·더 좋은 방법 제안·언어가 보장하는 동작은 문제가 아니야. 확실하지 않으면 적지 마.
+   이름·주석·출력 문구가 말하는 의도와 실제 동작이 다르면 그것도 문제야 (학습자를 헷갈리게 해) — 의도와 실제로 실행되는 것이 어떻게 다른지 적어.
    problems 는 코드의 문제만이야. 네 실행 기록(units)·output 의 값이 틀린 게 보이면 problems 에 적지 말고, 그 기록을 바로 고쳐서 내.
 4. level — 아래 6요소마다 이 코드의 난이도(1 초급·2 중급·3 고급)와 이유 한 줄, 종합 난이도(overall),
    요청한 난이도와 맞는지(match), 맞지 않으면 요청한 난이도에 맞추려면 무엇을 바꿀지(advice, 한두 문장).
@@ -199,6 +201,7 @@ def start_practice(req):
         else:
             made = make_code(body.level, body.language, topic, log)
             record_generation(body.language, body.level, topic, made, log, calls=calls_used(), experiment=admin)
+            record_cases(body.language, body.level, topic, log, experiment=admin)   # 버린 시도 → 검토 사례 (8.1, 정답은 실행 전용 Lambda 계획)
     finally:
         calls, recorder.calls = recorder.calls, None
 
@@ -283,14 +286,17 @@ def make_code(level, language, topic, log=None):
         if problems:
             feedback = retry_note(code, problems)
             continue
-        # ② 검토 → 규칙 검사 2 (동작 · 손으로 따라갈 크기)
+        # ② 검토 → 규칙 검사 2 (동작 · 손으로 따라갈 크기). 검토한 코드는 시도 기록에 (버리면 검토 사례로 — 8.1)
+        step["code"] = code
         review = review_code(code, level, language, sample, step)
         issues = review_issues(review, level)
         if issues and not used_fix and calls_left() >= 2:
             used_fix = step["fixed"] = True   # 동작하지 않음·너무 큼 → 부분 수정 → 다시 검토
             fixed = fix_code(code, issues, language)
             if fixed and not code_problems(fixed, language):
-                code, expected, review = fixed, None, review_code(fixed, level, language, sample, step)
+                code, expected = fixed, None
+                step["code"] = code
+                review = review_code(code, level, language, sample, step)
                 issues = review_issues(review, level)
         if review is None:
             feedback = ""   # 검토를 못 함 → 내보내지 않고 다시 만들기
@@ -339,6 +345,10 @@ def review_code(code, level, language, sample=None, step=None):
     """② 검토 + 규칙 검사 2 → 정리한 검토 답 (못 하면 None). 함수·반복문이 빠졌으면 알려 주고 1번 더"""
     system = REVIEW_PROMPT.format(language=LANGUAGES[language], max_len=EXPLANATION_MAX, factors=factors_text(), levels=all_levels_text())
     prompt = f"요청한 난이도: {LEVELS[level]['name']}\n<code>\n{numbered(code)}\n</code>"
+    lessons, used = review_experiences(code, language, level)   # 실제 실행으로 확인한 지난 검토 경험 (8.1, 없으면 "")
+    if step is not None:
+        step["experiences"], step["lessons"] = used, lessons
+    prompt += f"\n\n{lessons}" if lessons else ""
     points, hint = flow_points(code, language), ""
     for _ in range(2):
         if calls_left() < 1:
@@ -387,6 +397,7 @@ def cross_check(code, level, language, review, expected=None, step=None):
         f"<code>\n{numbered(code)}\n</code>",
         "반복·재귀 구간 (counts 에 id 마다):\n" + "\n".join(f"- {u['id']}: {u['start']}~{u['end']}번 줄 ({u['kind']})" for u in loops) if loops else "반복·재귀 구간: 없음 (counts 는 빈 배열)",
         "값이 정해지지 않는 곳의 가정 값 (그대로 써):\n" + "\n".join(f"- {a}" for a in assumed) if assumed else "",
+        (step or {}).get("lessons") if step is not None else review_experiences(code, language, level)[0],   # 검토 1 과 같은 경험 (8.1)
     ] if p)
     if calls_left() < 1:
         return False

@@ -34,7 +34,7 @@
          Lambda: Python 3.14 arm64 · 함수 URL · 계층 jojo_libs · 실행 역할 SafeRole
          ──→ DynamoDB jojo_table (서울) · Bedrock (us-east-1): 생성·확인(초급)·채점 Claude Haiku 4.5 · 검토·중급·고급 확인 GPT-5.6 Luna
 ```
-- Lambda 폴더·규칙·DynamoDB 항목: [`LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md) · 올리기: [`DEPLOY_LAMBDA.md`](DEPLOY_LAMBDA.md) · 실험: [`EXPERIMENT.md`](EXPERIMENT.md)
+- Lambda 폴더·규칙·DynamoDB 항목: [`LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md) · 올리기: [`DEPLOY_LAMBDA.md`](DEPLOY_LAMBDA.md) · 실험: [`EXPERIMENT.md`](EXPERIMENT.md) · 검토 경험으로 배우기(개발 계획): [`REVIEW_LEARNING_PLAN.md`](REVIEW_LEARNING_PLAN.md)
 - 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 불러요 (`tests/boundaries.test.ts`). 응답 모양은 `src/lib/api-types.ts` 를 Lambda 와 같게
 - 학습자: 로그인 안 하면 탭마다 한 명(`sessionStorage`, 기록 하루), Google 로그인하면 계정(받은 코드·채점 30일). 메모는 채점 받기 전까지 이 탭에만(`src/lib/memos.ts`)
 - AWS 는 학교 계정(권한 제한 — IAM 역할 만들기 불가, 새 함수도 SafeRole). Lambda·DynamoDB·Bedrock 밖의 서비스(S3 등)는 요청 없이 넣지 않아요

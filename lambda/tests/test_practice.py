@@ -5,6 +5,7 @@ import unittest.mock
 from helpers import FakeDb, core, request
 
 import generate
+import experience
 import history
 import levels
 import rules
@@ -127,14 +128,15 @@ class Pipeline(unittest.TestCase):
             if isinstance(answer, Exception):
                 raise answer
             return answer
-        saved, saved_hints = generate.ask_ai, generate.history_hints
+        saved, saved_hints, saved_exp = generate.ask_ai, generate.history_hints, generate.review_experiences
         generate.ask_ai = fake
         generate.history_hints = getattr(self, "hints", lambda language, level: ("", {}))   # 생성 기록 지침 (기본: 없음)
+        generate.review_experiences = getattr(self, "experiences", lambda code, language, level: ("", []))   # 검토 경험 (기본: 없음)
         try:
             self.log = {"attempts": []}
             return generate.make_code(level, "python", "카페 주문", self.log)
         finally:
-            generate.ask_ai, generate.history_hints = saved, saved_hints
+            generate.ask_ai, generate.history_hints, generate.review_experiences = saved, saved_hints, saved_exp
 
     def test_generate_then_review_saves_record_as_grading_standard(self):
         made = self.run_with([CODE], [review()])
@@ -188,6 +190,18 @@ class Pipeline(unittest.TestCase):
             self.assertIn("함수 사이의 데이터 전달", text)
         self.assertNotIn("고급은 크기가 아니라 구조로", levels.level_text(2))
         self.assertEqual(generate.REVIEW_TOKENS[3], 12000)   # 고급 검토: 정상 답(약 3,000)의 4배에서 끊음 (v3.2)
+
+    def test_experiences_go_into_both_reviews_and_code_is_logged(self):
+        self.experiences = lambda code, language, level: ("참고 — 실제 실행으로 확인한 지난 검토 사례예요.\n- [판정 오류] 교훈: 경험", ["1#01"])
+        try:
+            self.run_with([CODE], [review()])
+        finally:
+            del self.experiences
+        self.assertIn("[판정 오류] 교훈: 경험", self.prompts["code_review"][0])
+        self.assertIn("[판정 오류] 교훈: 경험", self.prompts["trace_check"][0])
+        step = self.log["attempts"][0]
+        self.assertEqual((step["code"], step["experiences"]), (CODE, ["1#01"]))
+        self.assertIn("의도와 실제 동작이 다르면 그것도 문제야", self.prompts["code_review"][0])   # 의도와 다른 동작도 문제 (v3.3)
 
     def test_syntax_error_is_fixed_in_place(self):
         broken = CODE.replace("total = total + price", "total = totl + price")
@@ -342,6 +356,61 @@ class Endpoint(unittest.TestCase):
         for topic in ("해킹 도구", "가" * 51):
             with self.assertRaises(core.ApiError):
                 generate.clean_topic(topic)
+
+
+class Experience(unittest.TestCase):
+    """검토 경험으로 배우기 1단계 (docs/GENERATION_STANDARD.md 8.1 · docs/REVIEW_LEARNING_PLAN.md)"""
+
+    def test_code_features(self):
+        py = "def grade(xs):\n    for a in xs:\n        for b in xs:\n            if a >= b and a / 2 == 1:  # x / y\n                pass\n    return sorted(xs)\nprint('a/b if')"
+        f = experience.code_features(py, "python")
+        self.assertEqual((f["functions"], f["loops"], f["nestedLoop"], f["sort"], f["eqCompare"], f["division"], f["branches"]), (1, 2, True, True, 2, 1, 1))
+        js = "const xs = [3, 1];\nxs.sort((a, b) => a - b); // a / b\nif (xs[0] === 1) { console.log('ok'); }"
+        f = experience.code_features(js, "javascript")
+        self.assertEqual((f["sort"], f["eqCompare"], f["division"], f["nestedLoop"]), (True, 1, 0, False))
+
+    def test_record_cases_keeps_rejected_attempts_with_code(self):
+        review_ok = {"runnable": True, "problems": [], "size": [], "level": {"match": True, "overall": 1}}
+        log = {"attempts": [
+            {"rule": [], "code": CODE, "review": {**review_ok, "runnable": False, "problems": ["5번째 줄: 의도와 다르게 rejected 가 기록돼요"]}},
+            {"rule": [], "code": CODE, "review": review_ok, "check": {"vote": "disagree", "passed": False, "diff": ["출력 1번째 줄 다름"],
+                                                                      "reviewOutput": ["합계: 1"], "checkOutput": ["합계: 2"], "checkModel": "m"}},
+            {"rule": [], "code": CODE, "review": review_ok, "check": {"vote": "agree", "passed": True}},
+            {"rule": [], "review": {**review_ok, "level": {"match": False, "overall": 2, "advice": ""}}, "code": CODE}]}
+        with FakeDb(experience) as db:
+            experience.record_cases("python", 1, "카페", log)
+            rows = sorted((v for (pk, _), v in db.rows.items() if pk == "CASE#python#1"), key=lambda r: r["sk"])
+        self.assertEqual([r["outcome"] for r in rows], ["not_runnable", "disagree"])          # 통과·난이도 불일치는 사례로 남기지 않음
+        self.assertTrue(all(r["label"] == "pending" and r["code"] == CODE and r["features"]["loops"] == 1 for r in rows))
+        self.assertEqual((rows[0]["problems"], rows[1]["reviewOutput"], rows[1]["checkOutput"]), (["5번째 줄: 의도와 다르게 rejected 가 기록돼요"], ["합계: 1"], ["합계: 2"]))
+        self.assertTrue(rows[0]["sk"].endswith("#1") and rows[1]["sk"].endswith("#2"))
+
+    def test_review_experiences_pick_verified_similar_balanced(self):
+        rows = [("1#01", "trace_slip", 1, {"sort": True}), ("1#02", "trace_slip", 1, {"sort": True}), ("1#03", "trace_slip", 1, {"sort": True}),
+                ("3#04", "false_alarm", 3, {}), ("1#05", "real_error", 1, {}), ("1#06", "pending", 1, {"sort": True})]
+        with FakeDb(experience) as db, unittest.mock.patch.dict("os.environ", {"REVIEW_EXPERIENCE": "on"}):
+            self.assertEqual(experience.review_experiences(CODE, "python", 1), ("", []))       # 경험이 없으면 아무것도 넣지 않음
+            for sk, kind, level, feats in rows:
+                db.rows[("EXPERIENCE#python", sk)] = {"pk": "EXPERIENCE#python", "sk": sk, "kind": kind, "level": level, "features": feats,
+                                                     "claim": f"주장 {sk}", "truth": "실제", "lesson": f"교훈 {sk}"}
+            text, used = experience.review_experiences("xs = sorted([2, 1])\nprint(xs)", "python", 1)
+        self.assertEqual(len(used), 3)
+        self.assertNotIn("1#06", used)                                                        # 정답이 없는 사례(pending)는 쓰지 않음
+        self.assertEqual(sum(u in ("1#01", "1#02", "1#03") for u in used), 2)                  # 같은 종류는 2개까지
+        self.assertIn("1#05", used)                                                           # 같은 난이도 우선
+        self.assertIn("실제 실행으로 확인한 지난 검토 사례", text)
+        self.assertIn("[진짜 오류]", text)
+        with unittest.mock.patch.dict("os.environ", {"REVIEW_EXPERIENCE": "off"}):
+            self.assertEqual(experience.review_experiences(CODE, "python", 1), ("", []))
+
+    def test_genlog_keeps_code_features_not_code(self):
+        step = {"rule": [], "code": CODE, "review": {"runnable": True, "problems": [], "size": [], "level": {"match": True, "overall": 1}},
+                "check": {"vote": "agree", "passed": True}}
+        with FakeDb(history) as db:
+            history.record_generation("python", 1, "카페", {"origin": "sample", "title": "s"}, {"attempts": [step]})
+            row = next(v for (pk, _), v in db.rows.items() if pk == "GENLOG#python#1")
+        self.assertEqual(row["attempts"][0]["features"]["loops"], 1)
+        self.assertNotIn("code", row["attempts"][0])
 
 
 class History(unittest.TestCase):

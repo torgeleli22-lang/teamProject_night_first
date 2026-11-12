@@ -62,7 +62,7 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
 | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
 | `AI_MONTHLY_BUDGET_USD` | `10` |
-| 선택 | `HISTORY_HINTS` (`off` 면 생성 기록 지침을 쓰지 않음, 기본 켜짐) · `REVIEW_MODEL_ID` · `CHECK_MODEL_ID` · `CHECK_MODEL_ID_HIGH` · `MODEL_ID` (아래 'AI 모델') · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
+| 선택 | `HISTORY_HINTS` (`off` 면 생성 기록 지침을 쓰지 않음, 기본 켜짐) · `REVIEW_EXPERIENCE` (`off` 면 검토 경험을 검토 프롬프트에 넣지 않음, 기본 켜짐) · `REVIEW_MODEL_ID` · `CHECK_MODEL_ID` · `CHECK_MODEL_ID_HIGH` · `MODEL_ID` (아래 'AI 모델') · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
 
 - `ADMIN_TOKEN`: 실험 스크립트가 단계별 기록을 받을 때 쓰는 관리자 코드. CloudShell `openssl rand -hex 24` 처럼 직접 정한 긴 값을 `jojo_practice` 에만
 - 제한 시간: 코드 만들기는 AI 를 보통 2번(생성·검토), 많으면 6번 불러서 고급은 1~3분 걸릴 수 있어 넉넉하게 10분
