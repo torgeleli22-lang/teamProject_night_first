@@ -110,19 +110,23 @@ def _shape(value):
     return type(value).__name__
 
 
-TOOL_CHOICES = ({"tool": {"name": "answer"}}, {"any": {}}, {"auto": {}})   # 앞에서부터: 이 도구로만 → 도구 중 하나로 → 모델이 고름
+# 답 받는 방법 (앞에서부터): 이 도구로만 → 도구 중 하나로 → 모델이 고름 → 도구 없이 프롬프트로 "이 JSON 모양으로만 답해"
+TOOL_CHOICES = ({"tool": {"name": "answer"}}, {"any": {}}, {"auto": {}}, None)
+AUTO, JSON_ONLY = 2, 3
 AUTO_NOTE = "\n\n결과는 반드시 answer 도구를 한 번 호출해서 제출해. 도구 밖에 글로 답하지 마."
+JSON_NOTE = ("\n\n결과는 아래 JSON 스키마에 맞는 JSON 객체 하나로만 답해. 모든 칸을 빠짐없이 쓰고, 설명 글이나 ``` 는 쓰지 마.\n"
+             "<schema>\n{schema}\n</schema>")
 _quirks = {}   # 모델마다 받아 준 요청 설정 {model: (TOOL_CHOICES 번호, 온도를 빼야 하나)} — 한 번 거절되면 다음부터 바로 그 설정으로
 
 
 def _converse(model, system, prompt, tool, max_tokens, temperature):
-    """Converse 한 번. 모델이 받지 않는 설정(도구 지정 방식·온도)이라고 거절하면 그 설정만 바꿔 다시 (최대 4번, 거절은 비용 없음)"""
+    """Converse 한 번. 모델이 받지 않는 설정(도구 지정 방식·온도)이라고 거절하면 그 설정만 바꿔 다시 (최대 5번, 거절은 비용 없음)"""
     choice, no_temp = _quirks.get(model, (0, False))
-    for _ in range(4):
-        request = {"modelId": model, "system": [{"text": system + (AUTO_NOTE if "auto" in TOOL_CHOICES[choice] else "")}],
-                   "messages": [{"role": "user", "content": [{"text": prompt}]}],
+    for _ in range(5):
+        note = AUTO_NOTE if choice == AUTO else JSON_NOTE.format(schema=json.dumps(tool["toolSpec"]["inputSchema"]["json"], ensure_ascii=False)) if choice == JSON_ONLY else ""
+        request = {"modelId": model, "system": [{"text": system + note}], "messages": [{"role": "user", "content": [{"text": prompt}]}],
                    "inferenceConfig": {"maxTokens": max_tokens, **({"temperature": temperature} if temperature is not None and not no_temp else {})},
-                   "toolConfig": {"tools": [tool], "toolChoice": TOOL_CHOICES[choice]}}
+                   **({"toolConfig": {"tools": [tool], "toolChoice": TOOL_CHOICES[choice]}} if choice != JSON_ONLY else {})}
         try:
             response = bedrock().converse(**request)
             _quirks[model] = (choice, no_temp)
@@ -137,7 +141,7 @@ def _converse(model, system, prompt, tool, max_tokens, temperature):
                 no_temp = True
             else:
                 raise
-            logger.info("모델이 받는 설정으로 다시", extra={"model": model, "toolChoice": list(TOOL_CHOICES[choice]), "noTemperature": no_temp})
+            logger.info("모델이 받는 설정으로 다시", extra={"model": model, "toolChoice": list(TOOL_CHOICES[choice] or ["json"]), "noTemperature": no_temp})
     raise AiUnavailable("bedrock: ValidationException")
 
 
@@ -180,6 +184,9 @@ def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None)
         tool = next((c["toolUse"] for c in content if "toolUse" in c), None)
         answer = tool["input"] if tool else _json_in_text("".join(c.get("text", "") for c in content))   # auto 에서 도구 대신 글(JSON)로 답한 경우
         if answer is None:
+            if _quirks.get(model, (0, False))[0] == AUTO:   # auto 로도 결과가 없으면, 다음(ask_ai 의 다시 묻기)부터는 도구 없이 JSON 으로만 받기
+                _quirks[model] = (JSON_ONLY, _quirks[model][1])
+                logger.info("도구 없이 JSON 으로 받기로", extra={"model": model})
             raise AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")
         value, issues = parse_answer(answer, schema)
         if issues:
