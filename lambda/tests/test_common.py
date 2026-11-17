@@ -113,6 +113,78 @@ class AiRetry(unittest.TestCase):
         self.assertEqual(sent, [("us.amazon.nova-pro-v1:0", {"tool": {"name": "answer"}}, 12000), ("us.amazon.nova-pro-v1:0", {"any": {}}, 12000)])
 
 
+class ModelQuirks(unittest.TestCase):
+    """모델이 받지 않는 요청 설정이면 그 설정만 바꿔 다시 (Sonnet 5.5: toolChoice tool·any 를 받지 않음)"""
+
+    def run_live(self, client, model, temperature=None):
+        with unittest.mock.patch.object(ai, "AI_MODE", "live"), unittest.mock.patch.object(ai, "ai_enabled", lambda: True), \
+                unittest.mock.patch.object(ai, "check_budget", lambda *a: None), unittest.mock.patch.object(ai, "log_usage", lambda *a, **k: None), \
+                unittest.mock.patch.object(ai, "bedrock", lambda: client):
+            return ai.ask_ai("code_generation", "시스템", "질문", AiRetry.Check, max_tokens=3000, model=model, temperature=temperature)
+
+    def client(self, reject):
+        from botocore.exceptions import ClientError
+        sent = []
+        class Client:
+            def converse(self, **kw):
+                choice, conf = list(kw["toolConfig"]["toolChoice"])[0], kw["inferenceConfig"]
+                sent.append((choice, "temperature" in conf, kw["system"][0]["text"]))
+                for word, message in reject:
+                    if (word == choice) or (word == "temperature" and "temperature" in conf):
+                        raise ClientError({"Error": {"Code": "ValidationException", "Message": message}}, "Converse")
+                return {"stopReason": "tool_use", "usage": {"inputTokens": 1, "outputTokens": 1},
+                        "output": {"message": {"content": [{"toolUse": {"input": {"trace": {"name": "t"}, "codeProblems": []}}}]}}}
+        return Client(), sent
+
+    def setUp(self):
+        ai._quirks.clear()
+
+    def test_tool_choice_falls_back_to_auto_and_is_remembered(self):
+        msg = 'tool_choice: type "tool" and "any" are not supported for this model.'
+        client, sent = self.client([("tool", msg), ("any", msg)])
+        self.assertEqual(self.run_live(client, "us.anthropic.claude-sonnet-5-5")["codeProblems"], [])
+        self.assertEqual([c for c, _, _ in sent], ["tool", "any", "auto"])
+        self.assertIn("반드시 answer 도구", sent[-1][2])                      # auto 일 때는 도구로 답하라고 시스템에 덧붙임
+        self.run_live(client, "us.anthropic.claude-sonnet-5-5")
+        self.assertEqual([c for c, _, _ in sent[3:]], ["auto"])                # 다음부터는 바로 받아 준 설정으로
+
+    def test_temperature_is_dropped_when_rejected(self):
+        client, sent = self.client([("temperature", "temperature is not supported when thinking is enabled")])
+        self.run_live(client, "m-temp", temperature=0.5)
+        self.assertEqual([(c, t) for c, t, _ in sent], [("tool", True), ("tool", False)])
+
+    def text_client(self, replies):
+        """도구 없이 글로 답하는 모델 (replies 를 차례로)"""
+        prompts = []
+        class Client:
+            def converse(self, **kw):
+                prompts.append(kw["messages"][0]["content"][0]["text"])
+                return {"stopReason": "end_turn", "usage": {"inputTokens": 1, "outputTokens": 1},
+                        "output": {"message": {"content": [{"text": replies.pop(0)}]}}}
+        return Client(), prompts
+
+    def test_json_written_as_text_is_used(self):
+        client, prompts = self.text_client(['결과예요.\n```json\n{"trace": {"name": "t"}, "codeProblems": []}\n```'])
+        self.assertEqual(self.run_live(client, "m-text")["codeProblems"], [])
+        self.assertEqual(len(prompts), 1)
+
+    def test_text_without_json_is_asked_once_more(self):
+        client, prompts = self.text_client(["코드는 잘 동작해요.", '{"trace": {"name": "t"}, "codeProblems": []}'])
+        self.assertEqual(self.run_live(client, "m-text2")["codeProblems"], [])
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("answer 도구를 호출해서 다시 제출", prompts[1])
+        client, prompts = self.text_client(["글만", "또 글만"])
+        with self.assertRaises(ai.AiUnavailable):
+            self.run_live(client, "m-text3")
+        self.assertEqual(len(prompts), 2)                                    # 다시 묻는 건 1번까지
+
+    def test_other_validation_errors_are_not_retried(self):
+        client, sent = self.client([("tool", "The provided model identifier is invalid.")] * 1)
+        with self.assertRaises(ai.AiUnavailable):
+            self.run_live(client, "bad-model")
+        self.assertEqual(len(sent), 1)
+
+
 class RequestBody(unittest.TestCase):
     class In(core.Body):
         level: int = Field(ge=1, le=4)

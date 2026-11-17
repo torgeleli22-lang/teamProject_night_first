@@ -77,6 +77,7 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 | 채점 | Claude Sonnet 5.5 `us.anthropic.claude-sonnet-5-5` | `GRADE_MODEL_ID` (`jojo_review`) |
 
 - 환경 변수는 서로 따라가지 않아요: 하나를 바꾸면 그 작업만 바뀌고, 비어 있으면 위 기본값이에요 (`/health` 의 `models` 로 확인)
+- 모델마다 받는 요청 설정이 달라요 (예: Sonnet 5.5 는 도구 지정 `tool`·`any` 를 받지 않음). `lambda/shared/ai.py` 가 거절된 설정만 바꿔 다시 묻고 모델마다 기억해요. 도구 대신 글로 답하면 글 속 JSON 을 쓰고, 없으면 1번 더 물어요
 
 - 세 모델(Sonnet 5.5 · Haiku 4.5 · Luna) 모두 Bedrock 콘솔(버지니아 북부) → **모델 액세스**에서 '액세스 권한 부여됨'이어야 해요. 키는 필요 없어요 (실행 역할 SafeRole 권한)
 - 다른 모델을 써 보기: `python3 scripts/check_review_model.py` 로 모델·추론 프로필 ID 를 찾고 `python3 scripts/check_review_model.py <ID>` 로 시험 → `REVIEW_MODEL_ID` 에 넣기

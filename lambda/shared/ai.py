@@ -91,14 +91,14 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None,
             raise ValueError(f"mock for {task} does not fit {schema.__name__}: {issues[:3]}")
         log_usage(task, f"mock:{model}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, True)
         return result
-    # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
+    # 형식이 어긋났거나 결과(JSON)가 없는 답이면 이유를 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
     try:
         return _ask_live(task, system, prompt, schema, max_tokens, model, temperature)
     except AiUnavailable as e:
-        if not str(e).startswith("could not parse response:") or "결과(JSON)가 없음" in str(e):
+        if not str(e).startswith("could not parse response:"):
             raise
         hint = (f"{prompt}\n\n(앞선 답의 형식이 맞지 않았어요: {str(e)[len('could not parse response: '):][:300]}. "
-                f"정해진 모든 칸을 최상위에 빠짐없이 채워 answer 로 다시 제출해 주세요.)")
+                f"글로 답하지 말고, 정해진 모든 칸을 최상위에 빠짐없이 채워 answer 도구를 호출해서 다시 제출해 주세요.)")
         logger.info("AI 답 형식을 다시 물음", extra={"task": task, "reason": str(e)[:200]})
         return _ask_live(task, system, hint, schema, max_tokens, model, temperature)
 
@@ -110,6 +110,50 @@ def _shape(value):
     return type(value).__name__
 
 
+TOOL_CHOICES = ({"tool": {"name": "answer"}}, {"any": {}}, {"auto": {}})   # 앞에서부터: 이 도구로만 → 도구 중 하나로 → 모델이 고름
+AUTO_NOTE = "\n\n결과는 반드시 answer 도구를 한 번 호출해서 제출해. 도구 밖에 글로 답하지 마."
+_quirks = {}   # 모델마다 받아 준 요청 설정 {model: (TOOL_CHOICES 번호, 온도를 빼야 하나)} — 한 번 거절되면 다음부터 바로 그 설정으로
+
+
+def _converse(model, system, prompt, tool, max_tokens, temperature):
+    """Converse 한 번. 모델이 받지 않는 설정(도구 지정 방식·온도)이라고 거절하면 그 설정만 바꿔 다시 (최대 4번, 거절은 비용 없음)"""
+    choice, no_temp = _quirks.get(model, (0, False))
+    for _ in range(4):
+        request = {"modelId": model, "system": [{"text": system + (AUTO_NOTE if "auto" in TOOL_CHOICES[choice] else "")}],
+                   "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                   "inferenceConfig": {"maxTokens": max_tokens, **({"temperature": temperature} if temperature is not None and not no_temp else {})},
+                   "toolConfig": {"tools": [tool], "toolChoice": TOOL_CHOICES[choice]}}
+        try:
+            response = bedrock().converse(**request)
+            _quirks[model] = (choice, no_temp)
+            return response
+        except Exception as e:
+            message = str(e).lower()
+            if (getattr(e, "response", None) or {}).get("Error", {}).get("Code") != "ValidationException":
+                raise
+            if ("tool_choice" in message or "toolchoice" in message or "tool" in message) and choice < len(TOOL_CHOICES) - 1:
+                choice += 1
+            elif "temperature" in message and temperature is not None and not no_temp:
+                no_temp = True
+            else:
+                raise
+            logger.info("모델이 받는 설정으로 다시", extra={"model": model, "toolChoice": list(TOOL_CHOICES[choice]), "noTemperature": no_temp})
+    raise AiUnavailable("bedrock: ValidationException")
+
+
+def _json_in_text(text):
+    """글 답 속의 JSON 객체 (```json 감싸기 포함). 없으면 None"""
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    for chunk in (text, text[text.find("{"):text.rfind("}") + 1]):
+        try:
+            value = json.loads(chunk)
+            if isinstance(value, dict):
+                return value
+        except ValueError:
+            pass
+    return None
+
+
 def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None):
     """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
@@ -118,19 +162,10 @@ def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None)
     try:
         tool = {"toolSpec": {"name": "answer", "inputSchema": {"json": tool_schema(schema)},
                              "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다."}}
-        request = {"modelId": model, "system": [{"text": system}], "messages": [{"role": "user", "content": [{"text": prompt}]}],
-                   "inferenceConfig": {"maxTokens": max_tokens, **({"temperature": temperature} if temperature is not None else {})},
-                   "toolConfig": {"tools": [tool], "toolChoice": {"tool": {"name": "answer"}}}}
         try:
-            try:
-                response = bedrock().converse(**request)
-            except Exception as e:
-                # 도구를 하나만 고르게 하는 옵션(toolChoice.tool)을 받지 않는 모델이면 '도구 중 하나로 답하기'(any)로 한 번 더 — 도구가 하나라 같은 뜻
-                if (getattr(e, "response", None) or {}).get("Error", {}).get("Code") != "ValidationException" or "tool" not in str(e).lower():
-                    raise
-                logger.info("toolChoice any 로 다시", extra={"model": model})
-                request["toolConfig"]["toolChoice"] = {"any": {}}
-                response = bedrock().converse(**request)
+            response = _converse(model, system, prompt, tool, max_tokens, temperature)
+        except AiUnavailable:
+            raise
         except Exception as e:
             # AWS 가 거절한 요청(권한·모델·한도)은 비용이 없고, 연결이 끊긴 요청은 답을 만들었을 수 있어 최대 사용량으로 기록한다
             if not getattr(e, "response", None):
@@ -141,12 +176,14 @@ def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None)
         usage = response.get("usage", {})
         if response.get("stopReason") == "max_tokens":
             raise AiUnavailable("response was truncated")
-        tool = next((c["toolUse"] for c in response["output"]["message"]["content"] if "toolUse" in c), None)
-        if not tool:
+        content = response["output"]["message"]["content"]
+        tool = next((c["toolUse"] for c in content if "toolUse" in c), None)
+        answer = tool["input"] if tool else _json_in_text("".join(c.get("text", "") for c in content))   # auto 에서 도구 대신 글(JSON)로 답한 경우
+        if answer is None:
             raise AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")
-        value, issues = parse_answer(tool["input"], schema)
+        value, issues = parse_answer(answer, schema)
         if issues:
-            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3], "shape": _shape(tool["input"])})
+            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3], "shape": _shape(answer)})
             raise AiUnavailable("could not parse response: " + "; ".join(issues[:3]))
         ok = True
         return value
