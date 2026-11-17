@@ -153,6 +153,31 @@ class ModelQuirks(unittest.TestCase):
         self.run_live(client, "m-temp", temperature=0.5)
         self.assertEqual([(c, t) for c, t, _ in sent], [("tool", True), ("tool", False)])
 
+    def text_client(self, replies):
+        """도구 없이 글로 답하는 모델 (replies 를 차례로)"""
+        prompts = []
+        class Client:
+            def converse(self, **kw):
+                prompts.append(kw["messages"][0]["content"][0]["text"])
+                return {"stopReason": "end_turn", "usage": {"inputTokens": 1, "outputTokens": 1},
+                        "output": {"message": {"content": [{"text": replies.pop(0)}]}}}
+        return Client(), prompts
+
+    def test_json_written_as_text_is_used(self):
+        client, prompts = self.text_client(['결과예요.\n```json\n{"trace": {"name": "t"}, "codeProblems": []}\n```'])
+        self.assertEqual(self.run_live(client, "m-text")["codeProblems"], [])
+        self.assertEqual(len(prompts), 1)
+
+    def test_text_without_json_is_asked_once_more(self):
+        client, prompts = self.text_client(["코드는 잘 동작해요.", '{"trace": {"name": "t"}, "codeProblems": []}'])
+        self.assertEqual(self.run_live(client, "m-text2")["codeProblems"], [])
+        self.assertEqual(len(prompts), 2)
+        self.assertIn("answer 도구를 호출해서 다시 제출", prompts[1])
+        client, prompts = self.text_client(["글만", "또 글만"])
+        with self.assertRaises(ai.AiUnavailable):
+            self.run_live(client, "m-text3")
+        self.assertEqual(len(prompts), 2)                                    # 다시 묻는 건 1번까지
+
     def test_other_validation_errors_are_not_retried(self):
         client, sent = self.client([("tool", "The provided model identifier is invalid.")] * 1)
         with self.assertRaises(ai.AiUnavailable):

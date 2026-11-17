@@ -91,14 +91,14 @@ def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None,
             raise ValueError(f"mock for {task} does not fit {schema.__name__}: {issues[:3]}")
         log_usage(task, f"mock:{model}", (len(system) + len(prompt)) // 2, len(json.dumps(result, ensure_ascii=False)) // 2, True)
         return result
-    # 형식이 어긋난 답이면 빠진 칸을 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
+    # 형식이 어긋났거나 결과(JSON)가 없는 답이면 이유를 알려 주고 1번 더 묻는다 (잘림·연결 실패는 다시 묻지 않음)
     try:
         return _ask_live(task, system, prompt, schema, max_tokens, model, temperature)
     except AiUnavailable as e:
-        if not str(e).startswith("could not parse response:") or "결과(JSON)가 없음" in str(e):
+        if not str(e).startswith("could not parse response:"):
             raise
         hint = (f"{prompt}\n\n(앞선 답의 형식이 맞지 않았어요: {str(e)[len('could not parse response: '):][:300]}. "
-                f"정해진 모든 칸을 최상위에 빠짐없이 채워 answer 로 다시 제출해 주세요.)")
+                f"글로 답하지 말고, 정해진 모든 칸을 최상위에 빠짐없이 채워 answer 도구를 호출해서 다시 제출해 주세요.)")
         logger.info("AI 답 형식을 다시 물음", extra={"task": task, "reason": str(e)[:200]})
         return _ask_live(task, system, hint, schema, max_tokens, model, temperature)
 
@@ -141,6 +141,19 @@ def _converse(model, system, prompt, tool, max_tokens, temperature):
     raise AiUnavailable("bedrock: ValidationException")
 
 
+def _json_in_text(text):
+    """글 답 속의 JSON 객체 (```json 감싸기 포함). 없으면 None"""
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    for chunk in (text, text[text.find("{"):text.rfind("}") + 1]):
+        try:
+            value = json.loads(chunk)
+            if isinstance(value, dict):
+                return value
+        except ValueError:
+            pass
+    return None
+
+
 def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None):
     """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
@@ -163,12 +176,14 @@ def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None)
         usage = response.get("usage", {})
         if response.get("stopReason") == "max_tokens":
             raise AiUnavailable("response was truncated")
-        tool = next((c["toolUse"] for c in response["output"]["message"]["content"] if "toolUse" in c), None)
-        if not tool:
+        content = response["output"]["message"]["content"]
+        tool = next((c["toolUse"] for c in content if "toolUse" in c), None)
+        answer = tool["input"] if tool else _json_in_text("".join(c.get("text", "") for c in content))   # auto 에서 도구 대신 글(JSON)로 답한 경우
+        if answer is None:
             raise AiUnavailable("could not parse response: 응답에 결과(JSON)가 없음")
-        value, issues = parse_answer(tool["input"], schema)
+        value, issues = parse_answer(answer, schema)
         if issues:
-            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3], "shape": _shape(tool["input"])})
+            logger.warning("AI 응답 형식 불일치", extra={"task": task, "issues": issues[:3], "shape": _shape(answer)})
             raise AiUnavailable("could not parse response: " + "; ".join(issues[:3]))
         ok = True
         return value
