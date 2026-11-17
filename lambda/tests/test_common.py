@@ -191,9 +191,12 @@ class Cost(unittest.TestCase):
         self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 100_000), 1.5)
         self.assertEqual(ai.normalize_model("us.openai.gpt-5.6-luna"), "gpt-5.6-luna")
         self.assertEqual(ai.normalize_model("us.anthropic.claude-sonnet-4-5-20250929-v1:0"), "claude-sonnet-4-5")
-        self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 3.0)   # 가격표에 없으면 가장 비싼 값으로
+        self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 5.0)   # 가격표에 없으면 가장 비싼 값(Opus 4.5)으로
+        self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-opus-4-5-20251101-v1:0", 1_000_000, 100_000), 7.5)
         self.assertEqual(ai.max_output("us.amazon.nova-pro-v1:0"), 10000)
-        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.openai.gpt-5.6-luna"))   # 생성 Haiku · 검토 GPT-5.6 Luna
+        haiku = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), ("us.anthropic.claude-opus-4-5-20251101-v1:0", "us.openai.gpt-5.6-luna"))   # 생성 Opus 4.5(실험) · 검토 GPT-5.6 Luna
+        self.assertEqual((core.CHECK_MODEL_ID, core.GRADE_MODEL_ID), (haiku, haiku))   # 초급 검토 2 · 채점은 Haiku 그대로 (생성 모델만 바꿔 비교)
 
 
 class CodeItems(unittest.TestCase):

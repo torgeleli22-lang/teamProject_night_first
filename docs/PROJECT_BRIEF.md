@@ -32,7 +32,7 @@
    ├─→ jojo_practice  POST /practice       코드 만들기 (생성 → 규칙 검사 → 검토)
    └─→ jojo_review    POST /review · GET /code   채점 · 다시 열기
          Lambda: Python 3.14 arm64 · 함수 URL · 계층 jojo_libs · 실행 역할 SafeRole
-         ──→ DynamoDB jojo_table (서울) · Bedrock (us-east-1): 생성·확인(초급)·채점 Claude Haiku 4.5 · 검토·중급·고급 확인 GPT-5.6 Luna
+         ──→ DynamoDB jojo_table (서울) · Bedrock (us-east-1): 생성 Claude Opus 4.5(실험 중) · 확인(초급)·채점 Claude Haiku 4.5 · 검토·중급·고급 확인 GPT-5.6 Luna
 ```
 - Lambda 폴더·규칙·DynamoDB 항목: [`LAMBDA_STRUCTURE.md`](LAMBDA_STRUCTURE.md) · 올리기: [`DEPLOY_LAMBDA.md`](DEPLOY_LAMBDA.md) · 실험: [`EXPERIMENT.md`](EXPERIMENT.md) · 검토 경험으로 배우기(개발 계획): [`REVIEW_LEARNING_PLAN.md`](REVIEW_LEARNING_PLAN.md)
 - 화면(`src/`)은 `lambda/` 를 가져오지 않고 `src/lib/api.ts` 로만 불러요 (`tests/boundaries.test.ts`). 응답 모양은 `src/lib/api-types.ts` 를 Lambda 와 같게
