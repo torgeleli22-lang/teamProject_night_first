@@ -15,7 +15,7 @@ from typing import ClassVar, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
-from core import AI_MODE, MOCK_DELAY_SEC, MODEL_ID, MONTHLY_BUDGET_USD, OPS_USAGE, PRICE, ai_enabled, bedrock, logger, now_ms, query_all, update_item
+from core import AI_MODE, MOCK_DELAY_SEC, MODEL_ID, MONTHLY_BUDGET_USD, OPS_USAGE, PRICE, PRICE_UNKNOWN, ai_enabled, bedrock, logger, now_ms, query_all, update_item
 
 
 class AiUnavailable(Exception):
@@ -42,7 +42,7 @@ def normalize_model(model):
 
 
 def cost_usd(model, inp, out):
-    p = PRICE.get(normalize_model(model)) or max(PRICE.values(), key=lambda x: x["output"])
+    p = PRICE.get(normalize_model(model), PRICE_UNKNOWN)
     return (inp * p["input"] + out * p["output"]) / 1e6
 
 
@@ -110,13 +110,6 @@ def _shape(value):
     return type(value).__name__
 
 
-MAX_OUTPUT = {"nova": 10000}   # 모델마다 한 번에 쓸 수 있는 출력 토큰 한도 (Claude·GPT 는 우리 값보다 커서 그대로)
-
-
-def max_output(model):
-    return next((n for key, n in MAX_OUTPUT.items() if key in model), 64000)
-
-
 def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None):
     """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
@@ -126,7 +119,7 @@ def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None)
         tool = {"toolSpec": {"name": "answer", "inputSchema": {"json": tool_schema(schema)},
                              "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다."}}
         request = {"modelId": model, "system": [{"text": system}], "messages": [{"role": "user", "content": [{"text": prompt}]}],
-                   "inferenceConfig": {"maxTokens": min(max_tokens, max_output(model)), **({"temperature": temperature} if temperature is not None else {})},
+                   "inferenceConfig": {"maxTokens": max_tokens, **({"temperature": temperature} if temperature is not None else {})},
                    "toolConfig": {"tools": [tool], "toolChoice": {"tool": {"name": "answer"}}}}
         try:
             try:
