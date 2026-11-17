@@ -129,7 +129,7 @@ def canon_lines(lines):
 
 
 def judge_disputes(rows, out_dir):
-    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Luna · 생성 AI 예상 출력 — 판정에는 안 씀) 중 누가 맞았는지,
+    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Opus 4.5 / 중급·고급 Luna · 생성 AI 예상 출력 — 판정에는 안 씀) 중 누가 맞았는지,
     그리고 (v2.9 까지) 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
     folder = os.path.join(out_dir, "run_disputes")
     os.makedirs(folder, exist_ok=True)
@@ -361,7 +361,7 @@ def main():
           f"- 문항: 언어 2 × 난이도 3 × {args.reps}회 = {len(rows)}개", f"- 모델: {models_used(rows)}", "", "| 항목 | 결과 |", "|---|---|", *[f"| {k} | {v} |" for k, v in tab], "",
           "## 언어·난이도별", "", *by_group(rows), "",
           f"- verify.md: 무작위 AI 문항 {picked}개 — 연구진이 실제 실행 출력과 검토 기록·모범 설명을 비교해 표시",
-          "- 비용: 호출마다 그 모델의 가격으로 (Lambda 의 core.PRICE — Haiku 4.5 입력 1달러·출력 5달러 / 100만 토큰)"]
+          "- 비용: 호출마다 그 모델의 가격으로 (Lambda 의 core.PRICE — Opus 4.5 입력 5달러·출력 25달러 / 100만 토큰)"]
     with open(os.path.join(out_dir, "summary.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(md) + "\n")
     print("\n" + "\n".join(f"  {k}: {v}" for k, v in tab))
