@@ -78,7 +78,7 @@ def check_budget(model, input_chars, max_tokens):
 
 def ask_ai(task, system, prompt, schema, max_tokens=4000, mock=None, model=None, temperature=None):
     """AI 에게 정해진 모양(schema)의 답을 받는다. mock: AI_MODE=mock 일 때 대신 돌려줄 답을 만드는 함수 (같은 모양인지 검사)
-    model: 이 작업에 쓸 Bedrock 모델 (비우면 MODEL_ID — 검토는 core.REVIEW_MODEL_ID) · temperature: 비우면 모델 기본값"""
+    model: 이 작업에 쓸 Bedrock 모델 (비우면 MODEL_ID — 검토는 generate.review_model · check_model) · temperature: 비우면 모델 기본값"""
     model = model or MODEL_ID
     if not ai_enabled():
         raise AiUnavailable("AI is off")

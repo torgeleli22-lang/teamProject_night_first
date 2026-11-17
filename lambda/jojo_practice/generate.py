@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import Field
 
 from ai import AiAnswer, AiUnavailable, ask_ai, recorder
-from core import (AI_LIMIT_MESSAGE, CHECK_MODEL_ID, CHECK_MODEL_ID_HIGH, LANGUAGES, LEVELS, REVIEW_MODEL_ID, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
+from core import (AI_LIMIT_MESSAGE, CHECK_MODEL_ID, CHECK_MODEL_ID_HIGH, LANGUAGES, LEVELS, LUNA, REVIEW_MODEL_ID, REVIEW_MODEL_ID_HIGH, ApiError, Body, ai_allowed, get_user, is_admin, logger, numbered, public_code,
                   read_body, remember_topic, save_code)
 from experience import record_cases, review_experiences
 from history import history_hints, record_generation
@@ -349,7 +349,7 @@ def review_code(code, level, language, sample=None, step=None):
         r = None
         for chance in range(2):   # 권한·일시적 한도 오류는 검토만 1번 다시 (추론 프로필이 다른 리전으로 보냈다가 막히는 경우 — 거절된 요청은 비용 없음)
             try:
-                r = call_ai("code_review", system, prompt + hint, ReviewAnswer, max_tokens=REVIEW_TOKENS[level], model=REVIEW_MODEL_ID,
+                r = call_ai("code_review", system, prompt + hint, ReviewAnswer, max_tokens=REVIEW_TOKENS[level], model=review_model(level),
                             mock=lambda: sample_review(sample, level) if sample and sample["code"] == code else sample_review(None, level, code))
                 break
             except AiUnavailable as e:
@@ -372,13 +372,18 @@ def review_code(code, level, language, sample=None, step=None):
     return {**r, "units": pick_keys(units)}
 
 
+def review_model(level):
+    """검토 1 에 쓸 모델: 초급 REVIEW_MODEL_ID(Haiku) · 중급·고급 REVIEW_MODEL_ID_HIGH(Sonnet 5.5) — 생성 기준 4.1"""
+    return REVIEW_MODEL_ID_HIGH if level >= 2 else REVIEW_MODEL_ID
+
+
 def check_model(level):
-    """검토 2 에 쓸 모델: 초급 CHECK_MODEL_ID(Haiku) · 중급·고급 CHECK_MODEL_ID_HIGH(Sonnet 5.5) — 생성 기준 4.1"""
+    """검토 2 에 쓸 모델: 초급 CHECK_MODEL_ID · 중급·고급 CHECK_MODEL_ID_HIGH (기본 둘 다 GPT-5.6 Luna — 검토 1 과 다른 회사 모델)"""
     return CHECK_MODEL_ID_HIGH if level >= 2 else CHECK_MODEL_ID
 
 
 def cross_check(code, level, language, review, expected=None, step=None):
-    """③ 검토 2(초급 Haiku · 중급·고급 Sonnet 5.5)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → 제공해도 되나? (4.1)
+    """③ 검토 2(Luna)가 검토 1(초급 Haiku · 중급·고급 Sonnet 5.5)의 기록을 보지 않고 따로 따라가 출력을 비교 → 제공해도 되나? (4.1)
     검토 1 = 검토 2 일 때만 True. 다르거나 판정하지 못하면 False — 다수결 없이 내보내지 않음.
     expected(생성 AI 의 예상 출력)는 판정에 쓰지 않고 기록만 (실험에서 실제로 실행해 누가 맞았는지 셈 — 관리자 기록에만)"""
     info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}
@@ -396,7 +401,7 @@ def cross_check(code, level, language, review, expected=None, step=None):
     info["checkModel"] = model
     try:
         check = call_ai("trace_check", CHECK_PROMPT.format(language=LANGUAGES[language]), prompt, CheckAnswer,
-                        max_tokens=REVIEW_TOKENS[level] if model == REVIEW_MODEL_ID else CHECK_TOKENS[level],   # Luna 는 생각하는 데도 토큰을 써서 검토 1 과 같은 한도
+                        max_tokens=REVIEW_TOKENS[level] if model == LUNA else CHECK_TOKENS[level],   # Luna 는 생각하는 데도 토큰을 써서 검토 1 과 같은 한도
                         model=model, mock=lambda: {"output": list(review["output"])})
     except AiUnavailable as e:
         logger.info("검토 2 를 못 함", extra={"reason": str(e)})
