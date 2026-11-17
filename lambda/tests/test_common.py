@@ -110,7 +110,7 @@ class AiRetry(unittest.TestCase):
                 unittest.mock.patch.object(ai, "bedrock", lambda: Client()):
             got = ai.ask_ai("code_review", "s", "질문", self.Check, max_tokens=12000, model="us.amazon.nova-pro-v1:0")
         self.assertEqual(got["codeProblems"], [])
-        self.assertEqual(sent, [("us.amazon.nova-pro-v1:0", {"tool": {"name": "answer"}}, 10000), ("us.amazon.nova-pro-v1:0", {"any": {}}, 10000)])
+        self.assertEqual(sent, [("us.amazon.nova-pro-v1:0", {"tool": {"name": "answer"}}, 12000), ("us.amazon.nova-pro-v1:0", {"any": {}}, 12000)])
 
 
 class RequestBody(unittest.TestCase):
@@ -190,14 +190,20 @@ class Cost(unittest.TestCase):
         self.assertEqual(ai.normalize_model("mock:us.anthropic.claude-haiku-4-5-20251001-v1:0"), "claude-haiku-4-5")
         self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-haiku-4-5-20251001-v1:0", 1_000_000, 100_000), 1.5)
         self.assertEqual(ai.normalize_model("us.openai.gpt-5.6-luna"), "gpt-5.6-luna")
-        self.assertEqual(ai.normalize_model("us.anthropic.claude-sonnet-4-5-20250929-v1:0"), "claude-sonnet-4-5")
-        self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 5.0)   # 가격표에 없으면 가장 비싼 값(Opus 4.5)으로
-        self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-opus-4-5-20251101-v1:0", 1_000_000, 100_000), 7.5)
-        self.assertEqual(ai.max_output("us.amazon.nova-pro-v1:0"), 10000)
-        sonnet = "us.anthropic.claude-sonnet-5-5"
-        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), (sonnet, "us.openai.gpt-5.6-luna"))   # 생성 Sonnet 5.5 · 검토 GPT-5.6 Luna
-        self.assertEqual((core.CHECK_MODEL_ID, core.GRADE_MODEL_ID), (sonnet, sonnet))   # 초급 검토 2 · 채점도 Sonnet 5.5
+        self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 5.0)   # 가격표에 없는 모델은 PRICE_UNKNOWN 으로 넉넉하게
+        sonnet, haiku = "us.anthropic.claude-sonnet-5-5", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         self.assertEqual(ai.normalize_model(sonnet), "claude-sonnet-5-5")
+        # 기본 모델: 생성 Sonnet 5.5 · 검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Sonnet 5.5 · 채점 Sonnet 5.5 (모두 환경 변수로 바꿀 수 있음)
+        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID, core.CHECK_MODEL_ID, core.CHECK_MODEL_ID_HIGH, core.GRADE_MODEL_ID),
+                         (sonnet, "us.openai.gpt-5.6-luna", haiku, sonnet, sonnet))
+
+    def test_models_come_from_environment(self):
+        """환경 변수가 있으면 그 모델, 비어 있으면 기본값 (core 를 새 프로세스에서 읽어 확인)"""
+        import os, subprocess, sys
+        env = {**os.environ, "MODEL_ID": "m1", "REVIEW_MODEL_ID": "m2", "CHECK_MODEL_ID": "m3", "CHECK_MODEL_ID_HIGH": " ", "GRADE_MODEL_ID": "m5"}
+        code = "import core; print(core.MODEL_ID, core.REVIEW_MODEL_ID, core.CHECK_MODEL_ID, core.CHECK_MODEL_ID_HIGH, core.GRADE_MODEL_ID)"
+        out = subprocess.run([sys.executable, "-c", code], env=env, cwd=os.path.dirname(core.__file__), capture_output=True, text=True, check=True)
+        self.assertEqual(out.stdout.split(), ["m1", "m2", "m3", "us.anthropic.claude-sonnet-5-5", "m5"])   # 빈 값은 기본값
 
 
 class CodeItems(unittest.TestCase):

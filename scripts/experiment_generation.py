@@ -129,7 +129,7 @@ def canon_lines(lines):
 
 
 def judge_disputes(rows, out_dir):
-    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Sonnet 5.5 / 중급·고급 Luna · 생성 AI 예상 출력 — 판정에는 안 씀) 중 누가 맞았는지,
+    """검토 2개가 달랐던 시도: 그 코드를 실제로 두 번 실행해 세 의견(검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Sonnet 5.5 · 생성 AI 예상 출력 — 판정에는 안 씀) 중 누가 맞았는지,
     그리고 (v2.9 까지) 2:1 로 정한 출력이 맞았는지 → c["judge"] = {"review", "check", "gen": 맞음?, "vote": 정한 출력이 맞음?} (실행마다 다르거나 실패하면 "unknown")"""
     folder = os.path.join(out_dir, "run_disputes")
     os.makedirs(folder, exist_ok=True)
