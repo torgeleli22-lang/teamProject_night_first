@@ -380,12 +380,12 @@ def review_code(code, level, language, sample=None, step=None):
 
 
 def check_model(level):
-    """검토 2 에 쓸 모델: 초급은 Haiku(검토 1 과 다른 모델), 중급·고급은 Luna 를 한 번 더 따로 (생성 기준 4.1 — 계산이 얽히면 Haiku 가 자주 놓침)"""
+    """검토 2 에 쓸 모델: 초급은 Opus 4.5(검토 1 과 다른 모델), 중급·고급은 Luna 를 한 번 더 따로 (생성 기준 4.1)"""
     return CHECK_MODEL_ID_HIGH if level >= 2 else CHECK_MODEL_ID
 
 
 def cross_check(code, level, language, review, expected=None, step=None):
-    """③ 검토 2(초급 Haiku · 중급·고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → 제공해도 되나? (4.1)
+    """③ 검토 2(초급 Opus 4.5 · 중급·고급 Luna 한 번 더)가 검토 1(Luna)의 기록을 보지 않고 따로 따라가 출력을 비교 → 제공해도 되나? (4.1)
     검토 1 = 검토 2 일 때만 True. 다르거나 판정하지 못하면 False — 다수결 없이 내보내지 않음.
     expected(생성 AI 의 예상 출력)는 판정에 쓰지 않고 기록만 (실험에서 실제로 실행해 누가 맞았는지 셈 — 관리자 기록에만)"""
     info = {"vote": None, "passed": False, "diff": [], "code": code, "genOutput": list(expected or [])}

@@ -39,7 +39,7 @@ class Grading(unittest.TestCase):
         self.assertNotIn("explanation", str(again["codeItem"]))
 
     def test_grading_uses_grade_model(self):
-        """채점은 GRADE_MODEL_ID(Haiku) — 생성 모델(MODEL_ID)을 바꿔도 채점은 그대로"""
+        """채점은 GRADE_MODEL_ID (기본은 MODEL_ID 와 같은 Opus 4.5)"""
         user, seen = {"userId": "me", "member": False, "recentTopics": []}, {}
         def fake(task, system, prompt, schema, **kw):
             seen["model"] = kw.get("model")
@@ -48,7 +48,6 @@ class Grading(unittest.TestCase):
             db.rows[(core.code_pk(ITEM["codeId"]), core.INFO)] = ITEM
             out = grade.review(request({"codeId": ITEM["codeId"], "memos": [{"start": 2, "end": 3, "text": "하나씩 더해요"}]}, user=user))
         self.assertEqual((seen["model"], out["byAi"]), (core.GRADE_MODEL_ID, True))
-        self.assertNotEqual(core.GRADE_MODEL_ID, core.MODEL_ID)
 
     def test_memo_outside_code_is_400(self):
         with self.assertRaises(core.ApiError):
