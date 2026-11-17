@@ -127,13 +127,17 @@ class ModelQuirks(unittest.TestCase):
         sent = []
         class Client:
             def converse(self, **kw):
-                choice, conf = list(kw["toolConfig"]["toolChoice"])[0], kw["inferenceConfig"]
+                choice = list(kw["toolConfig"]["toolChoice"])[0] if "toolConfig" in kw else "json"
+                conf = kw["inferenceConfig"]
                 sent.append((choice, "temperature" in conf, kw["system"][0]["text"]))
                 for word, message in reject:
                     if (word == choice) or (word == "temperature" and "temperature" in conf):
                         raise ClientError({"Error": {"Code": "ValidationException", "Message": message}}, "Converse")
+                answer = {"trace": {"name": "t"}, "codeProblems": []}
+                if choice == "json":   # 도구 없이 글(JSON)로
+                    return {"stopReason": "end_turn", "usage": {"inputTokens": 1, "outputTokens": 1}, "output": {"message": {"content": [{"text": json.dumps(answer)}]}}}
                 return {"stopReason": "tool_use", "usage": {"inputTokens": 1, "outputTokens": 1},
-                        "output": {"message": {"content": [{"toolUse": {"input": {"trace": {"name": "t"}, "codeProblems": []}}}]}}}
+                        "output": {"message": {"content": [{"toolUse": {"input": answer}}]}}}
         return Client(), sent
 
     def setUp(self):
@@ -152,6 +156,28 @@ class ModelQuirks(unittest.TestCase):
         client, sent = self.client([("temperature", "temperature is not supported when thinking is enabled")])
         self.run_live(client, "m-temp", temperature=0.5)
         self.assertEqual([(c, t) for c, t, _ in sent], [("tool", True), ("tool", False)])
+
+    def test_no_tool_at_all_falls_back_to_json_prompt(self):
+        """도구 지정을 하나도 받지 않으면 마지막으로 도구 없이 프롬프트로 'JSON 모양으로만 답해'"""
+        msg = "tool_choice is not supported for this model"
+        client, sent = self.client([("tool", msg), ("any", msg), ("auto", msg)])
+        self.assertEqual(self.run_live(client, "m-json")["codeProblems"], [])
+        self.assertEqual([c for c, _, _ in sent], ["tool", "any", "auto", "json"])
+        self.assertIn("JSON 스키마에 맞는 JSON 객체 하나로만", sent[-1][2])
+        self.assertIn("codeProblems", sent[-1][2])                                # 답 모양(스키마)을 프롬프트에 넣음
+
+    def test_auto_without_json_switches_to_json_prompt(self):
+        """auto 로 글만 답하고 JSON 이 없으면, 다시 물을 때는 도구 없이 JSON 으로만 받기"""
+        ai._quirks["m-auto"] = (ai.AUTO, False)
+        replies = ["코드는 잘 동작해요.", '{"trace": {"name": "t"}, "codeProblems": []}']
+        seen = []
+        class Client:
+            def converse(self, **kw):
+                seen.append("toolConfig" in kw)
+                return {"stopReason": "end_turn", "usage": {"inputTokens": 1, "outputTokens": 1}, "output": {"message": {"content": [{"text": replies.pop(0)}]}}}
+        self.assertEqual(self.run_live(Client(), "m-auto")["codeProblems"], [])
+        self.assertEqual(seen, [True, False])                                     # 첫 번째는 도구(auto), 두 번째는 도구 없이
+        self.assertEqual(ai._quirks["m-auto"][0], ai.JSON_ONLY)
 
     def text_client(self, replies):
         """도구 없이 글로 답하는 모델 (replies 를 차례로)"""
