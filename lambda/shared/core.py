@@ -34,9 +34,10 @@ BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")     # Bedrock 모
 # AI 모델 (Bedrock 추론 프로필 ID). 작업마다 환경 변수로 바꿀 수 있고, 비어 있으면 아래 기본값
 SONNET, HAIKU, LUNA = "us.anthropic.claude-sonnet-5-5", "us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.openai.gpt-5.6-luna"
 MODEL_ID = os.environ.get("MODEL_ID", "").strip() or SONNET                        # 생성 · 부분 수정
-REVIEW_MODEL_ID = os.environ.get("REVIEW_MODEL_ID", "").strip() or LUNA            # 검토 1 (실행 기록 · 모범 설명 · 난이도)
-CHECK_MODEL_ID = os.environ.get("CHECK_MODEL_ID", "").strip() or HAIKU             # 검토 2 · 초급
-CHECK_MODEL_ID_HIGH = os.environ.get("CHECK_MODEL_ID_HIGH", "").strip() or SONNET  # 검토 2 · 중급·고급
+REVIEW_MODEL_ID = os.environ.get("REVIEW_MODEL_ID", "").strip() or HAIKU             # 검토 1 · 초급 (실행 기록 · 모범 설명 · 난이도)
+REVIEW_MODEL_ID_HIGH = os.environ.get("REVIEW_MODEL_ID_HIGH", "").strip() or SONNET  # 검토 1 · 중급·고급
+CHECK_MODEL_ID = os.environ.get("CHECK_MODEL_ID", "").strip() or LUNA                # 검토 2 · 초급
+CHECK_MODEL_ID_HIGH = os.environ.get("CHECK_MODEL_ID_HIGH", "").strip() or LUNA      # 검토 2 · 중급·고급
 GRADE_MODEL_ID = os.environ.get("GRADE_MODEL_ID", "").strip() or SONNET            # 채점
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
@@ -244,7 +245,7 @@ def _route_handler(app, fn):
 def health(req):
     """연결 확인 — 모든 함수에 있어요 (콘솔 테스트 이벤트: {"path": "/health", "method": "GET"})"""
     return {"ok": True, "mode": AI_MODE, "ai": ai_enabled(), "languages": list(LANGUAGES),
-            "models": {"generate": MODEL_ID, "review": REVIEW_MODEL_ID, "check": CHECK_MODEL_ID, "checkHigh": CHECK_MODEL_ID_HIGH, "grade": GRADE_MODEL_ID}}   # 모델 이름은 비밀이 아니에요 (환경 변수가 반영됐는지 확인용)
+            "models": {"generate": MODEL_ID, "review": REVIEW_MODEL_ID, "reviewHigh": REVIEW_MODEL_ID_HIGH, "check": CHECK_MODEL_ID, "checkHigh": CHECK_MODEL_ID_HIGH, "grade": GRADE_MODEL_ID}}   # 모델 이름은 비밀이 아니에요 (환경 변수가 반영됐는지 확인용)
 
 
 HEALTH = {"GET /health": health}

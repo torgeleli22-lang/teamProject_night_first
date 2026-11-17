@@ -9,7 +9,7 @@ Lambda 는 CloudShell 에서 **`npm run deploy`** 로 올려요 (콘솔에 붙�
    ├─→ jojo_auth      /me · /auth · /health   로그인 (Google)
    ├─→ jojo_practice  /practice               코드 만들기: 생성 AI → 규칙 검사 → 검토 AI (최대 10분)
    └─→ jojo_review    /review · /code         채점 · 코드 다시 열기
-         모두 ──→ DynamoDB jojo_table (서울) · practice·review ──→ Bedrock (us-east-1): 생성·중급·고급 검토 2·채점 Claude Sonnet 5.5 · 검토 1 GPT-5.6 Luna · 초급 검토 2 Claude Haiku 4.5
+         모두 ──→ DynamoDB jojo_table (서울) · practice·review ──→ Bedrock (us-east-1): 생성·중급·고급 검토 1·채점 Claude Sonnet 5.5 · 초급 검토 1 Claude Haiku 4.5 · 검토 2 GPT-5.6 Luna
 ```
 
 > 비밀 값(`ADMIN_TOKEN`, `GOOGLE_CLIENT_SECRET`)은 Lambda 환경 변수에만 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
@@ -62,7 +62,7 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 | `AI_MODE` | `live` (실제 AI) · `mock`(시험용, 비용 없음) · `off` |
 | `ALLOWED_ORIGINS` | `https://torgeleli22-lang.github.io` |
 | `AI_MONTHLY_BUDGET_USD` | `10` |
-| 선택 | `HISTORY_HINTS` (`off` 면 생성 기록 지침을 쓰지 않음, 기본 켜짐) · `REVIEW_EXPERIENCE` (`off` 면 검토 경험을 검토 프롬프트에 넣지 않음, 기본 켜짐) · `MODEL_ID` · `REVIEW_MODEL_ID` · `CHECK_MODEL_ID` · `CHECK_MODEL_ID_HIGH` · `GRADE_MODEL_ID` (아래 'AI 모델') · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
+| 선택 | `HISTORY_HINTS` (`off` 면 생성 기록 지침을 쓰지 않음, 기본 켜짐) · `REVIEW_EXPERIENCE` (`off` 면 검토 경험을 검토 프롬프트에 넣지 않음, 기본 켜짐) · `MODEL_ID` · `REVIEW_MODEL_ID` · `REVIEW_MODEL_ID_HIGH` · `CHECK_MODEL_ID` · `CHECK_MODEL_ID_HIGH` · `GRADE_MODEL_ID` (아래 'AI 모델') · `BEDROCK_REGION` · `DB_REGION` · `RATE_LIMIT_*` (요청 수 제한, `lambda/shared/core.py` 1번) · `POWERTOOLS_LOG_LEVEL` |
 
 - `ADMIN_TOKEN`: 실험 스크립트가 단계별 기록을 받을 때 쓰는 관리자 코드. CloudShell `openssl rand -hex 24` 처럼 직접 정한 긴 값을 `jojo_practice` 에만
 - 제한 시간: 코드 만들기는 AI 를 보통 2번(생성·검토), 많으면 6번 불러서 고급은 1~3분 걸릴 수 있어 넉넉하게 10분
@@ -71,9 +71,10 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 | 단계 | 모델 | 정하는 곳 (기본값은 `lambda/shared/core.py`, 바꾸려면 환경 변수) |
 |---|---|---|
 | 생성 · 부분 수정 | Claude Sonnet 5.5 `us.anthropic.claude-sonnet-5-5` | `MODEL_ID` (`jojo_practice`) |
-| 검토 1 | GPT-5.6 Luna `us.openai.gpt-5.6-luna` | `REVIEW_MODEL_ID` (`jojo_practice`) |
-| 검토 2 · 초급 | Claude Haiku 4.5 `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `CHECK_MODEL_ID` (`jojo_practice`) |
-| 검토 2 · 중급·고급 | Claude Sonnet 5.5 `us.anthropic.claude-sonnet-5-5` | `CHECK_MODEL_ID_HIGH` (`jojo_practice`) |
+| 검토 1 · 초급 | Claude Haiku 4.5 `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `REVIEW_MODEL_ID` (`jojo_practice`) |
+| 검토 1 · 중급·고급 | Claude Sonnet 5.5 `us.anthropic.claude-sonnet-5-5` | `REVIEW_MODEL_ID_HIGH` (`jojo_practice`) |
+| 검토 2 · 초급 | GPT-5.6 Luna `us.openai.gpt-5.6-luna` | `CHECK_MODEL_ID` (`jojo_practice`) |
+| 검토 2 · 중급·고급 | GPT-5.6 Luna `us.openai.gpt-5.6-luna` | `CHECK_MODEL_ID_HIGH` (`jojo_practice`) |
 | 채점 | Claude Sonnet 5.5 `us.anthropic.claude-sonnet-5-5` | `GRADE_MODEL_ID` (`jojo_review`) |
 
 - 환경 변수는 서로 따라가지 않아요: 하나를 바꾸면 그 작업만 바뀌고, 비어 있으면 위 기본값이에요 (`/health` 의 `models` 로 확인)
@@ -82,7 +83,7 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 - 세 모델(Sonnet 5.5 · Haiku 4.5 · Luna) 모두 Bedrock 콘솔(버지니아 북부) → **모델 액세스**에서 '액세스 권한 부여됨'이어야 해요. 키는 필요 없어요 (실행 역할 SafeRole 권한)
 - 다른 모델을 써 보기: `python3 scripts/check_review_model.py` 로 모델·추론 프로필 ID 를 찾고 `python3 scripts/check_review_model.py <ID>` 로 시험 → `REVIEW_MODEL_ID` 에 넣기
 - 확인: `curl -s <jojo_practice 함수 URL>/health` → `"models": {"generate": "…haiku…", "review": "us.openai.gpt-5.6-luna"}`. 실험 `--reps 1` 에서 `bedrock: AccessDeniedException` 이면 실행 역할이 그 모델을 막고 있어요
-- 가격(월 예산 계산)은 `core.py` 의 `PRICE`. 표에 없는 모델(지금 GPT-5.6 Luna)은 가장 비싼 값으로 넉넉하게 계산해요
+- 가격(월 예산 계산)은 `core.py` 의 `PRICE`. 표에 없는 모델(지금 Sonnet 5.5 · GPT-5.6 Luna)은 `PRICE_UNKNOWN`(입력 5·출력 25달러)으로 넉넉하게 계산해요
 
 ## 4. 화면에 연결
 GitHub 저장소 → Settings → Secrets and variables → Actions → **Variables** → **`API_URLS`**

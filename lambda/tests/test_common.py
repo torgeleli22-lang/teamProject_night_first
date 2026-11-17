@@ -291,17 +291,17 @@ class Cost(unittest.TestCase):
         self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 5.0)   # 가격표에 없는 모델은 PRICE_UNKNOWN 으로 넉넉하게
         sonnet, haiku = "us.anthropic.claude-sonnet-5-5", "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         self.assertEqual(ai.normalize_model(sonnet), "claude-sonnet-5-5")
-        # 기본 모델: 생성 Sonnet 5.5 · 검토 1 Luna · 검토 2 초급 Haiku / 중급·고급 Sonnet 5.5 · 채점 Sonnet 5.5 (모두 환경 변수로 바꿀 수 있음)
-        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID, core.CHECK_MODEL_ID, core.CHECK_MODEL_ID_HIGH, core.GRADE_MODEL_ID),
-                         (sonnet, "us.openai.gpt-5.6-luna", haiku, sonnet, sonnet))
+        # 기본 모델: 생성 Sonnet 5.5 · 검토 1 초급 Haiku / 중급·고급 Sonnet 5.5 · 검토 2 Luna · 채점 Sonnet 5.5 (모두 환경 변수로 바꿀 수 있음)
+        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID, core.REVIEW_MODEL_ID_HIGH, core.CHECK_MODEL_ID, core.CHECK_MODEL_ID_HIGH, core.GRADE_MODEL_ID),
+                         (sonnet, haiku, sonnet, "us.openai.gpt-5.6-luna", "us.openai.gpt-5.6-luna", sonnet))
 
     def test_models_come_from_environment(self):
         """환경 변수가 있으면 그 모델, 비어 있으면 기본값 (core 를 새 프로세스에서 읽어 확인)"""
         import os, subprocess, sys
-        env = {**os.environ, "MODEL_ID": "m1", "REVIEW_MODEL_ID": "m2", "CHECK_MODEL_ID": "m3", "CHECK_MODEL_ID_HIGH": " ", "GRADE_MODEL_ID": "m5"}
-        code = "import core; print(core.MODEL_ID, core.REVIEW_MODEL_ID, core.CHECK_MODEL_ID, core.CHECK_MODEL_ID_HIGH, core.GRADE_MODEL_ID)"
+        env = {**os.environ, "MODEL_ID": "m1", "REVIEW_MODEL_ID": "m2", "REVIEW_MODEL_ID_HIGH": "m6", "CHECK_MODEL_ID": "m3", "CHECK_MODEL_ID_HIGH": " ", "GRADE_MODEL_ID": "m5"}
+        code = "import core; print(core.MODEL_ID, core.REVIEW_MODEL_ID, core.REVIEW_MODEL_ID_HIGH, core.CHECK_MODEL_ID, core.CHECK_MODEL_ID_HIGH, core.GRADE_MODEL_ID)"
         out = subprocess.run([sys.executable, "-c", code], env=env, cwd=os.path.dirname(core.__file__), capture_output=True, text=True, check=True)
-        self.assertEqual(out.stdout.split(), ["m1", "m2", "m3", "us.anthropic.claude-sonnet-5-5", "m5"])   # 빈 값은 기본값
+        self.assertEqual(out.stdout.split(), ["m1", "m2", "m6", "m3", "us.openai.gpt-5.6-luna", "m5"])   # 빈 값은 기본값
 
 
 class CodeItems(unittest.TestCase):
