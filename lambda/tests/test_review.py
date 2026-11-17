@@ -38,6 +38,18 @@ class Grading(unittest.TestCase):
         self.assertEqual(again["review"]["counts"], out["counts"])
         self.assertNotIn("explanation", str(again["codeItem"]))
 
+    def test_grading_uses_grade_model(self):
+        """채점은 GRADE_MODEL_ID(Haiku) — 생성 모델(MODEL_ID)을 바꿔도 채점은 그대로"""
+        user, seen = {"userId": "me", "member": False, "recentTopics": []}, {}
+        def fake(task, system, prompt, schema, **kw):
+            seen["model"] = kw.get("model")
+            return {"summary": "좋아요", "items": [{"memo": 1, "mark": "correct", "comment": "잘 짚었어요", "lookAt": [2]}], "missingComments": []}
+        with FakeDb(grade) as db, unittest.mock.patch.object(grade, "ai_allowed", lambda req: True), unittest.mock.patch.object(grade, "ask_ai", fake):
+            db.rows[(core.code_pk(ITEM["codeId"]), core.INFO)] = ITEM
+            out = grade.review(request({"codeId": ITEM["codeId"], "memos": [{"start": 2, "end": 3, "text": "하나씩 더해요"}]}, user=user))
+        self.assertEqual((seen["model"], out["byAi"]), (core.GRADE_MODEL_ID, True))
+        self.assertNotEqual(core.GRADE_MODEL_ID, core.MODEL_ID)
+
     def test_memo_outside_code_is_400(self):
         with self.assertRaises(core.ApiError):
             grade.read_memos([grade.MemoIn(start=9, end=9, text="x")], ITEM["code"])

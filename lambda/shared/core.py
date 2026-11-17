@@ -31,9 +31,11 @@ TABLE_NAME = os.environ.get("TABLE_NAME", "jojo_table")            # 모든 데�
 TTL_ATTR = os.environ.get("TTL_ATTR", "jojo_ttl")                  # 테이블의 TTL(자동 삭제) 속성 이름
 DB_REGION = os.environ.get("DB_REGION", "ap-northeast-2")          # DynamoDB 가 있는 곳 (서울)
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")     # Bedrock 모델을 부르는 곳
-MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")        # 생성·부분 수정·채점: Claude Haiku 4.5
+HAIKU_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"                                # Claude Haiku 4.5
+MODEL_ID = os.environ.get("MODEL_ID", "us.anthropic.claude-opus-4-5-20251101-v1:0")         # 생성·부분 수정: Claude Opus 4.5 (실험 중 — 되돌리려면 HAIKU_MODEL_ID)
 REVIEW_MODEL_ID = os.environ.get("REVIEW_MODEL_ID", "us.openai.gpt-5.6-luna")                # 검토(교차 검증): 생성과 다른 회사의 모델 GPT-5.6 Luna
-CHECK_MODEL_ID = os.environ.get("CHECK_MODEL_ID", "").strip() or MODEL_ID                  # 검토 2 (초급·중급): 기본은 Haiku — 검토 1 과 다른 모델
+CHECK_MODEL_ID = os.environ.get("CHECK_MODEL_ID", "").strip() or HAIKU_MODEL_ID            # 검토 2 (초급): Haiku — 검토 1 과 다른 모델
+GRADE_MODEL_ID = os.environ.get("GRADE_MODEL_ID", "").strip() or HAIKU_MODEL_ID            # 채점: Haiku (생성 모델을 바꿔도 채점은 그대로)
 CHECK_MODEL_ID_HIGH = os.environ.get("CHECK_MODEL_ID_HIGH", "").strip() or REVIEW_MODEL_ID    # 검토 2 (중급·고급): 기본은 Luna 를 한 번 더 따로 (생성 기준 4.1)
 AI_MODE = os.environ.get("AI_MODE", "live")                         # live: 실제 AI, mock: 흉내 낸 응답(비용 없음), off: AI 없이
 ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
@@ -73,6 +75,7 @@ MONTHLY_BUDGET_USD = _num("AI_MONTHLY_BUDGET_USD", 10)   # 한 달 AI 예산 (US
 PRICE = {
     "claude-haiku-4-5": {"input": 1, "output": 5},
     "claude-sonnet-4-5": {"input": 3, "output": 15},
+    "claude-opus-4-5": {"input": 5, "output": 25},     # 공개 가격 기준 (Bedrock 가격을 확인하면 고치기)
     # "gpt-5.6-luna": Bedrock 가격을 확인하면 넣기 (없는 동안은 위에서 가장 비싼 값으로 넉넉하게 계산)
 }
 
@@ -244,7 +247,7 @@ def _route_handler(app, fn):
 def health(req):
     """연결 확인 — 모든 함수에 있어요 (콘솔 테스트 이벤트: {"path": "/health", "method": "GET"})"""
     return {"ok": True, "mode": AI_MODE, "ai": ai_enabled(), "languages": list(LANGUAGES),
-            "models": {"generate": MODEL_ID, "review": REVIEW_MODEL_ID, "check": CHECK_MODEL_ID, "checkHigh": CHECK_MODEL_ID_HIGH}}   # 모델 이름은 비밀이 아니에요 (환경 변수가 반영됐는지 확인용)
+            "models": {"generate": MODEL_ID, "review": REVIEW_MODEL_ID, "check": CHECK_MODEL_ID, "checkHigh": CHECK_MODEL_ID_HIGH, "grade": GRADE_MODEL_ID}}   # 모델 이름은 비밀이 아니에요 (환경 변수가 반영됐는지 확인용)
 
 
 HEALTH = {"GET /health": health}

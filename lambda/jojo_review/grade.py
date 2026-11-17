@@ -15,7 +15,7 @@ from typing import Literal
 from pydantic import Field
 
 from ai import AiAnswer, AiUnavailable, ask_ai
-from core import (LANGUAGES, MAX_MEMO_CHARS, MAX_MEMOS, TTL_ATTR, ApiError, Body, ai_allowed, code_pk, get_user, key_units, load_code, logger,
+from core import (GRADE_MODEL_ID, LANGUAGES, MAX_MEMO_CHARS, MAX_MEMOS, TTL_ATTR, ApiError, Body, ai_allowed, code_pk, get_user, key_units, load_code, logger,
                   now_ms, numbered, pad, public_code, put_item, query_all, read_body, time_id, ttl_after)
 
 SYSTEM_PROMPT = """너는 학습자의 '코드 흐름 설명 메모'를 빨간펜으로 채점하는 선생님이야.
@@ -82,7 +82,7 @@ def review(req):
     graded = None
     if memos and ai_allowed(req):
         try:
-            graded = ask_ai("review", SYSTEM_PROMPT, build_prompt(item, memos, missing), GradeAnswer, max_tokens=3000,
+            graded = ask_ai("review", SYSTEM_PROMPT, build_prompt(item, memos, missing), GradeAnswer, max_tokens=3000, model=GRADE_MODEL_ID,
                             mock=lambda: rule_grade(item, memos, missing))
         except AiUnavailable as e:
             logger.info("AI 대신 규칙 채점", extra={"reason": str(e)})
