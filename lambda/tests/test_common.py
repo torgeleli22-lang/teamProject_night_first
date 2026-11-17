@@ -194,9 +194,10 @@ class Cost(unittest.TestCase):
         self.assertAlmostEqual(ai.cost_usd("us.openai.gpt-5.6-luna", 1_000_000, 0), 5.0)   # 가격표에 없으면 가장 비싼 값(Opus 4.5)으로
         self.assertAlmostEqual(ai.cost_usd("us.anthropic.claude-opus-4-5-20251101-v1:0", 1_000_000, 100_000), 7.5)
         self.assertEqual(ai.max_output("us.amazon.nova-pro-v1:0"), 10000)
-        opus = "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), (opus, "us.openai.gpt-5.6-luna"))   # 생성 Opus 4.5 · 검토 GPT-5.6 Luna
-        self.assertEqual((core.CHECK_MODEL_ID, core.GRADE_MODEL_ID), (opus, opus))   # 초급 검토 2 · 채점도 Opus 4.5
+        sonnet = "us.anthropic.claude-sonnet-5-5"
+        self.assertEqual((core.MODEL_ID, core.REVIEW_MODEL_ID), (sonnet, "us.openai.gpt-5.6-luna"))   # 생성 Sonnet 5.5 · 검토 GPT-5.6 Luna
+        self.assertEqual((core.CHECK_MODEL_ID, core.GRADE_MODEL_ID), (sonnet, sonnet))   # 초급 검토 2 · 채점도 Sonnet 5.5
+        self.assertEqual(ai.normalize_model(sonnet), "claude-sonnet-5-5")
 
 
 class CodeItems(unittest.TestCase):

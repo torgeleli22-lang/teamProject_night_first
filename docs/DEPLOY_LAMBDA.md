@@ -9,7 +9,7 @@ Lambda 는 CloudShell 에서 **`npm run deploy`** 로 올려요 (콘솔에 붙�
    ├─→ jojo_auth      /me · /auth · /health   로그인 (Google)
    ├─→ jojo_practice  /practice               코드 만들기: 생성 AI → 규칙 검사 → 검토 AI (최대 10분)
    └─→ jojo_review    /review · /code         채점 · 코드 다시 열기
-         모두 ──→ DynamoDB jojo_table (서울) · practice·review ──→ Bedrock (us-east-1): 생성·초급 검토 2·채점 Claude Opus 4.5 · 검토 GPT-5.6 Luna
+         모두 ──→ DynamoDB jojo_table (서울) · practice·review ──→ Bedrock (us-east-1): 생성·초급 검토 2·채점 Claude Sonnet 5.5 · 검토 GPT-5.6 Luna
 ```
 
 > 비밀 값(`ADMIN_TOKEN`, `GOOGLE_CLIENT_SECRET`)은 Lambda 환경 변수에만 넣고, 문서·채팅·GitHub 에는 쓰지 마세요.
@@ -70,10 +70,10 @@ jojo_practice: 올림 (7개 파일: generate.py, lambda_function.py, levels.py, 
 ### AI 모델 (Bedrock, us-east-1)
 | 단계 | 모델 | 정하는 곳 (기본값은 `lambda/shared/core.py`, 바꾸려면 환경 변수) |
 |---|---|---|
-| 생성 · 부분 수정 | **Claude Opus 4.5** `us.anthropic.claude-opus-4-5-20251101-v1:0` | `MODEL_ID` |
-| 채점 | Claude Opus 4.5 | `GRADE_MODEL_ID` (`jojo_review`, 비우면 `MODEL_ID`) |
+| 생성 · 부분 수정 | **Claude Sonnet 5.5** `us.anthropic.claude-sonnet-5-5` | `MODEL_ID` |
+| 채점 | Claude Sonnet 5.5 | `GRADE_MODEL_ID` (`jojo_review`, 비우면 `MODEL_ID`) |
 | 검토 (교차 검증) | **GPT-5.6 Luna** `us.openai.gpt-5.6-luna` | `REVIEW_MODEL_ID` (`jojo_practice`) |
-| 검토 2 (초급) | Claude Opus 4.5 (검토 1 과 다른 모델) | `CHECK_MODEL_ID` (비우면 `MODEL_ID`) |
+| 검토 2 (초급) | Claude Sonnet 5.5 (검토 1 과 다른 모델) | `CHECK_MODEL_ID` (비우면 `MODEL_ID`) |
 | 검토 2 (중급·고급) | GPT-5.6 Luna 를 한 번 더 따로 | `CHECK_MODEL_ID_HIGH` (비우면 `REVIEW_MODEL_ID`) |
 
 - 두 모델 모두 Bedrock 콘솔(버지니아 북부) → **모델 액세스**에서 '액세스 권한 부여됨'이어야 해요. 키는 필요 없어요 (실행 역할 SafeRole 권한)
@@ -118,5 +118,5 @@ filter message = "AI 응답 형식 불일치" | fields @timestamp, task, issues,
 
 ## 요금 (대략)
 - Lambda·함수 URL·DynamoDB: 이 규모면 무료 한도 안이거나 수십 센트
-- Bedrock (Opus 4.5 · Luna): 코드 하나 십몇 센트 안팎(생성·검토), 채점 1번 몇 센트 — Haiku 를 쓰던 때보다 몇 배 비싸요. 월 예산(`AI_MONTHLY_BUDGET_USD`)을 넘을 호출은 코드가 하지 않아요
+- Bedrock (Sonnet 5.5 · Luna): Haiku 를 쓰던 때보다 비싸요 (가격표에 없는 모델은 가장 비싼 값으로 계산). 월 예산(`AI_MONTHLY_BUDGET_USD`)을 넘을 호출은 코드가 하지 않아요
 - 요청 수 제한: IP·학습자·서비스 전체의 1시간 AI 요청 수 (`lambda/shared/core.py` 1번 `LIMITS`)
