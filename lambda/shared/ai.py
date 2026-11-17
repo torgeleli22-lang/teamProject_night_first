@@ -110,6 +110,37 @@ def _shape(value):
     return type(value).__name__
 
 
+TOOL_CHOICES = ({"tool": {"name": "answer"}}, {"any": {}}, {"auto": {}})   # 앞에서부터: 이 도구로만 → 도구 중 하나로 → 모델이 고름
+AUTO_NOTE = "\n\n결과는 반드시 answer 도구를 한 번 호출해서 제출해. 도구 밖에 글로 답하지 마."
+_quirks = {}   # 모델마다 받아 준 요청 설정 {model: (TOOL_CHOICES 번호, 온도를 빼야 하나)} — 한 번 거절되면 다음부터 바로 그 설정으로
+
+
+def _converse(model, system, prompt, tool, max_tokens, temperature):
+    """Converse 한 번. 모델이 받지 않는 설정(도구 지정 방식·온도)이라고 거절하면 그 설정만 바꿔 다시 (최대 4번, 거절은 비용 없음)"""
+    choice, no_temp = _quirks.get(model, (0, False))
+    for _ in range(4):
+        request = {"modelId": model, "system": [{"text": system + (AUTO_NOTE if "auto" in TOOL_CHOICES[choice] else "")}],
+                   "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                   "inferenceConfig": {"maxTokens": max_tokens, **({"temperature": temperature} if temperature is not None and not no_temp else {})},
+                   "toolConfig": {"tools": [tool], "toolChoice": TOOL_CHOICES[choice]}}
+        try:
+            response = bedrock().converse(**request)
+            _quirks[model] = (choice, no_temp)
+            return response
+        except Exception as e:
+            message = str(e).lower()
+            if (getattr(e, "response", None) or {}).get("Error", {}).get("Code") != "ValidationException":
+                raise
+            if ("tool_choice" in message or "toolchoice" in message or "tool" in message) and choice < len(TOOL_CHOICES) - 1:
+                choice += 1
+            elif "temperature" in message and temperature is not None and not no_temp:
+                no_temp = True
+            else:
+                raise
+            logger.info("모델이 받는 설정으로 다시", extra={"model": model, "toolChoice": list(TOOL_CHOICES[choice]), "noTemperature": no_temp})
+    raise AiUnavailable("bedrock: ValidationException")
+
+
 def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None):
     """Bedrock 을 한 번 부른다 (사용량은 부를 때마다 기록). 모델이 달라도(Claude·OpenAI GPT) 같은 Converse 요청"""
     started = time.time()
@@ -118,19 +149,10 @@ def _ask_live(task, system, prompt, schema, max_tokens, model, temperature=None)
     try:
         tool = {"toolSpec": {"name": "answer", "inputSchema": {"json": tool_schema(schema)},
                              "description": "결과를 이 형식(JSON)으로 제출한다. 모든 칸을 빠짐없이 쓰고, 해당 없는 칸은 null 로 쓴다. 배열·객체를 문자열로 감싸지 않는다."}}
-        request = {"modelId": model, "system": [{"text": system}], "messages": [{"role": "user", "content": [{"text": prompt}]}],
-                   "inferenceConfig": {"maxTokens": max_tokens, **({"temperature": temperature} if temperature is not None else {})},
-                   "toolConfig": {"tools": [tool], "toolChoice": {"tool": {"name": "answer"}}}}
         try:
-            try:
-                response = bedrock().converse(**request)
-            except Exception as e:
-                # 도구를 하나만 고르게 하는 옵션(toolChoice.tool)을 받지 않는 모델이면 '도구 중 하나로 답하기'(any)로 한 번 더 — 도구가 하나라 같은 뜻
-                if (getattr(e, "response", None) or {}).get("Error", {}).get("Code") != "ValidationException" or "tool" not in str(e).lower():
-                    raise
-                logger.info("toolChoice any 로 다시", extra={"model": model})
-                request["toolConfig"]["toolChoice"] = {"any": {}}
-                response = bedrock().converse(**request)
+            response = _converse(model, system, prompt, tool, max_tokens, temperature)
+        except AiUnavailable:
+            raise
         except Exception as e:
             # AWS 가 거절한 요청(권한·모델·한도)은 비용이 없고, 연결이 끊긴 요청은 답을 만들었을 수 있어 최대 사용량으로 기록한다
             if not getattr(e, "response", None):
