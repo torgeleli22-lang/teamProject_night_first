@@ -39,7 +39,7 @@ class Grading(unittest.TestCase):
         self.assertNotIn("explanation", str(again["codeItem"]))
 
     def test_grading_uses_grade_model(self):
-        """채점은 GRADE_MODEL_ID (기본은 MODEL_ID 와 같은 Opus 4.5)"""
+        """채점은 GRADE_MODEL_ID (기본은 MODEL_ID 와 같은 Sonnet 5.5)"""
         user, seen = {"userId": "me", "member": False, "recentTopics": []}, {}
         def fake(task, system, prompt, schema, **kw):
             seen["model"] = kw.get("model")
